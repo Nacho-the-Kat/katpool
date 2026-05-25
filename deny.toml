@@ -1,0 +1,108 @@
+# cargo-deny configuration.
+# Run locally:  cargo deny check
+# Run in CI:    `.github/workflows/ci.yml`  job: deny
+#
+# Schema reference: https://embarkstudios.github.io/cargo-deny/checks/cfg.html
+# Validated against cargo-deny 0.18.x (the version pinned in CI).
+
+[graph]
+# Tier-1 Linux targets only. Restricting this cuts noise from platform-specific
+# transitive deps that are not relevant for our actual build matrix.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+]
+all-features = true
+
+# ---------------------------------------------------------------------------
+# Advisories: block on RustSec issues.
+# ---------------------------------------------------------------------------
+[advisories]
+yanked = "deny"
+unmaintained = "workspace"
+# `unsound` was removed in cargo-deny 0.18 (EmbarkStudios PR #611) — the
+# category is folded into general advisory handling.
+ignore = [
+    # RUSTSEC-2025-0111: tokio-tar incorrectly parses PAX extended headers.
+    # Pulled in via testcontainers > bollard > tokio-tar 0.3.1, which is a
+    # dev-only dep used to spawn ephemeral databases in integration tests.
+    # No production impact (testcontainers is never linked into release
+    # builds). Tracking upstream issue:
+    # https://github.com/testcontainers/testcontainers-rs/issues — re-evaluate
+    # whenever we bump testcontainers, and remove this ignore as soon as a
+    # fixed transitive version is available.
+    { id = "RUSTSEC-2025-0111", reason = "tokio-tar in testcontainers dev-dep only; no production impact" },
+]
+
+# ---------------------------------------------------------------------------
+# Licenses: strict allowlist. Anything outside is rejected.
+# Every entry below is justified by an actually-encountered dep at some point;
+# unused entries warn (visible in cargo deny output) and are cleaned up.
+# ---------------------------------------------------------------------------
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Zlib",
+    # CDLA-Permissive-2.0 used by `webpki-roots`, the root cert bundle pulled in
+    # by hyper-rustls. It's a permissive license maintained by the Linux Foundation.
+    # See https://cdla.dev/permissive-2-0/
+    "CDLA-Permissive-2.0",
+]
+exceptions = []
+
+# ---------------------------------------------------------------------------
+# Bans: forbid known-bad crates; allow controlled duplicates with rationale.
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# Internal path-dependencies in our private workspace crates legitimately use
+# `path = "..."` without a version. This option silences the wildcard error
+# for path/git dev-dependencies and path/git dependencies in private
+# (publish = false) crates while keeping the lint active for public deps.
+# Documented in EmbarkStudios/cargo-deny PR #487.
+allow-wildcard-paths = true
+highlight = "simplest-path"
+workspace-default-features = "warn"
+external-default-features = "warn"
+
+# Forbidden crates (with rationale + redirect).
+deny = [
+    { crate = "openssl", reason = "Use rustls — fewer CVEs, no system OpenSSL", use-instead = "rustls" },
+    { crate = "openssl-sys", reason = "See openssl above", use-instead = "rustls" },
+    { crate = "native-tls", reason = "Pulls system TLS; we standardise on rustls", use-instead = "rustls" },
+    { crate = "git2", reason = "Pulls libssh2/libgit2; supply-chain risk for build hosts", use-instead = "gix" },
+    { crate = "actix-web", reason = "We standardise on axum + tower", use-instead = "axum" },
+]
+
+# Explicit duplicate-version exceptions. Each entry must have a reason and is
+# revisited any time we bump the relevant transitive dep.
+skip = []
+
+# `skip-tree` skips the whole transitive subtree under a crate. We use this
+# only for subsystems that vendor multiple versions of common utility crates
+# (rand/hashbrown/foldhash/etc) at their seams; this is preferable to a long
+# explicit `skip` list because it auto-tracks upstream's own version pinning.
+skip-tree = [
+    { crate = "sqlx", reason = "sqlx 0.8 ecosystem pins hashbrown/foldhash/hashlink at versions that differ from newer subsystems" },
+    { crate = "opentelemetry_sdk", reason = "opentelemetry stack still on thiserror 1.x while our app uses thiserror 2.x" },
+    { crate = "opentelemetry-otlp", reason = "see opentelemetry_sdk above" },
+    { crate = "tracing-opentelemetry", reason = "see opentelemetry_sdk above" },
+    { crate = "rand", reason = "rand 0.8/0.9 split during transition; safe utility lib" },
+    { crate = "config", reason = "config crate pulls older toml versions" },
+]
+
+# ---------------------------------------------------------------------------
+# Sources: only crates.io. Git sources require explicit ADR + allowlist.
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = []
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
