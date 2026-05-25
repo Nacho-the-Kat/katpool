@@ -1,0 +1,94 @@
+[package]
+# Forked one-time from kaspanet/rusty-kaspa v1.1.0 — see UPSTREAM.md.
+# Crate name kept identical to upstream so the binary that downstream
+# tooling (miners, dashboards) expects continues to resolve.
+name = "kaspa-stratum-bridge"
+description = "Kaspa Stratum Bridge - Mining connectivity for Kaspa Stratum miners (katpool fork)"
+rust-version.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+# Upstream had `include.workspace = true`; our workspace.package has no
+# `include` field because `publish = false` makes it irrelevant.
+
+[dependencies]
+# Kaspa dependencies - using workspace versions
+kaspa-consensus-core = { workspace = true }
+kaspa-hashes = { workspace = true }
+kaspa-pow = { workspace = true }
+kaspa-addresses = { workspace = true }
+kaspa-rpc-core = { workspace = true }
+kaspa-rpc-service = { workspace = true }
+kaspa-grpc-client = { workspace = true }
+kaspa-notify = { workspace = true }
+kaspa-core = { workspace = true }
+kaspa-utils = { workspace = true }
+kaspad = { workspace = true }
+dirs = { workspace = true }
+
+# External dependencies - using workspace versions where available
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+num-traits = { workspace = true }
+async-trait = { workspace = true }
+once_cell = { workspace = true }
+futures-util = { workspace = true }
+parking_lot = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true }
+
+# CLI
+clap = { workspace = true, features = ["derive"] }
+
+# External dependencies not in workspace (add specific versions)
+anyhow = "1.0"
+tracing = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+blake2 = "0.10"
+num-bigint = "0.4"
+prometheus = "0.13"
+yaml-rust = "0.4"
+faster-hex = "0.1"
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Console"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[bin]]
+name = "stratum-bridge"
+path = "src/main.rs"
+
+# Lint policy intentionally diverges from the workspace defaults.
+#
+# Our workspace runs a strict clippy profile (pedantic + nursery + many
+# explicit denies + `-D warnings` in CI) that's appropriate for code we
+# author. The vendored bridge code was written to the upstream
+# rusty-kaspa lint policy, which is deliberately minimal — see
+# `Cargo.toml [workspace.lints]` in rusty-kaspa v1.1.0. Forcing our
+# strict set onto upstream code produces ~963 warnings/errors that we
+# don't actually want to fix (they'd be 963 lines of intrusive
+# divergence from upstream).
+#
+# This crate therefore opts out of the workspace lints and applies the
+# same minimal set rusty-kaspa uses. Our own intrusive patches in
+# UPSTREAM.md are still reviewable as normal PRs — the lint relaxation
+# applies to the upstream code, not to our hooks.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+empty_docs = "allow"
+uninlined_format_args = "allow"
+
+[lints.rustdoc]
+# Same reasoning as [lints.rust].warnings above: don't enforce our
+# rustdoc strictness on vendored upstream code.
+all = "allow"
