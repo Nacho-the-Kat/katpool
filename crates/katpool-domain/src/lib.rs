@@ -7,9 +7,9 @@
 //! belong here.
 //!
 //! Types added in subsequent phases:
-//! - Phase 1: [`WalletAddress`], [`WorkerName`], [`ShareDifficulty`],
-//!   [`BlockTemplate`], [`Sompi`], [`NachoUnits`], [`IdempotencyKey`].
-//! - Phase 3: [`ShareWindow`], reward allocation types.
+//! - Phase 1: `WalletAddress`, `WorkerName`, `ShareDifficulty`,
+//!   `BlockTemplate`, `Sompi`, `NachoUnits`, `IdempotencyKey`.
+//! - Phase 3: `ShareWindow`, reward allocation types.
 //! - Phase 4: storage-mass-related types live in `katpool-storagemass`, not here.
 
 #![cfg_attr(not(test), warn(missing_docs))]

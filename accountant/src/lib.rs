@@ -1,6 +1,6 @@
 //! Pool accountant.
 //!
-//! Subscribes to the bridge's [`PoolEvent`] broadcast channel and converts
+//! Subscribes to the bridge's `PoolEvent` broadcast channel and converts
 //! share + block events into per-miner balance deltas using deterministic
 //! PROP allocation:
 //!

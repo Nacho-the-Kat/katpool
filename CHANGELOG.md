@@ -27,5 +27,23 @@ backward-incompatible ways at every minor bump.
   `README.md`, dual `LICENSE-MIT` and `LICENSE-APACHE`, root `CODEOWNERS`,
   pull-request and issue templates, `.github/branch-protection.md`
   documenting the required `main`-branch settings).
+- Phase 0 milestone 4: documentation scaffold. Authoritative
+  references for `architecture.md`, `threat-model.md` (STRIDE),
+  `custody.md` (sops/age + OS-level isolation operational design),
+  `kips.md` (KIP-9 and KIP-13 implementation reference), `capacity-plan.md`
+  (measured NetCup specs, budgets, sizing triggers), `onboarding.md`,
+  `cutover-plan.md`. Nine ADRs (MADR 4.0 format) cover every Phase 0
+  architectural decision. Eleven runbooks cover the named incident
+  classes with a uniform Symptom / Confirm / Diagnose / Remediate /
+  Verify / Post-incident structure.
+- Phase 0 milestone 5: CI workflows. `ci.yml` runs fmt, clippy
+  (`-D warnings`), test, cargo-deny, cargo-audit, cargo doc, and
+  cargo-tarpaulin coverage on every push and PR. `release.yml`
+  builds a static musl binary, generates a CycloneDX SBOM via
+  syft, signs both via cosign keyless (OIDC), and publishes a
+  draft GitHub release. `security.yml` runs weekly cargo-audit,
+  cargo-deny, and Trivy filesystem scans. Every third-party
+  action is pinned by full commit SHA with a trailing comment
+  naming the human-readable tag.
 
 [Unreleased]: https://github.com/Nacho-the-Kat/katpool/commits/main

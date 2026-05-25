@@ -2,7 +2,7 @@
 //!
 //! Owns the schema (via sqlx migrations under `migrations/`) and the
 //! repository traits that the service crates depend on. Every public
-//! function returns a typed error from [`DbError`]; the service crates
+//! function returns a typed error from `DbError`; the service crates
 //! never see raw `sqlx::Error`.
 //!
 //! Real schema and repos land in Phase 2.
