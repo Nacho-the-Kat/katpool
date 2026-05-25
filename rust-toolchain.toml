@@ -1,0 +1,12 @@
+# Pinned toolchain for reproducible builds.
+# Bumped only by explicit ADR; rationale and procedure documented in
+# docs/decisions/0001-rust-first.md and docs/onboarding.md.
+#
+# 1.88.0 chosen because rusty-kaspa v1.1.0 declares rust-version = "1.88.0"
+# in its workspace Cargo.toml; staying on the same MSRV avoids subtle
+# differences when we vendor and extend their bridge crate.
+[toolchain]
+channel = "1.88"
+components = ["rustfmt", "clippy", "rust-docs", "rust-src"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
+profile = "minimal"

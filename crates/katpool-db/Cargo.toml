@@ -1,0 +1,25 @@
+[package]
+name = "katpool-db"
+description = "PostgreSQL access layer: sqlx-managed migrations, repository traits, distributed-lock primitive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+katpool-domain = { path = "../katpool-domain" }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }

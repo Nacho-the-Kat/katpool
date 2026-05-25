@@ -1,0 +1,30 @@
+[package]
+name = "accountant"
+description = "Pool accountant: subscribes to share + block events, computes PROP allocations, writes balances"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+katpool-domain = { path = "../crates/katpool-domain" }
+katpool-db = { path = "../crates/katpool-db" }
+katpool-metrics = { path = "../crates/katpool-metrics" }
+katpool-idempotency = { path = "../crates/katpool-idempotency" }
+katpool-telemetry = { path = "../crates/katpool-telemetry" }
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+testcontainers = { workspace = true }

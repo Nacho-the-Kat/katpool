@@ -1,0 +1,22 @@
+[package]
+name = "katpool-idempotency"
+description = "Idempotency keys and distributed-lock primitives, backed by katpool-db"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+katpool-domain = { path = "../katpool-domain" }
+katpool-db = { path = "../katpool-db" }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

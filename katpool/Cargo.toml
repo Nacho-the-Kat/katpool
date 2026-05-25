@@ -1,0 +1,35 @@
+[package]
+name = "katpool"
+description = "Main wiring binary that composes the bridge, accountant, payout engines, and API into a single process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "katpool"
+path = "src/main.rs"
+
+[dependencies]
+katpool-config = { path = "../crates/katpool-config" }
+katpool-domain = { path = "../crates/katpool-domain" }
+katpool-db = { path = "../crates/katpool-db" }
+katpool-metrics = { path = "../crates/katpool-metrics" }
+katpool-telemetry = { path = "../crates/katpool-telemetry" }
+katpool-secrets = { path = "../crates/katpool-secrets" }
+accountant = { path = "../accountant" }
+payout-kas = { path = "../payout-kas" }
+payout-krc20 = { path = "../payout-krc20" }
+api = { path = "../api" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
