@@ -100,26 +100,11 @@ jobs:
           command: check
           arguments: --all-features
 
-  audit:
-    name: audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      # rustsec/audit-check opens issues on findings; needs issues:write
-      issues: write
-      checks: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: cargo-audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # tokio-tar PAX-header advisory in testcontainers dev dep only.
-          # See deny.toml [advisories.ignore] for the matching ignore +
-          # rationale + tracking note.
-          ignore: RUSTSEC-2025-0111
+  # cargo-audit is intentionally not a separate job: cargo-deny check
+  # (above) already runs the advisories check against the same RustSec
+  # database with our deny.toml ignore list. Running both is redundant
+  # and the rustsec/audit-check action installs cargo-audit's latest
+  # which races ahead of our pinned MSRV. Single source of truth = deny.
 
   doc:
     name: doc

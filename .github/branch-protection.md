@@ -32,11 +32,8 @@ job names in `.github/workflows/`:
 - [x] `ci / clippy`
 - [x] `ci / test`
 - [x] `ci / deny`
-- [x] `ci / audit`
 - [x] `ci / doc`
 - [x] `ci / coverage`
-- [x] `security / trivy`
-- [x] `security / grype`
 
 Settings:
 
