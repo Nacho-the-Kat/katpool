@@ -3111,6 +3111,7 @@ dependencies = [
  "kaspa-core",
  "kaspa-grpc-client",
  "kaspa-hashes",
+ "kaspa-math",
  "kaspa-notify",
  "kaspa-pow",
  "kaspa-rpc-core",

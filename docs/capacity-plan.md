@@ -25,15 +25,32 @@ These are budgets, not measurements; measurements land in §4.
 
 | Component | RAM | vCPU | Disk |
 |---|---|---|---|
-| Embedded `kaspad` | 4–6 GiB | 2–4 | ~50–100 GiB (consensus state + UTXO index + pruned chain) |
+| Embedded `kaspad` (mainnet, future) | 4–6 GiB | 2–4 | ~50–100 GiB (consensus state + UTXO index + pruned chain) |
 | `katpool` pool process (bridge + accountant + payout-kas + payout-krc20 + api) | ~500 MB | 1–2 | < 1 GiB binary + caches |
 | PostgreSQL 17 | 4 GiB shared_buffers + work_mem | 2 | 100 GiB initially (today's pool DB is far less); grows with `block_details` and share history |
 | `vmagent` + log shipping | 200 MB | 0.2 | minimal |
 | nginx + acme.sh + helpers | 100 MB | < 0.1 | minimal |
 | pgBackRest workspace | 500 MB | < 0.1 | up to 200 GiB local WAL spool |
-| **Total** | **~10–12 GiB** | **~6–8** | **~200 GiB** |
+| `katpool-kaspad-tn10` (Phase 1 acceptance, see [ADR-0010](decisions/0010-multi-tenant-kaspad-on-pool-vps.md)) | ~5 GiB | 1–2 | ~30 GiB (testnet-10 chain is much smaller than mainnet) |
+| **Total** | **~15–17 GiB** | **~7–10** | **~230 GiB** |
 | **Available** | 94 GiB | 20 | 1500 GiB free |
-| **Headroom** | **~8×** | **~3×** | **~7×** |
+| **Headroom** | **~6×** | **~2.5×** | **~6×** |
+
+During the build period (Phase 1–6) the **legacy production stack
+remains running** in addition to the budgets above: the existing
+dockerized mainnet kaspad (~10 GiB RAM, 128 GB live data dir),
+katpool-app (legacy stratum), katpool-monitor, katpool-payment,
+katpool-db, victoria-metrics, prometheus, nginx. Empirically that
+adds ~14 GiB RAM and ~150 GB disk. Combined load with both stacks
+co-resident:
+
+- RAM: ~30 GiB used of 94 GiB → 32% used
+- Disk: ~370 GiB used of 3 TB → 12% used
+- CPU: well below 50% utilisation in measured production
+
+Cutover (Phase 7) decommissions the legacy stack and reclaims its
+footprint; capacity will drop back to the ~16 GiB / ~230 GB profile
+shown above.
 
 Headroom is intentional. We can comfortably run a long-lived **shadow
 pool** instance alongside production for the entire build period (not
