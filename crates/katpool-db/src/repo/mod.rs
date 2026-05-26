@@ -55,7 +55,14 @@
 
 pub mod audit;
 pub mod block;
+pub mod connection_session;
+pub mod nacho_rebate;
+pub mod payout;
+pub mod pool_meta;
 pub mod share;
+pub mod share_allocation;
+pub mod share_window;
+pub mod treasury;
 pub mod wallet;
 pub mod worker;
 
