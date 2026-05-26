@@ -112,6 +112,69 @@ impl AntiAbuseConfig {
         }
         Ok(Self { max_conn_per_ip, max_tracked_ips, frame_rate_per_sec, frame_burst })
     }
+
+    /// Pure environment-style lookup. Reads values via the supplied
+    /// `lookup` closure (which production callers wire to
+    /// [`std::env::var`]). Missing values fall back to
+    /// [`AntiAbuseConfig::production`]; malformed values produce a
+    /// [`AntiAbuseConfigError::InvalidEnvValue`].
+    ///
+    /// Recognised keys:
+    ///
+    /// | Key | Type | Default |
+    /// |---|---|---|
+    /// | `KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP` | `u32` | `256` |
+    /// | `KATPOOL_ANTI_ABUSE_MAX_TRACKED_IPS` | `usize` | `65_536` |
+    /// | `KATPOOL_ANTI_ABUSE_FRAME_RATE_PER_SEC` | `f64` | `100.0` |
+    /// | `KATPOOL_ANTI_ABUSE_FRAME_BURST` | `f64` | `200.0` |
+    pub fn from_lookup<F>(lookup: F) -> Result<Self, AntiAbuseConfigError>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let defaults = Self::production();
+        let max_conn_per_ip = parse_env_u32(&lookup, "KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP", defaults.max_conn_per_ip)?;
+        let max_tracked_ips = parse_env_usize(&lookup, "KATPOOL_ANTI_ABUSE_MAX_TRACKED_IPS", defaults.max_tracked_ips)?;
+        let frame_rate_per_sec = parse_env_f64(&lookup, "KATPOOL_ANTI_ABUSE_FRAME_RATE_PER_SEC", defaults.frame_rate_per_sec)?;
+        let frame_burst = parse_env_f64(&lookup, "KATPOOL_ANTI_ABUSE_FRAME_BURST", defaults.frame_burst)?;
+        Self::new(max_conn_per_ip, max_tracked_ips, frame_rate_per_sec, frame_burst)
+    }
+
+    /// Convenience wrapper that reads from the real process
+    /// environment. Calls [`AntiAbuseConfig::from_lookup`] with
+    /// `std::env::var`-backed lookup.
+    pub fn from_env() -> Result<Self, AntiAbuseConfigError> {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
+}
+
+fn parse_env_u32<F>(lookup: &F, key: &str, default: u32) -> Result<u32, AntiAbuseConfigError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    match lookup(key) {
+        Some(raw) => raw.parse::<u32>().map_err(|_| AntiAbuseConfigError::InvalidEnvValue { key: key.to_owned(), value: raw }),
+        None => Ok(default),
+    }
+}
+
+fn parse_env_usize<F>(lookup: &F, key: &str, default: usize) -> Result<usize, AntiAbuseConfigError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    match lookup(key) {
+        Some(raw) => raw.parse::<usize>().map_err(|_| AntiAbuseConfigError::InvalidEnvValue { key: key.to_owned(), value: raw }),
+        None => Ok(default),
+    }
+}
+
+fn parse_env_f64<F>(lookup: &F, key: &str, default: f64) -> Result<f64, AntiAbuseConfigError>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    match lookup(key) {
+        Some(raw) => raw.parse::<f64>().map_err(|_| AntiAbuseConfigError::InvalidEnvValue { key: key.to_owned(), value: raw }),
+        None => Ok(default),
+    }
 }
 
 impl Default for AntiAbuseConfig {
@@ -140,6 +203,15 @@ pub enum AntiAbuseConfigError {
     InvalidFrameBurst {
         /// Offending value.
         value: f64,
+    },
+    /// Environment variable was present but could not be parsed as the
+    /// expected numeric type.
+    #[error("environment variable `{key}` has invalid value `{value}`")]
+    InvalidEnvValue {
+        /// Name of the offending variable.
+        key: String,
+        /// Raw string value as read from the environment.
+        value: String,
     },
 }
 
@@ -462,5 +534,58 @@ mod tests {
         let eta = refill_eta(AntiAbuseConfig::production());
         assert!(eta.as_secs_f64() > 0.0);
         assert!(eta.as_secs_f64().is_finite());
+    }
+
+    fn empty_lookup(_: &str) -> Option<String> {
+        None
+    }
+
+    #[test]
+    fn from_lookup_empty_yields_production_defaults() {
+        let cfg = AntiAbuseConfig::from_lookup(empty_lookup).expect("defaults are valid");
+        assert_eq!(cfg, AntiAbuseConfig::production());
+    }
+
+    #[test]
+    fn from_lookup_applies_every_known_key() {
+        let map = std::collections::HashMap::from([
+            ("KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP", "8"),
+            ("KATPOOL_ANTI_ABUSE_MAX_TRACKED_IPS", "32"),
+            ("KATPOOL_ANTI_ABUSE_FRAME_RATE_PER_SEC", "12.5"),
+            ("KATPOOL_ANTI_ABUSE_FRAME_BURST", "30"),
+        ]);
+        let cfg = AntiAbuseConfig::from_lookup(|k| map.get(k).map(|s| (*s).to_owned())).expect("valid");
+        assert_eq!(cfg.max_conn_per_ip, 8);
+        assert_eq!(cfg.max_tracked_ips, 32);
+        assert!((cfg.frame_rate_per_sec - 12.5).abs() < f64::EPSILON);
+        assert!((cfg.frame_burst - 30.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn from_lookup_rejects_unparseable_value() {
+        let result = AntiAbuseConfig::from_lookup(|k| {
+            if k == "KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP" { Some("not-a-number".to_owned()) } else { None }
+        });
+        match result {
+            Err(AntiAbuseConfigError::InvalidEnvValue { key, value }) => {
+                assert_eq!(key, "KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP");
+                assert_eq!(value, "not-a-number");
+            }
+            other => panic!("expected InvalidEnvValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn from_lookup_runs_validation_on_parsed_values() {
+        let result =
+            AntiAbuseConfig::from_lookup(|k| if k == "KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP" { Some("0".to_owned()) } else { None });
+        assert_eq!(result, Err(AntiAbuseConfigError::ZeroConnCap));
+    }
+
+    #[test]
+    fn from_lookup_rejects_non_finite_rate() {
+        let result =
+            AntiAbuseConfig::from_lookup(|k| if k == "KATPOOL_ANTI_ABUSE_FRAME_RATE_PER_SEC" { Some("inf".to_owned()) } else { None });
+        assert!(matches!(result, Err(AntiAbuseConfigError::InvalidFrameRate { .. })));
     }
 }

@@ -17,6 +17,7 @@ stop when the corresponding alert fires.
 | [09](09-deploy-and-rollback.md) | Deploy and rollback | — (manual procedure) |
 | [10](10-automated-dr-validation.md) | Automated DR validation | `DRValidatorMissed`, `DRValidatorFailed` |
 | [11](11-key-rotation.md) | Treasury key rotation | — (scheduled drill or compromise response) |
+| [12](12-testnet10-smoke.md) | testnet-10 bridge smoke | — (release-candidate acceptance) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

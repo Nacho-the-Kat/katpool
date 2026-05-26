@@ -52,6 +52,31 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 1 milestone 4 (Phase 1 close-out): operator-tunable
+  anti-abuse limits via `KATPOOL_ANTI_ABUSE_*` environment variables
+  (`MAX_CONN_PER_IP`, `MAX_TRACKED_IPS`, `FRAME_RATE_PER_SEC`,
+  `FRAME_BURST`). Malformed values are fail-fast at start-up so an
+  operator typo never silently degrades protection. Pure
+  closure-injected `AntiAbuseConfig::from_lookup` with five
+  deterministic tests plus an `AntiAbuseConfig::from_env` thin
+  wrapper. Hardened systemd unit at `ops/systemd/katpool-bridge.service`
+  passing `systemd-analyze security` with exposure level **1.1 OK**
+  (NoNewPrivileges, ProtectSystem=strict, ProtectHome,
+  ProtectKernel{Tunables,Modules,Logs}, ProtectControlGroups,
+  PrivateTmp/Devices/Mounts, LockPersonality,
+  MemoryDenyWriteExecute, RestrictAddressFamilies, RestrictNamespaces,
+  CapabilityBoundingSet emptied, SystemCallFilter `@system-service`
+  minus `@privileged @resources @raw-io @reboot @swap @cpu-emulation`,
+  RemoveIPC, RestrictSUIDSGID, ProtectProc=invisible, ProcSubset=pid,
+  IPAddressDeny=any with explicit allow-list drop-in). Two
+  `.conf.example` drop-ins for anti-abuse and network tuning,
+  idempotent `install.sh`. New testnet-10 acceptance smoke harness
+  at `scripts/testnet10-smoke.sh` driving a 60-second CPU-miner run
+  and reporting boot time, shares accepted, and blocks mined as JSON
+  against the documented Phase 1 thresholds. New
+  `docs/runbooks/12-testnet10-smoke.md` runbook and
+  `docs/phase-1-acceptance.md` rollup tracking the 14 Phase 1
+  acceptance items.
 - Phase 1 milestone 3: per-IP anti-abuse layer for the stratum
   listener. New `bridge::anti_abuse::AntiAbuseGuard` enforces a
   connection cap per source IP, a tracked-IP cap (memory safety
