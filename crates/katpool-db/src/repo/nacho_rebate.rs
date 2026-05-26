@@ -113,6 +113,41 @@ where
     .map_err(DbError::from)
 }
 
+/// Idempotent **set** of a wallet's accrued amount. Distinct from
+/// [`accrue`] (additive): callers like the legacy importer need to
+/// replace the stored value on every re-run, not add to it.
+///
+/// Preserves any existing `paid_sompi` value if the row already
+/// exists; resets it to 0 on first insert. Returns the row after
+/// the upsert.
+pub async fn set_accrual<'e, E>(
+    executor: E,
+    wallet_id: WalletId,
+    accrued_sompi: i64,
+) -> Result<NachoRebate, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    if accrued_sompi < 0 {
+        return Err(DbError::Config {
+            message: format!("set_accrual value must be non-negative, got {accrued_sompi}"),
+        });
+    }
+    sqlx::query_as::<_, NachoRebate>(
+        "INSERT INTO nacho_rebate_accrual (wallet_id, accrued_sompi)
+         VALUES ($1, $2)
+         ON CONFLICT (wallet_id) DO UPDATE
+            SET accrued_sompi = EXCLUDED.accrued_sompi,
+                updated_at = now()
+         RETURNING wallet_id, accrued_sompi, paid_sompi, updated_at",
+    )
+    .bind(wallet_id.0)
+    .bind(accrued_sompi)
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// List wallets with pending NACHO rebate balance, descending.
 /// Drives the NACHO payout cycle's recipient selection.
 pub async fn list_pending<'e, E: PgExecutor<'e>>(

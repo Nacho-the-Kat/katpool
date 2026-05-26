@@ -52,6 +52,40 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 2 milestone 3 (importer, part B): the four remaining
+  legacy-table transforms wired into `katpool-import-legacy`,
+  plus the cross-table reconciliation pass:
+    - `transform::balances` — `miners_balance.nacho_rebate_kas` →
+      `nacho_rebate_accrual.accrued_sompi` via the new
+      `repo::nacho_rebate::set_accrual` (idempotent SET, distinct
+      from the additive `accrue`).
+    - `transform::payments` — `payments` rows grouped by
+      `transaction_hash` → one `payout_cycle (kind=kas)` per group,
+      one `payout` per recipient, idempotent on
+      `UNIQUE (cycle_id, wallet_id)`. Synthetic `daa_start=0,
+      daa_end=1` because legacy never tracked DAA range; cycles
+      identified by `idempotency_key = 'kas-legacy-<tx_hash>'`.
+      Cycle is brought to `settled` status atomically.
+    - `transform::nacho_payments` — same shape as `payments` but
+      with `kind=krc20_nacho` and `idempotency_key =
+      'krc20-legacy-<tx_hash>'`. Stores `krc20_commit_hash` +
+      `krc20_reveal_hash` (the legacy `transaction_hash` doubles
+      as both since legacy didn't split commit/reveal).
+    - `transform::krc20` — `pending_krc20_transfers` → singleton
+      `payout_cycle` per row + `payout` + `krc20_pending_transfer`,
+      with full status mapping (`PENDING`/`COMPLETED`/`FAILED` →
+      `pending`/`completed`/`failed`). Failed rows carry a
+      `failure_reason` for forensics.
+    - `reconcile` — post-import cross-aggregate pass: row counts,
+      monetary totals, per-status counts. Importer exits with code
+      `2` on any mismatch so CI / runbook scripts can detect
+      reconciliation failure without parsing stdout. Reconcile
+      runs even in `--dry-run` mode (read-only).
+    - Operator runbook ([14-legacy-importer.md](docs/runbooks/14-legacy-importer.md))
+      documenting the dry-run / cutover / restart flows.
+    - 16 new integration tests against ephemeral Postgres
+      (testcontainers), in addition to the 6 existing
+      `import_blocks` tests; full importer suite now 26 tests.
 - Phase 2 milestone 3 (importer, part A): new
   `katpool-import-legacy` binary crate at the workspace top level
   that walks the previous-generation pool's `katpool_mainnet`

@@ -19,6 +19,7 @@ stop when the corresponding alert fires.
 | [11](11-key-rotation.md) | Treasury key rotation | — (scheduled drill or compromise response) |
 | [12](12-testnet10-smoke.md) | testnet-10 bridge smoke | — (release-candidate acceptance) |
 | [13](13-kaspad-tn10-bootstrap.md) | kaspad-tn10 install / upgrade / recover | — (ops procedure) |
+| [14](14-legacy-importer.md) | Legacy-database importer (cutover) | — (one-shot cutover procedure) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

@@ -22,7 +22,10 @@ use std::time::Instant;
 use anyhow::Context;
 use clap::Parser;
 use katpool_db::{PoolConfig, build_pool};
-use katpool_import_legacy::transform::{TransformStats, blocks};
+use katpool_import_legacy::reconcile;
+use katpool_import_legacy::transform::{
+    TransformStats, balances, blocks, krc20, nacho_payments, payments,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -90,41 +93,81 @@ async fn main() -> Result<(), anyhow::Error> {
     let started = Instant::now();
     let mut totals = TransformStats::default();
 
-    // ----- blocks (PR A) ---------------------------------------------
+    // Order matters: blocks first (creates wallet + worker rows that
+    // every later transform reads via `wallet::ensure`), then the
+    // independent transforms. Each is idempotent so a partial-failure
+    // restart re-runs from the beginning safely.
     let blocks_stats = blocks::run(&source, &target, args.dry_run)
         .await
         .context("transform: block_details")?;
     info!(transform = "blocks", stats = %blocks_stats, "blocks transform done");
     totals = totals.add(&blocks_stats);
 
-    // ----- (future PR B): miners_balance, payments, nacho_payments,
-    // pending_krc20_transfers transforms wired here. -----------------
+    let balances_stats = balances::run(&source, &target, args.dry_run)
+        .await
+        .context("transform: miners_balance")?;
+    info!(transform = "balances", stats = %balances_stats, "balances transform done");
+    totals = totals.add(&balances_stats);
+
+    let payments_stats = payments::run(&source, &target, args.dry_run)
+        .await
+        .context("transform: payments")?;
+    info!(transform = "payments", stats = %payments_stats, "payments transform done");
+    totals = totals.add(&payments_stats);
+
+    let nacho_stats = nacho_payments::run(&source, &target, args.dry_run)
+        .await
+        .context("transform: nacho_payments")?;
+    info!(transform = "nacho_payments", stats = %nacho_stats, "nacho_payments transform done");
+    totals = totals.add(&nacho_stats);
+
+    let krc20_stats = krc20::run(&source, &target, args.dry_run)
+        .await
+        .context("transform: pending_krc20_transfers")?;
+    info!(transform = "krc20", stats = %krc20_stats, "krc20 transform done");
+    totals = totals.add(&krc20_stats);
+
+    // Reconciliation pass is read-only and runs even in dry-run
+    // mode (so operators see "this is what cutover would prove").
+    let reconcile_report = reconcile::run(&source, &target)
+        .await
+        .context("reconcile")?;
 
     let elapsed = started.elapsed();
-    info!(elapsed_secs = elapsed.as_secs_f64(), totals = %totals, "importer complete");
+    info!(elapsed_secs = elapsed.as_secs_f64(), totals = %totals, all_passed = reconcile_report.all_passed, "importer complete");
 
     let report = serde_json::json!({
         "version": katpool_import_legacy::VERSION,
         "dry_run": args.dry_run,
         "elapsed_secs": elapsed.as_secs_f64(),
         "transforms": {
-            "blocks": {
-                "read": blocks_stats.read,
-                "inserted": blocks_stats.inserted,
-                "skipped": blocks_stats.skipped,
-                "rejected": blocks_stats.rejected,
-            },
+            "blocks":          stats_to_json(&blocks_stats),
+            "balances":        stats_to_json(&balances_stats),
+            "payments":        stats_to_json(&payments_stats),
+            "nacho_payments":  stats_to_json(&nacho_stats),
+            "krc20":           stats_to_json(&krc20_stats),
         },
-        "totals": {
-            "read": totals.read,
-            "inserted": totals.inserted,
-            "skipped": totals.skipped,
-            "rejected": totals.rejected,
-        },
+        "totals": stats_to_json(&totals),
+        "reconcile": reconcile_report,
     });
     println!("{report}");
 
+    if !reconcile_report.all_passed {
+        // Non-zero exit so a CI / runbook script catches the
+        // mismatch even if it doesn't parse stdout.
+        std::process::exit(2);
+    }
+
     Ok(())
+}
+
+fn stats_to_json(s: &TransformStats) -> serde_json::Value {
+    serde_json::json!({
+        "read": s.read,
+        "inserted": s.inserted,
+        "skipped": s.skipped,
+        "rejected": s.rejected,
+    })
 }
 
 fn init_tracing() {
