@@ -17,7 +17,9 @@ members = [
     "payout-krc20",
     "api",
     "katpool",
-    # bridge/ is added in Phase 1 when we vendor the rusty-kaspa fork.
+    # Forked stratum bridge (one-time vendor from rusty-kaspa v1.1.0;
+    # see bridge/UPSTREAM.md and ADR-0002).
+    "bridge",
 ]
 
 # Workspace-wide package metadata; individual crates inherit via `package.{...}.workspace = true`.
@@ -34,6 +36,32 @@ publish = false
 # Workspace-wide dependency versions. Individual crates reference via `serde = { workspace = true }`.
 # Versions are bumped only via PR with a passing `cargo deny check` run.
 [workspace.dependencies]
+# rusty-kaspa v1.1.0 (commit e97070f) — git-sourced because none of these
+# crates are published to crates.io as of 2026-05-25. The bridge/ crate
+# uses them; see bridge/UPSTREAM.md for the vendoring rationale.
+# deny.toml [sources] allow-git permits this single repo.
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-hashes         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-pow            = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-addresses      = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-rpc-core       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-rpc-service    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-grpc-client    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-notify         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-core           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-utils          = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspad               = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+
+# Additional bridge support crates (crates.io)
+dirs = "5"
+num-traits = "0.2"
+once_cell = "1"
+futures-util = "0.3"
+parking_lot = "0.12"
+regex = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+clap = { version = "4", features = ["derive"] }
+
 # Async runtime + utilities
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
@@ -80,6 +108,17 @@ proptest = "1"
 testcontainers = "0.24"
 mockito = "1"
 insta = { version = "1", features = ["yaml", "json"] }
+
+# ---------------------------------------------------------------------------
+# Workspace-wide [patch.crates-io] entries.
+# ---------------------------------------------------------------------------
+# `serde_nested_with` was yanked across every published version on crates.io
+# but is still used by `kaspa-rpc-core` v1.1.0 from rusty-kaspa. The upstream
+# GitHub repo (murar8/serde_nested_with) still hosts the working source at
+# tag 0.2.6, so we route through there. Re-evaluate any time rusty-kaspa
+# bumps off this dependency.
+[patch.crates-io]
+serde_nested_with = { git = "https://github.com/murar8/serde_nested_with", tag = "0.2.6" }
 
 [profile.release]
 lto = "fat"

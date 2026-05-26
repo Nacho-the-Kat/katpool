@@ -12,7 +12,9 @@ the bug — please open a PR.
 | Tool | Version | Why |
 |---|---|---|
 | `rustup` | latest | Toolchain manager. The repo pins Rust 1.88 via [`rust-toolchain.toml`](../rust-toolchain.toml). |
-| `git` | 2.30+ | `git subtree` is used to vendor the `bridge/` fork. |
+| `git` | 2.30+ | Standard git ops; SSH commit signing requires Git 2.34+. |
+| `protoc` (protobuf-compiler) | 3.21+ | The bridge's transitive deps include `kaspa-grpc-core` which compiles `.proto` files via `prost-build` at build time. Without `protoc`, `cargo check -p kaspa-stratum-bridge` fails. Install via `apt-get install protobuf-compiler` (Debian) or `brew install protobuf` (macOS). |
+| `clang` + `libclang-dev` | 14+ | The bridge transitively depends on `librocksdb-sys`, which builds the RocksDB C++ library and binds via clang. Install via `apt-get install build-essential clang libclang-dev libstdc++-12-dev`. |
 | `docker` | 20.10+ | Ephemeral PostgreSQL for integration tests via testcontainers; local kaspad testnet-10. |
 | `psql` (client) | 16+ | Manual DB inspection during development. |
 | `cargo-deny` | 0.18+ | Supply-chain gates locally. `cargo install --locked cargo-deny --version '^0.18'` |
