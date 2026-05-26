@@ -152,7 +152,25 @@ pub async fn listen_and_serve<T: KaspaApiTrait + Send + Sync + 'static>(
     // per IP, 100 frames/sec sustained, 200 burst). Operators tune
     // these via `AntiAbuseConfig` injected at start-up; the Phase 1
     // close-out milestone surfaces them through a CLI/env layer.
-    let anti_abuse = std::sync::Arc::new(crate::anti_abuse::AntiAbuseGuard::new(crate::anti_abuse::AntiAbuseConfig::production()));
+    // Per-IP anti-abuse guard. Defaults are production-grade (256
+    // conns per IP, 100 frames/sec sustained, 200 burst). Operators
+    // override individual limits via the `KATPOOL_ANTI_ABUSE_*`
+    // environment variables (see `AntiAbuseConfig::from_lookup` docs
+    // and `ops/systemd/katpool-bridge.conf.d/anti-abuse.conf.example`).
+    // Malformed env values fail-fast at start-up rather than silently
+    // falling back to defaults, so an operator typo never ships into
+    // production unnoticed.
+    let anti_abuse_config = crate::anti_abuse::AntiAbuseConfig::from_env()
+        .map_err(|e| Box::new(std::io::Error::other(format!("anti-abuse config: {e}"))) as Box<dyn std::error::Error + Send + Sync>)?;
+    tracing::info!(
+        "[{}] anti-abuse: max_conn_per_ip={}, max_tracked_ips={}, frame_rate_per_sec={}, frame_burst={}",
+        config.instance_id,
+        anti_abuse_config.max_conn_per_ip,
+        anti_abuse_config.max_tracked_ips,
+        anti_abuse_config.frame_rate_per_sec,
+        anti_abuse_config.frame_burst
+    );
+    let anti_abuse = std::sync::Arc::new(crate::anti_abuse::AntiAbuseGuard::new(anti_abuse_config));
 
     let listener_config = StratumListenerConfig {
         port: config.stratum_port.clone(),
