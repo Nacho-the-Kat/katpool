@@ -52,6 +52,45 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 2 milestone 3 (prep): seven additional repository aggregates
+  to complete the schema's query surface ahead of the legacy
+  importer. New modules:
+    - `repo::pool_meta` — single-row key/value store; `get` /
+      idempotent `set` with `updated_at` refresh
+    - `repo::connection_session` — per-stratum-TCP-session record;
+      `open` / `bind_worker` / `close` / `increment_counters` /
+      `list_for_worker`. Maps the postgres `INET` column to
+      `String` at the Rust boundary (no `ipnetwork` dep)
+    - `repo::treasury` — periodic hot-wallet snapshots; `insert`
+      / `latest` / `list_recent`
+    - `repo::share_window` — pre-aggregated PROP rollups for
+      closed DAA windows; `insert` / `find` / `list_for_window`
+      with the schema's UNIQUE-window guard
+    - `repo::share_allocation` — per-wallet PROP allocation of a
+      block's matured reward. `NewAllocation::is_balanced` does
+      client-side rejection of unbalanced rows before the DB
+      CHECK fires; `insert_batch` flattens per-wallet vectors
+      via `UNNEST` in one round-trip; aggregate
+      `pending_balance_for_wallet` for the accountant's
+      planned-payout query
+    - `repo::nacho_rebate` — running NACHO rebate balance per
+      wallet; `accrue` / `mark_paid` / `list_pending` with
+      `paid <= accrued` enforcement and a `pending_sompi()`
+      derived getter
+    - `repo::payout` — payout-cycle / payout / KRC-20 transfer
+      triple. Idempotency-key composer
+      (`kas-<daa_start>-<daa_end>`, `krc20-<daa_start>-<daa_end>`),
+      cycle lifecycle helpers (broadcasting / partially-settled /
+      settled / failed), per-recipient payout lifecycle
+      (submit-with-tx-hash / confirmed / failed-with-reason),
+      KRC-20 commit/reveal state machine
+  Twenty-five new integration tests in
+  `crates/katpool-db/tests/repo_payouts.rs` cover idempotency,
+  lifecycle transitions, DB-CHECK enforcement (NACHO `paid > accrued`,
+  share-allocation balance equation, payout uniqueness), the
+  `NewAllocation` client-side balance guard, and the
+  `(idempotency_key)` format stability. Workspace test count grows
+  from 108 to 133.
 - Phase 2 milestone 2: repository layer over the schema introduced
   in milestone 1. Free functions on `impl sqlx::PgExecutor<'_>`
   organised by aggregate — works with both `&PgPool` for
