@@ -98,6 +98,9 @@ PostgreSQL setup) are in [`docs/onboarding.md`](docs/onboarding.md).
 | [`docs/capacity-plan.md`](docs/capacity-plan.md) | Sizing and capacity baselines |
 | [`docs/cutover-plan.md`](docs/cutover-plan.md) | Production cutover and rollback procedure |
 | [`docs/onboarding.md`](docs/onboarding.md) | Developer onboarding |
+| [`docs/dev-workflow.md`](docs/dev-workflow.md) | Local-gate ritual, stacked-PR rules, label conventions |
+| [`docs/db-schema.md`](docs/db-schema.md) | Database schema reference (operator-facing) |
+| [`docs/phase-1-acceptance.md`](docs/phase-1-acceptance.md) | Phase 1 acceptance matrix and run history |
 | [`docs/decisions/`](docs/decisions/) | Architectural Decision Records (MADR 4.0) |
 | [`docs/runbooks/`](docs/runbooks/) | One runbook per incident class |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability disclosure policy |

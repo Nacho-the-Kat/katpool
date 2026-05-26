@@ -57,10 +57,18 @@ Watch for the IBD progression. Expect:
 1. `Starting IBD with headers proof with peer X` within ~10 s of
    start.
 2. `Processed N blocks and N headers in the last 10.00s` ticking
-   every 10 s through IBD. Wall time on this VPS: ~30–60 minutes
-   from genesis to current tip.
+   every 10 s through IBD. **Wall time on this VPS: ~4 hours from
+   cold start to live tip** (measured 2026-05-26; ~22:16 EDT start,
+   ~02:25 EDT first relay block). Earlier drafts of this runbook
+   estimated 30–60 minutes — that turned out to be the headers-proof
+   phase only; the UTXO-validation phase that follows takes the bulk
+   of the time. Plan IBD windows accordingly (e.g. start it overnight
+   if you need the node available for a morning operation).
 3. `Accepted N blocks ... via relay` once IBD finishes and the node
-   is following live tip.
+   is following live tip. Steady-state arrival rate is 10–15 blocks
+   per ~1 s batch, matching the post-Crescendo 10 BPS network rate.
+   This is the discriminator the smoke script's pre-flight check
+   keys on (see [runbook 12](12-testnet10-smoke.md)).
 
 ### Upgrade to a newer upstream release (e.g. `tn10-toc3`)
 
