@@ -17,7 +17,14 @@ it locally costs ~20s on a warm cache and avoids the round-trip cost
 of a failed CI job.
 
 ```bash
-# 1. Formatting (instant)
+# 1. Formatting (instant) — `--check`, not write.
+#    NEVER chain `cargo fmt --all && cargo fmt --all -- --check` in
+#    a pre-commit script: the write step silently fixes things and
+#    the check step then passes, hiding the fact that the working
+#    tree has uncommitted formatting changes. If --check fails,
+#    fix manually (or run `cargo fmt --all` as a separate step,
+#    review the diff, then `git add` it) — never let a write-mode
+#    run happen during the gate.
 cargo fmt --all --check
 
 # 2. Lints with strict warnings (warm: ~10s, cold: ~3min)

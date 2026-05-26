@@ -27,7 +27,11 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
-#[command(author, version, about = "Migrate the legacy katpool_mainnet database into the new schema.")]
+#[command(
+    author,
+    version,
+    about = "Migrate the legacy katpool_mainnet database into the new schema."
+)]
 struct Args {
     /// Connection string for the legacy source database
     /// (`postgres://user:pass@host:port/katpool_mainnet`).
@@ -77,7 +81,9 @@ async fn main() -> Result<(), anyhow::Error> {
     let target = build_pool(&target_cfg).await.context("connect target")?;
 
     if !args.skip_migrate {
-        katpool_db::migrate::run(&target).await.context("apply target migrations")?;
+        katpool_db::migrate::run(&target)
+            .await
+            .context("apply target migrations")?;
         info!("target migrations applied");
     }
 
@@ -123,5 +129,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).with_writer(std::io::stderr).with_target(true).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(true)
+        .init();
 }
