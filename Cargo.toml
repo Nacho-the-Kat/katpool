@@ -20,6 +20,10 @@ members = [
     # Forked stratum bridge (one-time vendor from rusty-kaspa v1.1.0;
     # see bridge/UPSTREAM.md and ADR-0002).
     "bridge",
+    # Phase 2 milestone 3 cutover tool: one-shot legacy-database
+    # importer. Top-level rather than `crates/` because it's a
+    # binary, not a library.
+    "katpool-import-legacy",
 ]
 # The cargo-fuzz harness under bridge/fuzz/ is intentionally a
 # separate, non-workspace crate. cargo-fuzz requires its own
@@ -65,7 +69,7 @@ once_cell = "1"
 futures-util = "0.3"
 parking_lot = "0.12"
 regex = "1"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 clap = { version = "4", features = ["derive"] }
 
 # Async runtime + utilities

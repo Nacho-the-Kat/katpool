@@ -1,0 +1,37 @@
+[package]
+name = "katpool-import-legacy"
+description = "One-shot legacy-database importer that copies the previous-generation katpool's PostgreSQL state into the new schema, idempotent and reconciliation-reporting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+katpool-db = { path = "../crates/katpool-db" }
+katpool-domain = { path = "../crates/katpool-domain" }
+
+sqlx = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+anyhow = "1.0"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+
+[[bin]]
+name = "katpool-import-legacy"
+path = "src/main.rs"
