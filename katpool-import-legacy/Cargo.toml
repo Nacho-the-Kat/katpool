@@ -25,8 +25,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+num-traits = "0.2"
 
 [dev-dependencies]
 testcontainers = { workspace = true }

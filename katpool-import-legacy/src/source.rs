@@ -52,8 +52,7 @@ pub struct LegacyBlockDetail {
     pub miner_reward: i64,
 }
 
-/// One row of legacy `miners_balance` (used by PR B).
-#[allow(dead_code)]
+/// One row of legacy `miners_balance`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LegacyMinersBalance {
     pub id: String,
@@ -63,8 +62,7 @@ pub struct LegacyMinersBalance {
     pub nacho_rebate_kas: Option<sqlx::types::BigDecimal>,
 }
 
-/// One row of legacy `payments` (used by PR B).
-#[allow(dead_code)]
+/// One row of legacy `payments`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LegacyPayment {
     pub id: i32,
@@ -74,8 +72,7 @@ pub struct LegacyPayment {
     pub transaction_hash: String,
 }
 
-/// One row of legacy `nacho_payments` (used by PR B).
-#[allow(dead_code)]
+/// One row of legacy `nacho_payments`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LegacyNachoPayment {
     pub id: i32,
@@ -85,8 +82,7 @@ pub struct LegacyNachoPayment {
     pub transaction_hash: String,
 }
 
-/// One row of legacy `pending_krc20_transfers` (used by PR B).
-#[allow(dead_code)]
+/// One row of legacy `pending_krc20_transfers`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct LegacyKrc20Transfer {
     pub id: i32,
@@ -100,13 +96,98 @@ pub struct LegacyKrc20Transfer {
     pub timestamp: Option<NaiveDateTime>,
 }
 
-/// Total number of `block_details` rows in the source DB. Used for
-/// progress reporting + reconciliation.
+/// Total number of `block_details` rows. Used for progress
+/// reporting + reconciliation.
 pub async fn count_block_details(pool: &sqlx::PgPool) -> Result<i64, sqlx::Error> {
     let n: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM block_details")
         .fetch_one(pool)
         .await?;
     Ok(n)
+}
+
+/// Row count for any of the other legacy tables the importer reads.
+pub async fn count(pool: &sqlx::PgPool, table: &str) -> Result<i64, sqlx::Error> {
+    // table is a small whitelisted set of static strings from
+    // importer code; safe to interpolate.
+    let sql = format!("SELECT count(*)::bigint FROM {table}");
+    let n: i64 = sqlx::query_scalar(&sql).fetch_one(pool).await?;
+    Ok(n)
+}
+
+/// Sum a numeric column on any legacy table. Used by the
+/// reconciliation phase to cross-check `sum(legacy) == sum(new)`.
+pub async fn sum_bigint(
+    pool: &sqlx::PgPool,
+    table: &str,
+    column: &str,
+) -> Result<i64, sqlx::Error> {
+    let sql = format!("SELECT COALESCE(sum({column}), 0)::bigint FROM {table}");
+    let n: i64 = sqlx::query_scalar(&sql).fetch_one(pool).await?;
+    Ok(n)
+}
+
+/// Sum a `numeric` column on any legacy table.
+///
+/// Returns a `BigDecimal` for columns typed `numeric` (where the
+/// value may exceed `i64::MAX` in theory; in practice it never
+/// has, but we preserve precision through the reconciliation step
+/// regardless).
+pub async fn sum_numeric(
+    pool: &sqlx::PgPool,
+    table: &str,
+    column: &str,
+) -> Result<sqlx::types::BigDecimal, sqlx::Error> {
+    let sql = format!("SELECT COALESCE(sum({column}), 0)::numeric FROM {table}");
+    let n: sqlx::types::BigDecimal = sqlx::query_scalar(&sql).fetch_one(pool).await?;
+    Ok(n)
+}
+
+/// Stream every `miners_balance` row in one shot (table is small —
+/// ~2,600 rows in production).
+pub async fn fetch_miners_balance(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<LegacyMinersBalance>, sqlx::Error> {
+    sqlx::query_as::<_, LegacyMinersBalance>(
+        "SELECT id, miner_id, wallet, balance, nacho_rebate_kas FROM miners_balance",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Stream every `payments` row, ordered by `id` for a deterministic
+/// import. Used by the payments transform.
+pub async fn fetch_payments(pool: &sqlx::PgPool) -> Result<Vec<LegacyPayment>, sqlx::Error> {
+    sqlx::query_as::<_, LegacyPayment>(
+        "SELECT id, wallet_address, amount, timestamp, transaction_hash
+           FROM payments ORDER BY id ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Stream every `nacho_payments` row, ordered by `id`.
+pub async fn fetch_nacho_payments(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<LegacyNachoPayment>, sqlx::Error> {
+    sqlx::query_as::<_, LegacyNachoPayment>(
+        "SELECT id, wallet_address, nacho_amount, timestamp, transaction_hash
+           FROM nacho_payments ORDER BY id ASC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Stream every `pending_krc20_transfers` row, ordered by `id`.
+pub async fn fetch_krc20_transfers(
+    pool: &sqlx::PgPool,
+) -> Result<Vec<LegacyKrc20Transfer>, sqlx::Error> {
+    sqlx::query_as::<_, LegacyKrc20Transfer>(
+        "SELECT id, first_txn_id, sompi_to_miner, nacho_amount, address, p2sh_address,
+                nacho_transfer_status::text, db_entry_status::text, timestamp
+           FROM pending_krc20_transfers ORDER BY id ASC",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Stream a page of `block_details` ordered by `timestamp ASC`. The

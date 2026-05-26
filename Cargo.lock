@@ -3431,6 +3431,7 @@ dependencies = [
  "clap 4.5.51",
  "katpool-db",
  "katpool-domain",
+ "num-traits",
  "serde",
  "serde_json",
  "sqlx",

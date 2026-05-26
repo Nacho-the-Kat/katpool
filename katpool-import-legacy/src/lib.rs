@@ -32,5 +32,6 @@
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod reconcile;
 pub mod source;
 pub mod transform;

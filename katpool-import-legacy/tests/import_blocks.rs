@@ -17,77 +17,12 @@
 
 use katpool_db::repo::block::BlockStatus;
 use katpool_db::repo::{block, wallet, worker};
-use katpool_db::{PoolConfig, build_pool, migrate};
 use katpool_domain::{BlockHash, WalletAddress, WorkerName};
-use testcontainers::ContainerAsync;
-use testcontainers::runners::AsyncRunner;
-use testcontainers_modules::postgres::Postgres;
 
 use katpool_import_legacy::transform::blocks;
 
-/// A complete fresh environment: one container, two databases, both
-/// pools ready. The legacy schema is loaded; the target schema is
-/// migrated. Keep `_ctr` alive for the duration of the test.
-struct Env {
-    legacy: sqlx::PgPool,
-    target: sqlx::PgPool,
-    _ctr: ContainerAsync<Postgres>,
-}
-
-async fn setup() -> Env {
-    // Run the postgres container with init SQL that creates both
-    // databases up front. The testcontainers-modules Postgres image
-    // executes anything in /docker-entrypoint-initdb.d/ on first
-    // start, so a single `with_init_sql` call wires both schemas
-    // into the right places before we even connect.
-    let init_sql = format!(
-        "CREATE DATABASE legacy_test;\n\
-         CREATE DATABASE target_test;\n\
-         \\c legacy_test\n\
-         {legacy_schema}",
-        legacy_schema = include_str!("fixtures/legacy_schema.sql"),
-    );
-
-    let container = Postgres::default()
-        .with_init_sql(init_sql.into_bytes())
-        .start()
-        .await
-        .expect("start postgres");
-    let port = container.get_host_port_ipv4(5432).await.expect("port");
-
-    let legacy_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/legacy_test");
-    let target_url = format!("postgres://postgres:postgres@127.0.0.1:{port}/target_test");
-
-    let legacy = build_pool(&PoolConfig {
-        url: legacy_url,
-        min_connections: 1,
-        max_connections: 4,
-        application_name: "katpool-import-legacy[test-legacy]".to_owned(),
-        ..PoolConfig::production("placeholder".to_owned())
-    })
-    .await
-    .expect("legacy pool");
-
-    let target = build_pool(&PoolConfig {
-        url: target_url,
-        min_connections: 1,
-        max_connections: 4,
-        application_name: "katpool-import-legacy[test-target]".to_owned(),
-        ..PoolConfig::production("placeholder".to_owned())
-    })
-    .await
-    .expect("target pool");
-
-    migrate::run(&target)
-        .await
-        .expect("apply target migrations");
-
-    Env {
-        legacy,
-        target,
-        _ctr: container,
-    }
-}
+mod common;
+use common::{MINER_A, MINER_B, POOL_ADDR, VALID_HASH_A, VALID_HASH_B, VALID_HASH_C, setup};
 
 /// Seed a single `block_details` row.
 #[allow(clippy::too_many_arguments)]
@@ -115,15 +50,6 @@ async fn seed_block(
     .await
     .expect("seed block_details row");
 }
-
-/// Sample data shaped like the production legacy DB on this VPS.
-const POOL_ADDR: &str = "kaspa:qz4j8mu269z8llgcczmfukm9fan2fq822kzxu4cfukd5fqrhxpsv2zhs9jxnp";
-const MINER_A: &str = "kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq";
-const MINER_B: &str = "kaspa:qzncghl8re9h35hp6n5wyxtslhevj6462qkrkqzlfkrs2mpkfkc5xe9s3tga7";
-
-const VALID_HASH_A: &str = "cc2b1da2c931f4164c03b2066cfb3178303567a161e8a393def62c91e824138a";
-const VALID_HASH_B: &str = "9685f4347b9aa2e100bf489f7979a30746d90823d5bfb62309513b1e23ab2274";
-const VALID_HASH_C: &str = "c123f9a7e37b7404062aa84239013bc733286b23319d4296bbc20b764ee8782a";
 
 #[tokio::test]
 async fn blocks_importer_inserts_then_idempotent_skips() {

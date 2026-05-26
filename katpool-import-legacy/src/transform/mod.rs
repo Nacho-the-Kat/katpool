@@ -7,7 +7,11 @@
 
 use std::fmt;
 
+pub mod balances;
 pub mod blocks;
+pub mod krc20;
+pub mod nacho_payments;
+pub mod payments;
 
 /// Per-transform reconciliation tally. Each transform module emits
 /// one of these; the importer sums them into the final report.
