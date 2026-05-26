@@ -18,13 +18,17 @@ katpool-db = { path = "../crates/katpool-db" }
 katpool-metrics = { path = "../crates/katpool-metrics" }
 katpool-idempotency = { path = "../crates/katpool-idempotency" }
 katpool-telemetry = { path = "../crates/katpool-telemetry" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time"] }
+sqlx = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+prometheus = { workspace = true }
+anyhow = "1.0"
 
 [dev-dependencies]
 proptest = { workspace = true }
 testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }

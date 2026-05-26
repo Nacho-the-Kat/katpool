@@ -1,18 +1,71 @@
 //! Pool accountant.
 //!
-//! Subscribes to the bridge's `PoolEvent` broadcast channel and converts
-//! share + block events into per-miner balance deltas using deterministic
-//! PROP allocation:
+//! Subscribes to the bridge's `PoolEvent` broadcast channel and
+//! mirrors share + block lifecycle events into the new schema.
+//! Holds the pool's fee model (operator-tunable topline fee +
+//! tier-aware NACHO rebate) and the wallet-tier classifier — both
+//! of which are scaffolded in this milestone (M1) but only
+//! exercised end-to-end by the M3 allocation engine.
 //!
-//! - On `BlockAccepted`: `miner_reward * 9925/10000` proportionally allocated
-//!   to shares with `daa_score <= block.daa_score`. Pool fee `75/10000` is
-//!   retained, then split 33/67 into `nacho_rebate_kas` accrual and pool
-//!   revenue.
-//! - Fallback: time-weighted estimated difficulty if no shares.
+//! ## Architecture
 //!
-//! Real implementation lands in Phase 3.
+//! ```text
+//!         ┌───────────────┐
+//!         │  bridge       │ tokio::sync::broadcast::Sender<PoolEvent>
+//!         └──────┬────────┘
+//!                │
+//!         ┌──────▼─────────────────────────┐
+//!         │  accountant::EventConsumer     │ (this crate)
+//!         │   • ShareCredited  → share     │
+//!         │   • BlockFound     → block     │
+//!         │   • BlockAccepted  → transition│
+//!         └──────┬─────────────────────────┘
+//!                │
+//!         ┌──────▼────────┐
+//!         │  katpool-db   │ wallet / worker / share / block repo
+//!         └───────────────┘
+//! ```
+//!
+//! ## Phase 3 milestone surface (this PR is M1)
+//!
+//! - **M1** (this PR): scaffold + share/block event ingestion +
+//!   `FeeConfig` + `WalletTier` + `TierClassifier` trait with the
+//!   `StaticTierClassifier` stub.
+//! - **M2**: share-window aggregation; reject persistence; per-
+//!   miner stats surface.
+//! - **M3**: PROP allocation engine + cached HTTP
+//!   `KasplexTierClassifier` + schema migration adding
+//!   `applied_topline_bps`, `applied_rebate_bps`, `applied_tier`
+//!   to `share_allocation`.
+//! - **M4**: 24h-production-log replay determinism harness.
+//!
+//! See [`docs/decisions/0012-fee-model-and-tier-classification.md`](../../docs/decisions/0012-fee-model-and-tier-classification.md)
+//! for the architectural decision record.
 
 #![cfg_attr(not(test), warn(missing_docs))]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing,
+        clippy::float_arithmetic,
+    )
+)]
+
+pub mod config;
+pub mod consumer;
+pub mod error;
+pub mod metrics;
+pub mod tier;
+
+pub use config::{
+    DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig, STANDARD_REBATE_BPS, WalletTier,
+};
+pub use consumer::{ConsumerConfig, EventConsumer};
+pub use error::{AccountantError, EventError};
+pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
 
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
