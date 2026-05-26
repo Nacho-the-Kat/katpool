@@ -1,5 +1,7 @@
+use crate::anti_abuse::AntiAbuseGuard;
 use crate::jsonrpc_event::JsonRpcEvent;
 use crate::log_colors::LogColors;
+use crate::prom::{record_anti_abuse_connection_reject, record_anti_abuse_frame_limited, record_malformed_frame};
 use crate::stratum_context::StratumContext;
 use hex;
 use std::collections::HashMap;
@@ -41,6 +43,13 @@ pub struct StratumListenerConfig {
     pub on_connect: Arc<dyn Fn(Arc<StratumContext>) + Send + Sync>,
     pub on_disconnect: Arc<dyn Fn(Arc<StratumContext>) + Send + Sync>,
     pub port: String,
+    /// Per-IP anti-abuse guard. Used for connection-cap and frame-rate
+    /// checks on inbound traffic; pass [`AntiAbuseGuard::new`] with
+    /// [`crate::anti_abuse::AntiAbuseConfig::unlimited`] to disable.
+    pub anti_abuse: Arc<AntiAbuseGuard>,
+    /// Identifier used for Prometheus metric labels emitted by the
+    /// anti-abuse layer.
+    pub instance_id: String,
 }
 
 /// Stratum TCP listener
@@ -103,6 +112,25 @@ impl StratumListener {
                             let remote_addr = addr.ip().to_string();
                             let remote_port = addr.port();
 
+                            // Anti-abuse: per-IP connection cap + tracked-IP cap.
+                            // Reject before allocating any per-connection state.
+                            let ticket = match self.config.anti_abuse.try_accept_connection(addr.ip(), std::time::Instant::now()) {
+                                Ok(t) => t,
+                                Err(rejection) => {
+                                    record_anti_abuse_connection_reject(
+                                        &self.config.instance_id,
+                                        &remote_addr,
+                                        rejection.metric_label(),
+                                    );
+                                    warn!(
+                                        "[CONNECTION] anti-abuse rejected accept from {}:{} ({})",
+                                        remote_addr, remote_port, rejection
+                                    );
+                                    drop(stream);
+                                    continue;
+                                }
+                            };
+
                             debug!("[CONNECTION] new client connecting - {}:{}", remote_addr, remote_port);
                             debug!("[CONNECTION] ===== TCP CONNECTION ESTABLISHED =====");
                             debug!("[CONNECTION] Remote address: {}:{}", remote_addr, remote_port);
@@ -136,9 +164,17 @@ impl StratumListener {
                             debug!("[CONNECTION] Spawning client listener task for {}:{}", remote_addr_for_log, remote_port_for_log);
                             let ctx_clone = ctx.clone();
                             let handler_map = self.config.handler_map.clone();
+                            let anti_abuse = Arc::clone(&self.config.anti_abuse);
+                            let instance_id = self.config.instance_id.clone();
                             tokio::spawn(async move {
                                 debug!("[CONNECTION] Client listener task started for {}:{}", ctx_clone.remote_addr, ctx_clone.remote_port);
-                                Self::spawn_client_listener(ctx_clone, &handler_map).await;
+                                // `ticket` is dropped at task end (and on every
+                                // early `break` below), releasing this IP's
+                                // connection slot. The `move` here is what
+                                // ties the per-IP slot lifetime to the
+                                // connection's listener task.
+                                Self::spawn_client_listener(ctx_clone, &handler_map, &anti_abuse, &instance_id).await;
+                                drop(ticket);
                                 debug!("[CONNECTION] Client listener task ended");
                             });
                             debug!("[CONNECTION] ===== CONNECTION SETUP COMPLETE FOR {}:{} =====", remote_addr_for_log, remote_port_for_log);
@@ -161,9 +197,33 @@ impl StratumListener {
         Ok(())
     }
 
-    /// Spawn a client listener task
-    async fn spawn_client_listener(ctx: Arc<StratumContext>, handler_map: &Arc<HashMap<String, EventHandler>>) {
+    /// Spawn a client listener task.
+    ///
+    /// Anti-abuse hooks:
+    /// - Every successfully-parsed frame is gated by the per-IP token
+    ///   bucket before dispatch; rate-limited frames disconnect the
+    ///   client and bump the `ks_anti_abuse_frame_rate_limited_total`
+    ///   counter.
+    /// - JSON-RPC parse failures bump `ks_anti_abuse_malformed_frame_total`.
+    async fn spawn_client_listener(
+        ctx: Arc<StratumContext>,
+        handler_map: &Arc<HashMap<String, EventHandler>>,
+        anti_abuse: &Arc<AntiAbuseGuard>,
+        instance_id: &str,
+    ) {
         debug!("[CLIENT_LISTENER] Starting client listener for {}:{}", ctx.remote_addr, ctx.remote_port);
+        // Parse remote_addr once. The string was produced by
+        // `SocketAddr::ip().to_string()` at accept time, so a parse
+        // failure here would mean catastrophic upstream corruption;
+        // treat it conservatively by dropping the connection.
+        let remote_ip: std::net::IpAddr = match ctx.remote_addr.parse() {
+            Ok(ip) => ip,
+            Err(e) => {
+                error!("[CLIENT_LISTENER] could not re-parse remote_addr `{}` as IpAddr ({e}); disconnecting", ctx.remote_addr);
+                ctx.disconnect();
+                return;
+            }
+        };
         let mut buffer = [0u8; 1024];
         let mut line_buffer = String::new();
         let mut first_message = true;
@@ -498,6 +558,18 @@ impl StratumListener {
                                 hex::encode(line.as_bytes())
                             );
 
+                            // Anti-abuse: token-bucket frame rate limit.
+                            // Counted against the IP regardless of whether
+                            // the payload is well-formed; an attacker who
+                            // floods malformed frames burns the same bucket
+                            // as one who floods valid frames.
+                            if !anti_abuse.try_consume_frame(remote_ip, std::time::Instant::now()) {
+                                record_anti_abuse_frame_limited(instance_id, &ctx.remote_addr);
+                                warn!("[CONNECTION] anti-abuse rate-limited {}:{}; disconnecting", ctx.remote_addr, ctx.remote_port);
+                                ctx.disconnect();
+                                break;
+                            }
+
                             match crate::jsonrpc_event::unmarshal_event(&line) {
                                 Ok(event) => {
                                     let params_str = serde_json::to_string(&event.params).unwrap_or_else(|_| "[]".to_string());
@@ -661,6 +733,7 @@ impl StratumListener {
                                     }
                                 }
                                 Err(e) => {
+                                    record_malformed_frame(instance_id, &ctx.remote_addr);
                                     error!("{}", LogColors::asic_to_bridge("========================================"));
                                     error!("{}", LogColors::error("===== ERROR PARSING MESSAGE ===== "));
                                     error!("{}", LogColors::asic_to_bridge("========================================"));

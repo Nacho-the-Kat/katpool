@@ -216,9 +216,22 @@ pub async fn handle_authorize(
         }
     }
 
-    // Clean and validate wallet address
+    // Clean and validate wallet address.
+    // Anti-abuse: a failed bech32 check disconnects the client and
+    // bumps `ks_anti_abuse_bad_address_total{ip}`. This stops scanners
+    // and misconfigured miners from indefinitely tying up handler
+    // threads with retry storms.
     tracing::debug!("[AUTHORIZE] Cleaning wallet address: '{}'", address);
-    address = clean_wallet(&address)?;
+    address = match clean_wallet(&address) {
+        Ok(a) => a,
+        Err(e) => {
+            let instance_id = client_handler.as_ref().map_or("", |h| h.instance_id());
+            crate::prom::record_bad_address(instance_id, &ctx.remote_addr);
+            tracing::warn!("[AUTHORIZE] bad address from {}:{} ({e}); closing connection", ctx.remote_addr, ctx.remote_port);
+            ctx.disconnect();
+            return Err(e);
+        }
+    };
     tracing::debug!("[AUTHORIZE] Cleaned address: '{}'", address);
 
     tracing::debug!("[AUTHORIZE] Final parsed - address: '{}', worker: '{}', canxium: '{}'", address, worker_name, canxium_address);

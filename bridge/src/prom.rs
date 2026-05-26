@@ -62,6 +62,25 @@ static NETWORK_BLOCK_COUNT: OnceLock<Gauge> = OnceLock::new();
 /// Worker start time gauge (Unix timestamp in seconds)
 static WORKER_START_TIME: OnceLock<GaugeVec> = OnceLock::new();
 
+/// Anti-abuse: incoming TCP-accepts rejected by the per-IP guard.
+static ANTI_ABUSE_REJECT_COUNTER: OnceLock<CounterVec> = OnceLock::new();
+
+/// Anti-abuse: per-IP frames refused by the token bucket rate limiter.
+static ANTI_ABUSE_FRAME_LIMIT_COUNTER: OnceLock<CounterVec> = OnceLock::new();
+
+/// Anti-abuse: stratum frames that failed JSON-RPC parsing.
+static MALFORMED_FRAME_COUNTER: OnceLock<CounterVec> = OnceLock::new();
+
+/// Anti-abuse: addresses that failed the `kaspa-addresses` bech32 check
+/// during `mining.authorize`, after which the connection is closed.
+static BAD_ADDRESS_COUNTER: OnceLock<CounterVec> = OnceLock::new();
+
+/// Labels for anti-abuse counters that include a rejection reason.
+const ANTI_ABUSE_REASON_LABELS: &[&str] = &["instance", "ip", "reason"];
+
+/// Labels for anti-abuse counters that just identify an instance + IP.
+const ANTI_ABUSE_IP_LABELS: &[&str] = &["instance", "ip"];
+
 /// Initialize Prometheus metrics
 pub fn init_metrics() {
     SHARE_COUNTER.get_or_init(|| {
@@ -134,6 +153,70 @@ pub fn init_metrics() {
     WORKER_START_TIME.get_or_init(|| {
         register_gauge_vec!("ks_worker_start_time", "Unix timestamp (seconds) when worker first connected", WORKER_LABELS).unwrap()
     });
+
+    ANTI_ABUSE_REJECT_COUNTER.get_or_init(|| {
+        register_counter_vec!(
+            "ks_anti_abuse_connection_reject_total",
+            "Incoming TCP connections rejected by the per-IP anti-abuse guard, labelled by reason",
+            ANTI_ABUSE_REASON_LABELS
+        )
+        .unwrap()
+    });
+
+    ANTI_ABUSE_FRAME_LIMIT_COUNTER.get_or_init(|| {
+        register_counter_vec!(
+            "ks_anti_abuse_frame_rate_limited_total",
+            "Per-IP stratum frames refused by the token-bucket rate limiter",
+            ANTI_ABUSE_IP_LABELS
+        )
+        .unwrap()
+    });
+
+    MALFORMED_FRAME_COUNTER.get_or_init(|| {
+        register_counter_vec!(
+            "ks_anti_abuse_malformed_frame_total",
+            "Stratum frames that failed JSON-RPC parsing",
+            ANTI_ABUSE_IP_LABELS
+        )
+        .unwrap()
+    });
+
+    BAD_ADDRESS_COUNTER.get_or_init(|| {
+        register_counter_vec!(
+            "ks_anti_abuse_bad_address_total",
+            "mining.authorize attempts with an address that failed the kaspa-addresses bech32 check",
+            ANTI_ABUSE_IP_LABELS
+        )
+        .unwrap()
+    });
+}
+
+/// Record a TCP-accept rejection by the per-IP anti-abuse guard.
+pub fn record_anti_abuse_connection_reject(instance_id: &str, ip: &str, reason: &str) {
+    if let Some(counter) = ANTI_ABUSE_REJECT_COUNTER.get() {
+        counter.with_label_values(&[instance_id, ip, reason]).inc();
+    }
+}
+
+/// Record a per-IP frame that was refused by the token-bucket limiter.
+pub fn record_anti_abuse_frame_limited(instance_id: &str, ip: &str) {
+    if let Some(counter) = ANTI_ABUSE_FRAME_LIMIT_COUNTER.get() {
+        counter.with_label_values(&[instance_id, ip]).inc();
+    }
+}
+
+/// Record a stratum frame that failed JSON-RPC parsing.
+pub fn record_malformed_frame(instance_id: &str, ip: &str) {
+    if let Some(counter) = MALFORMED_FRAME_COUNTER.get() {
+        counter.with_label_values(&[instance_id, ip]).inc();
+    }
+}
+
+/// Record a `mining.authorize` whose address failed bech32 validation.
+pub fn record_bad_address(instance_id: &str, ip: &str) {
+    if let Some(counter) = BAD_ADDRESS_COUNTER.get() {
+        counter.with_label_values(&[instance_id, ip]).inc();
+    }
 }
 
 /// Worker context for metrics

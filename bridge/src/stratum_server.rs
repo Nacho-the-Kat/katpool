@@ -148,6 +148,12 @@ pub async fn listen_and_serve<T: KaspaApiTrait + Send + Sync + 'static>(
     // Setup listener config
     // Each client will get its own MiningState (created in stratum_listener)
     // Each client gets its own isolated state
+    // Per-IP anti-abuse guard. Defaults are production-grade (256 conns
+    // per IP, 100 frames/sec sustained, 200 burst). Operators tune
+    // these via `AntiAbuseConfig` injected at start-up; the Phase 1
+    // close-out milestone surfaces them through a CLI/env layer.
+    let anti_abuse = std::sync::Arc::new(crate::anti_abuse::AntiAbuseGuard::new(crate::anti_abuse::AntiAbuseConfig::production()));
+
     let listener_config = StratumListenerConfig {
         port: config.stratum_port.clone(),
         handler_map: Arc::new(handlers),
@@ -163,6 +169,8 @@ pub async fn listen_and_serve<T: KaspaApiTrait + Send + Sync + 'static>(
                 client_handler.on_disconnect(&ctx);
             }
         }),
+        anti_abuse,
+        instance_id: config.instance_id.clone(),
     };
 
     // Start vardiff thread if enabled

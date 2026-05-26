@@ -21,6 +21,11 @@ members = [
     # see bridge/UPSTREAM.md and ADR-0002).
     "bridge",
 ]
+# The cargo-fuzz harness under bridge/fuzz/ is intentionally a
+# separate, non-workspace crate. cargo-fuzz requires its own
+# `[package.metadata]` and pulls libfuzzer-sys, which is nightly-only
+# and would force the whole workspace onto nightly otherwise.
+exclude = ["bridge/fuzz"]
 
 # Workspace-wide package metadata; individual crates inherit via `package.{...}.workspace = true`.
 [workspace.package]

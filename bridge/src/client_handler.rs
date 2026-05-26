@@ -53,6 +53,13 @@ impl ClientHandler {
         }
     }
 
+    /// Accessor for the instance identifier used in Prometheus labels
+    /// and structured logging. Needed by anti-abuse hooks in
+    /// `default_client.rs` that record per-IP metrics.
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+
     pub fn on_connect(&self, ctx: Arc<StratumContext>) {
         let idx = self.client_counter.fetch_add(1, Ordering::Relaxed);
 
