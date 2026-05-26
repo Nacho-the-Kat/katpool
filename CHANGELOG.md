@@ -52,6 +52,40 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 2 milestone 4 (importer acceptance): scale + property
+  tests for the legacy importer, the operator rehearsal wrapper,
+  and the Phase 2 acceptance evidence page.
+    - `katpool-import-legacy/tests/import_scale.rs` — two
+      entry points: `scale_acceptance_ci_default` (1K blocks,
+      ~7 s, runs unconditionally) and
+      `scale_acceptance_local_rehearsal` (10K blocks, ~50 s,
+      `#[ignore]`d for local rehearsal). Both end in a reconcile
+      pass and a throughput sentinel that catches regressions
+      that would blow the 30-minute cutover budget. Measured
+      throughput: ~2.4 ms/block, linear in row count.
+    - `katpool-import-legacy/tests/import_properties.rs` — 5
+      cross-cutting invariant tests: rerun-with-new-rows
+      converges; rebate `set_accrual` overwrites (not
+      accumulates); partial-failure restart safety;
+      reconcile-detects-legacy-mutation-after-import.
+    - `scripts/legacy-importer-rehearsal.sh` — operator wrapper
+      script (dry-run by default, `--no-dry-run` for cutover
+      hot-run). Captures reconcile JSON, tracing log,
+      audit-log snapshot, and a manifest containing git rev +
+      binary sha256 into a timestamped artefact directory.
+      Required by the cutover ticket.
+    - `docs/runbooks/14-legacy-importer.md` updated to recommend
+      the rehearsal script as the primary invocation path; the
+      raw binary command is now documented as a fallback only.
+    - `docs/cutover-plan.md` T-2m step rewritten to reference
+      the rehearsal script + the `manifest.reconcile_all_passed`
+      gate, replacing the obsolete path it inherited from the
+      original plan.
+    - `docs/phase-2-acceptance.md` — Phase 2 acceptance matrix
+      modelled on the Phase 1 sibling: 12 acceptance rows
+      cross-referenced to PRs, scale-run history with
+      empirical timings, full check inventory for the
+      reconciliation pass.
 - Phase 2 milestone 3 (importer, part B): the four remaining
   legacy-table transforms wired into `katpool-import-legacy`,
   plus the cross-table reconciliation pass:

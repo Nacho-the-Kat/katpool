@@ -75,9 +75,17 @@ connecting to the new pool.
   katpool-monitor katpool-backup` on the legacy VPS. **Do not
   remove containers** — keep the legacy stack intact for
   rollback.
-- Run [`migration/scripts/import_from_legacy.rs --verify-only`](../migration/scripts/import_from_legacy.rs)
-  comparing the current legacy DB to the shadow DB. Expect 0
-  sompi divergence. If anything diverges, abort and roll back.
+- **Importer hot-run.** Follow
+  [runbook 14](runbooks/14-legacy-importer.md): set
+  `LEGACY_DATABASE_URL` and `KATPOOL_DATABASE_URL`, then
+  `./scripts/legacy-importer-rehearsal.sh --no-dry-run`. The
+  script writes a timestamped artefact directory under
+  `cutover-evidence/` containing the reconcile JSON, tracing
+  log, audit-log snapshot, and a manifest with the git rev and
+  binary sha256.
+- **Gate:** `manifest.reconcile_all_passed == "true"` and
+  importer exit code 0. Anything else aborts cutover; revert to
+  rollback procedure below.
 
 ### T-1m: Treasury key handover
 

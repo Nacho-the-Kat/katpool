@@ -43,23 +43,37 @@ Three triggers:
 
 ## Command
 
+Use the wrapper script — it captures the JSON envelope, the
+tracing log, the audit-log snapshot, and a manifest with the
+git rev + binary sha256 into a timestamped artefact directory.
+Required for the cutover ticket.
+
 ```bash
 # T-24h dry-run rehearsal (against a snapshot of production).
-katpool-import-legacy \
-  --source 'postgres://katpool_ro@legacy-snapshot/katpool_mainnet' \
-  --target 'postgres://katpool_rw@new-snapshot/katpool' \
-  --dry-run \
-  > reconcile-rehearsal.json \
-  2> reconcile-rehearsal.log
+export LEGACY_DATABASE_URL='postgres://katpool_ro@legacy-snapshot/katpool_mainnet'
+export KATPOOL_DATABASE_URL='postgres://katpool_rw@new-snapshot/katpool'
+./scripts/legacy-importer-rehearsal.sh
+# → writes to ./cutover-evidence/<UTC-stamp>-dry-run/
 ```
 
 ```bash
 # Cutover hot-run (legacy stack STOPPED, write traffic frozen).
+export LEGACY_DATABASE_URL="$LEGACY_DATABASE_URL"
+export KATPOOL_DATABASE_URL="$KATPOOL_DATABASE_URL"
+./scripts/legacy-importer-rehearsal.sh --no-dry-run
+# → writes to ./cutover-evidence/<UTC-stamp>-hot-run/
+```
+
+Lower-level invocation (only when the wrapper script can't be
+used, e.g. in a CI environment without `psql`/`jq`):
+
+```bash
 katpool-import-legacy \
   --source "$LEGACY_DATABASE_URL" \
   --target "$KATPOOL_DATABASE_URL" \
-  > reconcile-cutover.json \
-  2> reconcile-cutover.log
+  [--dry-run] \
+  > reconcile.json \
+  2> reconcile.log
 ```
 
 The binary writes:
