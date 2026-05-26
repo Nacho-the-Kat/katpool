@@ -1,3 +1,4 @@
+pub mod anti_abuse;
 pub mod client_handler;
 pub mod default_client;
 pub mod errors;

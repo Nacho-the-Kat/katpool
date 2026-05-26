@@ -52,6 +52,26 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 1 milestone 3: per-IP anti-abuse layer for the stratum
+  listener. New `bridge::anti_abuse::AntiAbuseGuard` enforces a
+  connection cap per source IP, a tracked-IP cap (memory safety
+  under attack), and a token-bucket frame-rate limit. RAII
+  `ConnTicket` releases the per-IP slot on connection drop, so the
+  guard cannot leak counts. Time-injected for deterministic unit
+  testing; 13 new tests cover validated config, conn-cap, ticket
+  release, distinct-IP isolation, tracked-IP cap, burst behaviour,
+  refill semantics, untracked-IP rejection, and the unlimited mode.
+  Four new Prometheus counters
+  (`ks_anti_abuse_connection_reject_total{reason}`,
+  `ks_anti_abuse_frame_rate_limited_total`,
+  `ks_anti_abuse_malformed_frame_total`,
+  `ks_anti_abuse_bad_address_total`) surface every rejection path.
+  `handle_authorize` now disconnects on bech32 failure instead of
+  merely returning an error to the listener loop.
+  Stratum JSON-RPC parser fuzz harness added under `bridge/fuzz/`
+  as a non-workspace cargo-fuzz crate (nightly-only because
+  libfuzzer-sys requires nightly); local acceptance run on
+  2026-05-25 was 1,500,000 iterations in 23 s with zero panics.
 - Phase 1 milestone 2: `katpool-domain` types
   (`WalletAddress`, `WorkerName`, `ShareDifficulty`, `DaaScore`,
   `BlockHash`, `CorrelationId`) — every newtype validates at
