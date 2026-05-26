@@ -51,6 +51,34 @@ if [[ -z "${MINER_WALLET}" ]]; then
     exit 2
 fi
 
+# ---------- 0. Pre-flight: confirm kaspad-tn10 is at tip ------------
+# Running the smoke against a kaspad still in IBD produces opaque
+# "block template not available" errors; the bridge boots, the miner
+# connects, but no jobs ever appear. We discriminate the post-IBD
+# state by tailing the most-recent kaspad-tn10 journal lines for the
+# "Accepted N blocks ... via relay" pattern, which fires only when
+# kaspad is following the live tip via P2P relay (during IBD the
+# log line is "Processed N blocks and N headers", with no "via
+# relay" suffix). We only run this check when the configured
+# `${KASPAD}` is local (`127.0.0.1:16210`) — when targeting an
+# operator-supplied external node we trust the operator's own
+# sync verification.
+case "${KASPAD}" in
+    127.0.0.1:16210|localhost:16210|::1:16210)
+        if command -v systemctl >/dev/null && systemctl is-active katpool-kaspad-tn10 >/dev/null 2>&1; then
+            echo "[0/4] verifying local katpool-kaspad-tn10 is at live tip..."
+            recent=$(journalctl -u katpool-kaspad-tn10 --no-pager -n 200 2>/dev/null | grep -c 'Accepted [0-9]\+ blocks .* via relay' || true)
+            if [[ "${recent}" -lt 1 ]]; then
+                echo "kaspad-tn10 has no recent 'Accepted ... via relay' line in the last 200 journal entries." >&2
+                echo "This usually means IBD is still in progress. Wait for sync then re-run." >&2
+                echo "  watch:  journalctl -fu katpool-kaspad-tn10" >&2
+                exit 1
+            fi
+            echo "    kaspad-tn10 is at tip (${recent} recent relay-block lines)"
+        fi
+        ;;
+esac
+
 # ---------- 1. Cold-boot the bridge ---------------------------------
 echo "[1/4] cold-booting bridge against ${KASPAD}..."
 log_file=$(mktemp /tmp/katpool-smoke-XXXXXX.log)
