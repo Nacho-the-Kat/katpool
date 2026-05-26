@@ -14,6 +14,12 @@ repository.workspace = true
 # `include` field because `publish = false` makes it irrelevant.
 
 [dependencies]
+# katpool fork: shared domain types for the event-bus broadcast.
+# This is intentionally the only katpool-* dep on the vendored bridge —
+# the bridge owns protocol/PoW; the accountant owns accounting; events
+# are the contract between them. See bridge/UPSTREAM.md.
+katpool-domain = { path = "../crates/katpool-domain" }
+
 # Kaspa dependencies - using workspace versions
 kaspa-consensus-core = { workspace = true }
 kaspa-hashes = { workspace = true }

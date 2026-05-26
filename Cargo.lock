@@ -3117,6 +3117,7 @@ dependencies = [
  "kaspa-rpc-service",
  "kaspa-utils",
  "kaspad",
+ "katpool-domain",
  "num-bigint",
  "num-traits",
  "once_cell",
@@ -3387,9 +3388,12 @@ name = "katpool-domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "hex",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "uuid 1.18.1",
 ]
 
 [[package]]

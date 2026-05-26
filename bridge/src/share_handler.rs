@@ -9,6 +9,9 @@ use crate::{
 };
 use kaspa_consensus_core::block::Block;
 // kaspa_pow used inline for PoW validation
+use katpool_domain::{
+    BlockHash as DomainBlockHash, CorrelationId, DaaScore, PoolEvent, ShareDifficulty, ShareRejectReason, WalletAddress, WorkerName,
+};
 use num_bigint::BigUint;
 use num_traits::{ToPrimitive, Zero};
 use once_cell::sync::Lazy;
@@ -19,7 +22,15 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
+
+/// Capacity (in events) of the [`ShareHandler::with_event_bus`] broadcast
+/// channel suggested for callers. A capacity of 4096 covers ~3 minutes
+/// of sustained 20 shares/sec submission before a slow consumer would
+/// see `RecvError::Lagged`; in practice consumers are expected to drain
+/// at line-rate.
+pub const POOL_EVENT_CHANNEL_CAPACITY: usize = 4096;
 
 #[allow(dead_code)]
 const VAR_DIFF_THREAD_SLEEP: u64 = 10;
@@ -224,6 +235,11 @@ pub struct ShareHandler {
     overall: Arc<WorkStats>,
     instance_id: String, // Instance identifier for logging
     duplicate_submit_guard: Arc<Mutex<DuplicateSubmitGuard>>,
+    /// Optional broadcast sender for [`PoolEvent`]s. When `None`, the
+    /// bridge runs in legacy standalone mode (parity with upstream).
+    /// When `Some`, every accepted share, every rejected share, every
+    /// block candidate, and every kaspad-accept produces one event.
+    event_tx: Option<broadcast::Sender<PoolEvent>>,
 }
 
 impl ShareHandler {
@@ -234,7 +250,47 @@ impl ShareHandler {
             overall: Arc::new(WorkStats::new("overall".to_string())),
             instance_id,
             duplicate_submit_guard: Arc::new(Mutex::new(DuplicateSubmitGuard::new(Duration::from_secs(180), 50_000))),
+            event_tx: None,
         }
+    }
+
+    /// Attach a broadcast sender that receives one [`PoolEvent`] per
+    /// share submission outcome and per block lifecycle event. Designed
+    /// to be called once during pool start-up, before the handler is
+    /// shared across worker threads.
+    #[must_use]
+    pub fn with_event_bus(mut self, event_tx: broadcast::Sender<PoolEvent>) -> Self {
+        self.event_tx = Some(event_tx);
+        self
+    }
+
+    /// Best-effort event emission. Drops the event silently if no bus is
+    /// attached or if all receivers have been dropped — both are valid
+    /// runtime states (legacy mode, accountant restart) and must not
+    /// stall share processing.
+    fn emit(&self, event: PoolEvent) {
+        if let Some(tx) = &self.event_tx {
+            // broadcast::Sender::send returns Err only when there are no
+            // active receivers; we don't care, we just drop the event.
+            let _ = tx.send(event);
+        }
+    }
+
+    /// Build a `ShareRejected` event, returning `None` if the wallet or
+    /// worker stored on the context fail domain validation. This is a
+    /// defence-in-depth check: by the time `handle_submit` runs the
+    /// values should already be sane, but we never want to fabricate
+    /// events with bad data, and we never want to panic from a value
+    /// flowing in from the network.
+    fn build_share_rejected(
+        wallet_raw: &str,
+        worker_raw: &str,
+        reason: ShareRejectReason,
+        correlation_id: CorrelationId,
+    ) -> Option<PoolEvent> {
+        let wallet = WalletAddress::new(wallet_raw).ok()?;
+        let worker = WorkerName::new(worker_raw).ok()?;
+        Some(PoolEvent::ShareRejected { wallet, worker, reason, ts: chrono::Utc::now(), correlation_id })
     }
 
     fn log_prefix(&self) -> String {
@@ -277,6 +333,11 @@ impl ShareHandler {
         event: JsonRpcEvent,
         kaspa_api: Arc<dyn KaspaApiTrait + Send + Sync>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // One correlation id per submission, reused across every PoolEvent
+        // emitted during this call so downstream consumers can pair the
+        // ShareCredited / BlockFound / BlockAccepted lifecycle.
+        let correlation_id = CorrelationId::new_v4();
+
         let prefix = self.log_prefix();
         debug!("{} [SUBMIT] ===== SHARE SUBMISSION FROM {} =====", prefix, ctx.remote_addr);
         debug!("{} [SUBMIT] Event ID: {:?}", prefix, event.id);
@@ -296,7 +357,12 @@ impl ShareHandler {
         if event.params.len() < 3 {
             error!("{} [SUBMIT] ERROR: Expected at least 3 params, got {}", prefix, event.params.len());
             let wallet_addr = ctx.wallet_addr.lock().clone();
+            let worker_name = ctx.worker_name.lock().clone();
             record_worker_error(&self.instance_id, &wallet_addr, ErrorShortCode::BadDataFromMiner.as_str());
+            if let Some(ev) = Self::build_share_rejected(&wallet_addr, &worker_name, ShareRejectReason::MalformedFrame, correlation_id)
+            {
+                self.emit(ev);
+            }
             return Err("malformed event, expected at least 3 params".into());
         }
 
@@ -383,7 +449,12 @@ impl ShareHandler {
                 );
                 // Job doesn't exist - fail immediately
                 let wallet_addr = ctx.wallet_addr.lock().clone();
+                let worker_name = ctx.worker_name.lock().clone();
                 record_worker_error(&self.instance_id, &wallet_addr, ErrorShortCode::MissingJob.as_str());
+                if let Some(ev) = Self::build_share_rejected(&wallet_addr, &worker_name, ShareRejectReason::MissingJob, correlation_id)
+                {
+                    self.emit(ev);
+                }
                 return Err("job does not exist. stale?".into());
             }
         };
@@ -711,6 +782,26 @@ impl ShareHandler {
                 // In Kaspa, the block hash is the header hash (transactions are represented by hash_merkle_root in header)
                 use kaspa_consensus_core::hashing::header;
                 let block_hash = header::hash(&block.header).to_string();
+                let block_daa_score = block.header.daa_score;
+
+                // Emit BlockFound *before* submitting to kaspad so consumers
+                // record the candidate even if our submit_block call hangs
+                // or kaspad responds slowly. Pairs with BlockAccepted by
+                // correlation_id when submission succeeds.
+                if let (Ok(wallet_d), Ok(worker_d), Ok(hash_d)) = (
+                    WalletAddress::new(wallet_addr.clone()),
+                    WorkerName::new(worker_name.clone()),
+                    DomainBlockHash::from_hex(&block_hash),
+                ) {
+                    self.emit(PoolEvent::BlockFound {
+                        wallet: wallet_d,
+                        worker: worker_d,
+                        hash: hash_d,
+                        daa_score: DaaScore::new(block_daa_score),
+                        ts: chrono::Utc::now(),
+                        correlation_id,
+                    });
+                }
 
                 // Log prominent "Block Found" message with hash
                 info!("{} {}", prefix, LogColors::block(&format!("🎉 BLOCK FOUND! Hash: {}", block_hash)));
@@ -789,6 +880,14 @@ impl ShareHandler {
                         };
 
                         record_block_accepted_by_node(&prom_worker);
+
+                        // Emit BlockAccepted now that kaspad has acknowledged
+                        // our submitted block. This is *not* the coinbase-
+                        // maturity signal; the accountant emits its own
+                        // event when it observes the matured coinbase.
+                        if let Ok(hash_d) = DomainBlockHash::from_hex(&block_hash) {
+                            self.emit(PoolEvent::BlockAccepted { hash: hash_d, ts: chrono::Utc::now(), correlation_id });
+                        }
 
                         let kaspa_api = Arc::clone(&kaspa_api);
                         let block_hash_for_confirm = block_hash.clone();
@@ -876,6 +975,11 @@ impl ShareHandler {
                                 wallet: wallet_addr.clone(),
                                 ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
                             });
+                            if let Some(ev) =
+                                Self::build_share_rejected(&wallet_addr, &worker_name, ShareRejectReason::Stale, correlation_id)
+                            {
+                                self.emit(ev);
+                            }
                             ctx.reply_stale_share(event.id.clone()).await?;
                             return Ok(());
                         } else {
@@ -906,6 +1010,11 @@ impl ShareHandler {
                                 wallet: wallet_addr.clone(),
                                 ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
                             });
+                            if let Some(ev) =
+                                Self::build_share_rejected(&wallet_addr, &worker_name, ShareRejectReason::BadPow, correlation_id)
+                            {
+                                self.emit(ev);
+                            }
 
                             {
                                 let now = Instant::now();
@@ -1030,6 +1139,10 @@ impl ShareHandler {
                 wallet: wallet_addr.clone(),
                 ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
             });
+            if let Some(ev) = Self::build_share_rejected(&wallet_addr, &worker_name, ShareRejectReason::LowDifficulty, correlation_id)
+            {
+                self.emit(ev);
+            }
 
             if let Some(id) = &event.id {
                 let _ = ctx.reply_low_diff_share(id).await;
@@ -1074,6 +1187,31 @@ impl ShareHandler {
             },
             hash_value,
         );
+
+        // Emit ShareCredited. We use the worker's *assigned* pool
+        // difficulty here (the value the stratum layer set on the
+        // job), not the share's hash_value — accounting downstream
+        // multiplies by difficulty to get PROP weight.
+        let assigned_diff = {
+            let s = self.get_create_stats(&ctx);
+            let v = *s.min_diff.lock();
+            // Fall back to hash_value if vardiff hasn't initialised
+            // (set_client_vardiff not yet called for this worker).
+            if v > 0.0 { v } else { hash_value }
+        };
+        let job_daa_score = current_job.block.header.daa_score;
+        if let (Ok(wallet_d), Ok(worker_d), Ok(difficulty_d)) =
+            (WalletAddress::new(wallet_addr.clone()), WorkerName::new(worker_name.clone()), ShareDifficulty::new(assigned_diff))
+        {
+            self.emit(PoolEvent::ShareCredited {
+                wallet: wallet_d,
+                worker: worker_d,
+                difficulty: difficulty_d,
+                daa_score: DaaScore::new(job_daa_score),
+                ts: chrono::Utc::now(),
+                correlation_id,
+            });
+        }
 
         {
             let now = Instant::now();
@@ -1492,4 +1630,102 @@ pub trait KaspaApiTrait: Send + Sync {
 pub struct WorkerContext<'a> {
     pub worker_name: &'a str,
     pub wallet_addr: &'a str,
+}
+
+#[cfg(test)]
+mod event_bus_tests {
+    //! Tests for the [`ShareHandler::with_event_bus`] event-emission
+    //! path. We deliberately exercise the lowest-level surface — the
+    //! `emit` method via `build_share_rejected` — rather than the whole
+    //! `handle_submit` flow, which requires a live stratum context and
+    //! a kaspad mock. End-to-end coverage lands when we run against
+    //! testnet-10 in the Phase 1 close-out milestone.
+
+    use super::*;
+    use tokio::sync::broadcast;
+
+    const SAMPLE_HASH: &str = "06acc7179752e80fa4ef421f3dd7ff5b5bda006e3fc76c14f33f324079a3a9e2";
+    const SAMPLE_WALLET: &str = "kaspa:qz4j8mu269z8llgcczmfukm9fan2fq822kzxu4cfukd5fq";
+
+    fn handler_with_bus() -> (ShareHandler, broadcast::Receiver<PoolEvent>) {
+        let (tx, rx) = broadcast::channel::<PoolEvent>(POOL_EVENT_CHANNEL_CAPACITY);
+        let h = ShareHandler::new("test-0".to_string()).with_event_bus(tx);
+        (h, rx)
+    }
+
+    fn sample_block_accepted() -> PoolEvent {
+        PoolEvent::BlockAccepted {
+            hash: DomainBlockHash::from_hex(SAMPLE_HASH).expect("valid hex"),
+            ts: chrono::Utc::now(),
+            correlation_id: CorrelationId::new_v4(),
+        }
+    }
+
+    #[tokio::test]
+    async fn emit_is_noop_when_no_bus_attached() {
+        let h = ShareHandler::new("test-1".to_string());
+        h.emit(sample_block_accepted());
+    }
+
+    #[tokio::test]
+    async fn emit_delivers_to_attached_bus() {
+        let (h, mut rx) = handler_with_bus();
+        let cid = CorrelationId::new_v4();
+        let hash = DomainBlockHash::from_hex(SAMPLE_HASH).expect("valid hex");
+        h.emit(PoolEvent::BlockAccepted { hash, ts: chrono::Utc::now(), correlation_id: cid });
+        let got = rx.recv().await.expect("event received");
+        match got {
+            PoolEvent::BlockAccepted { hash: got_hash, correlation_id: got_cid, .. } => {
+                assert_eq!(got_hash, hash);
+                assert_eq!(got_cid, cid);
+            }
+            other => panic!("unexpected event variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn emit_drops_event_when_no_receivers() {
+        let (tx, rx) = broadcast::channel::<PoolEvent>(4);
+        let h = ShareHandler::new("test-2".to_string()).with_event_bus(tx);
+        drop(rx);
+        h.emit(sample_block_accepted());
+    }
+
+    #[test]
+    fn build_share_rejected_validates_wallet_and_worker() {
+        assert!(
+            ShareHandler::build_share_rejected("not-a-wallet", "rig-01", ShareRejectReason::Stale, CorrelationId::new_v4()).is_none()
+        );
+        assert!(ShareHandler::build_share_rejected(SAMPLE_WALLET, "", ShareRejectReason::Stale, CorrelationId::new_v4()).is_none());
+    }
+
+    #[test]
+    fn build_share_rejected_builds_event_when_valid() {
+        let cid = CorrelationId::new_v4();
+        let ev =
+            ShareHandler::build_share_rejected(SAMPLE_WALLET, "rig-01", ShareRejectReason::LowDifficulty, cid).expect("event built");
+        match ev {
+            PoolEvent::ShareRejected { reason, correlation_id, .. } => {
+                assert_eq!(reason, ShareRejectReason::LowDifficulty);
+                assert_eq!(correlation_id, cid);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn slow_receiver_observes_lagged_not_panic() {
+        let (tx, mut rx) = broadcast::channel::<PoolEvent>(2);
+        let h = ShareHandler::new("test-3".to_string()).with_event_bus(tx);
+        let hash = DomainBlockHash::from_hex(SAMPLE_HASH).expect("valid hex");
+        for _ in 0..6 {
+            h.emit(PoolEvent::BlockAccepted { hash, ts: chrono::Utc::now(), correlation_id: CorrelationId::new_v4() });
+        }
+        match rx.recv().await {
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                assert!(skipped > 0);
+            }
+            other => panic!("expected Lagged, got {other:?}"),
+        }
+    }
 }
