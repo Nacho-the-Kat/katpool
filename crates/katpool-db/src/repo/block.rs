@@ -1,0 +1,237 @@
+// DAA scores and nonces are u64 in kaspa-consensus-core but the
+// corresponding postgres BIGINT columns are signed i64. See the
+// module-level note in `repo/share.rs` for the safety argument.
+#![allow(clippy::cast_possible_wrap)]
+
+//! Block aggregate — lifecycle state machine for blocks the pool
+//! found.
+//!
+//! Status transitions are monotone (`found → submitted_to_node →
+//! confirmed_blue → matured`), enforced by the schema's
+//! `block_lifecycle_order` CHECK constraint. The repo functions
+//! follow that convention: dedicated [`mark_submitted`],
+//! [`mark_confirmed_blue`], and [`mark_matured`] helpers that set
+//! both the `status` enum and the corresponding timestamp atomically.
+//! Operators (and accountant logic) cannot skip a step.
+
+use chrono::{DateTime, Utc};
+use katpool_domain::{BlockHash, CorrelationId, DaaScore};
+use sqlx::PgExecutor;
+use uuid::Uuid;
+
+use crate::DbError;
+use crate::repo::{BlockId, WalletId, WorkerId};
+
+/// One row of the `block` table.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Block {
+    /// Synthetic primary key.
+    pub id: BlockId,
+    /// 32-byte block hash.
+    pub hash: Vec<u8>,
+    /// FK to `wallet.id`.
+    pub finder_wallet_id: WalletId,
+    /// FK to `worker.id`.
+    pub finder_worker_id: WorkerId,
+    /// DAA score of the block.
+    pub daa_score: i64,
+    /// Blue score, populated once kaspad confirms the block.
+    pub blue_score: Option<i64>,
+    /// Nonce that produced the winning `PoW`.
+    pub nonce: i64,
+    /// Current status in the lifecycle.
+    pub status: BlockStatus,
+    /// When the bridge detected the candidate.
+    pub found_at: DateTime<Utc>,
+    /// When kaspad ACK'd `submit_block` (status >= `submitted_to_node`).
+    pub submitted_at: Option<DateTime<Utc>>,
+    /// When kaspad confirmed the block blue (status >= `confirmed_blue`).
+    pub confirmed_at: Option<DateTime<Utc>>,
+    /// When the coinbase matured (status = `matured`).
+    pub matured_at: Option<DateTime<Utc>>,
+    /// Coinbase reward in sompi, populated at maturity.
+    pub miner_reward_sompi: Option<i64>,
+    /// Correlation id matching the source `PoolEvent::BlockFound`.
+    pub correlation_id: Uuid,
+}
+
+/// The five lifecycle states. Mirrors the `block_status` Postgres
+/// enum declared by the bootstrap migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "block_status", rename_all = "snake_case")]
+pub enum BlockStatus {
+    /// Bridge detected the share's `PoW` met the network target.
+    Found,
+    /// `kaspad` accepted our `submit_block` call.
+    SubmittedToNode,
+    /// Block confirmed blue in the DAG.
+    ConfirmedBlue,
+    /// Coinbase has matured; reward is realised.
+    Matured,
+    /// A DAG re-org displaced the block; reward will never materialise.
+    Orphaned,
+}
+
+/// Insert a new block in the `found` state. Returns the assigned
+/// primary key.
+pub async fn insert<'e, E>(
+    executor: E,
+    hash: BlockHash,
+    finder_wallet_id: WalletId,
+    finder_worker_id: WorkerId,
+    daa_score: DaaScore,
+    nonce: u64,
+    correlation_id: CorrelationId,
+) -> Result<BlockId, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let id: BlockId = sqlx::query_scalar::<_, BlockId>(
+        "
+        INSERT INTO block (hash, finder_wallet_id, finder_worker_id, daa_score, nonce, correlation_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+        ",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .bind(finder_wallet_id.0)
+    .bind(finder_worker_id.0)
+    .bind(daa_score.value() as i64)
+    .bind(nonce as i64)
+    .bind(*correlation_id.as_uuid())
+    .fetch_one(executor)
+    .await?;
+    Ok(id)
+}
+
+/// Find a block by hash.
+pub async fn find_by_hash<'e, E: PgExecutor<'e>>(
+    executor: E,
+    hash: BlockHash,
+) -> Result<Option<Block>, DbError> {
+    sqlx::query_as::<_, Block>(
+        "SELECT id, hash, finder_wallet_id, finder_worker_id, daa_score, blue_score, nonce,
+                status, found_at, submitted_at, confirmed_at, matured_at,
+                miner_reward_sompi, correlation_id
+           FROM block WHERE hash = $1",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .fetch_optional(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// Advance the block to `submitted_to_node`. Idempotent — re-running
+/// against an already-submitted block is a no-op (the existing row
+/// already satisfies the lifecycle CHECK).
+///
+/// The schema's `block_lifecycle_order` CHECK will refuse the update
+/// if the block isn't in the `found` state, surfacing as
+/// [`DbError::Constraint`].
+pub async fn mark_submitted<'e, E: PgExecutor<'e>>(
+    executor: E,
+    hash: BlockHash,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "
+        UPDATE block
+           SET status = 'submitted_to_node',
+               submitted_at = COALESCE(submitted_at, now())
+         WHERE hash = $1
+           AND status IN ('found', 'submitted_to_node')
+        ",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Advance the block to `confirmed_blue`, recording the `kaspad`-
+/// provided `blue_score`.
+pub async fn mark_confirmed_blue<'e, E: PgExecutor<'e>>(
+    executor: E,
+    hash: BlockHash,
+    blue_score: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "
+        UPDATE block
+           SET status = 'confirmed_blue',
+               blue_score = $2,
+               confirmed_at = COALESCE(confirmed_at, now())
+         WHERE hash = $1
+           AND status IN ('submitted_to_node', 'confirmed_blue')
+        ",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .bind(blue_score)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Advance the block to `matured`, recording the coinbase reward.
+pub async fn mark_matured<'e, E: PgExecutor<'e>>(
+    executor: E,
+    hash: BlockHash,
+    miner_reward_sompi: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "
+        UPDATE block
+           SET status = 'matured',
+               miner_reward_sompi = $2,
+               matured_at = COALESCE(matured_at, now())
+         WHERE hash = $1
+           AND status IN ('confirmed_blue', 'matured')
+        ",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .bind(miner_reward_sompi)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Mark the block orphaned. Allowed from any non-terminal state;
+/// callers should be cautious — orphaned is irreversible.
+pub async fn mark_orphaned<'e, E: PgExecutor<'e>>(
+    executor: E,
+    hash: BlockHash,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "
+        UPDATE block
+           SET status = 'orphaned'
+         WHERE hash = $1
+           AND status <> 'matured'
+        ",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// List recent blocks in any of the listed statuses. Newest-first.
+pub async fn list_by_status<'e, E: PgExecutor<'e>>(
+    executor: E,
+    statuses: &[BlockStatus],
+    limit: i64,
+) -> Result<Vec<Block>, DbError> {
+    sqlx::query_as::<_, Block>(
+        "SELECT id, hash, finder_wallet_id, finder_worker_id, daa_score, blue_score, nonce,
+                status, found_at, submitted_at, confirmed_at, matured_at,
+                miner_reward_sompi, correlation_id
+           FROM block
+          WHERE status = ANY($1)
+          ORDER BY found_at DESC
+          LIMIT $2",
+    )
+    .bind(statuses)
+    .bind(limit)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}

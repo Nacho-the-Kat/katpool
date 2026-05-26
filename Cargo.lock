@@ -3377,6 +3377,7 @@ dependencies = [
  "chrono",
  "katpool-domain",
  "serde",
+ "serde_json",
  "sqlx",
  "testcontainers",
  "testcontainers-modules",

@@ -37,6 +37,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod error;
 pub mod migrate;
 pub mod pool;
+pub mod repo;
 
 pub use error::DbError;
 pub use pool::{PoolConfig, build_pool};
