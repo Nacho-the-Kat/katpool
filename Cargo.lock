@@ -6,6 +6,7 @@ version = 4
 name = "accountant"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "chrono",
  "katpool-db",
@@ -13,9 +14,12 @@ dependencies = [
  "katpool-idempotency",
  "katpool-metrics",
  "katpool-telemetry",
+ "prometheus 0.14.0",
  "proptest",
  "serde",
+ "sqlx",
  "testcontainers",
+ "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

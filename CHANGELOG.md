@@ -52,6 +52,50 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 1 (accountant scaffold + event ingestion):
+  the pool accountant's foundation — event consumer, fee model,
+  wallet-tier classification framework. Subsequent Phase 3 PRs
+  layer share-window aggregation (M2), PROP allocation (M3), and
+  replay-determinism harness (M4) on top.
+    - `accountant::EventConsumer` — `tokio::sync::broadcast::Receiver<PoolEvent>`
+      consumer that writes `wallet`/`worker`/`share`/`block` rows
+      via the repo layer. Handles lag (skip + metric), channel
+      close (clean shutdown), per-event errors (log + metric, no
+      task death), and BlockFound idempotency via the new
+      `repo::block::ensure` helper (`INSERT ... ON CONFLICT (hash)
+      DO UPDATE` returning a (`BlockId`, `EnsureOutcome`) pair).
+    - `accountant::FeeConfig` — operator-tunable topline fee via
+      `KATPOOL_FEE_TOPLINE_BPS` (basis points integer; default 75
+      = 0.75%; max 1 000 bps to guard against typos). Pure
+      `from_lookup` constructor takes a lookup closure, so tests
+      exercise parse/validation without touching process env (the
+      workspace forbids `unsafe_code` and edition-2024 `set_var`
+      is now unsafe).
+    - `accountant::WalletTier` — `Standard` (33% rebate of fee)
+      and `Elite` (100% rebate of fee), with rebate ratios fixed
+      in code (per ADR-0012). Defined as both Rust enum and
+      `sqlx::Type` against a `wallet_tier` postgres enum that
+      lands with M3's migration.
+    - `accountant::TierClassifier` trait + `StaticTierClassifier`
+      stub. HTTP-backed `KasplexTierClassifier` deferred to M3
+      where the allocation engine actually needs tier resolution.
+      On any classifier error the safe fallback is `Standard`.
+    - Prometheus metrics: `ks_accountant_events_total`,
+      `ks_accountant_events_lagged_total`,
+      `ks_accountant_event_errors_total`,
+      `ks_accountant_share_inserts_total`,
+      `ks_accountant_block_transitions_total`. Every metric
+      carries an `instance` label for primary-vs-shadow
+      disambiguation during the Phase 7 shadow-run window.
+    - 11 unit tests + 8 integration tests against ephemeral
+      Postgres (testcontainers) covering: share path, block
+      lifecycle, BlockFound idempotency, orphan BlockAccepted,
+      lag tolerance, clean shutdown, share-rejected metric-only
+      semantics, and weight aggregation.
+    - ADR-0012 (`docs/decisions/0012-fee-model-and-tier-classification.md`)
+      capturing the fee model, basis-points env knob, tier-at-
+      maturity decision, deferred migration plan, and audit-trail
+      column rollout strategy.
 - Phase 2 milestone 4 (importer acceptance): scale + property
   tests for the legacy importer, the operator rehearsal wrapper,
   and the Phase 2 acceptance evidence page.

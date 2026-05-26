@@ -104,6 +104,66 @@ where
     Ok(id)
 }
 
+/// Outcome of an idempotent insert: was the row created or did it
+/// already exist?
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnsureOutcome {
+    /// A new row was created.
+    Inserted,
+    /// A row with the same `hash` already existed; no change.
+    AlreadyExisted,
+}
+
+/// Idempotent insert of a candidate block.
+///
+/// Returns the `BlockId` plus whether the row was newly created.
+/// Safe to call repeatedly with the same arguments — the table's
+/// `UNIQUE(hash)` constraint guards.
+///
+/// Distinct from [`insert`]: callers that own deduplication (e.g.
+/// the accountant's `BlockFound` consumer, which may see the
+/// same event twice across reconnects) prefer `ensure`; callers
+/// that want hard failure on duplicates (e.g. an importer that
+/// expects exactly one row per hash) prefer `insert`.
+pub async fn ensure<'e, E>(
+    executor: E,
+    hash: BlockHash,
+    finder_wallet_id: WalletId,
+    finder_worker_id: WorkerId,
+    daa_score: DaaScore,
+    nonce: u64,
+    correlation_id: CorrelationId,
+) -> Result<(BlockId, EnsureOutcome), DbError>
+where
+    E: PgExecutor<'e>,
+{
+    // The `xmax = 0` trick distinguishes a real INSERT from an
+    // ON-CONFLICT no-op UPDATE: postgres only sets xmax > 0 when
+    // it touches a row. The `DO UPDATE SET hash = EXCLUDED.hash`
+    // is a forced no-op so RETURNING fires on the existing row.
+    let row: (BlockId, bool) = sqlx::query_as(
+        "INSERT INTO block
+            (hash, finder_wallet_id, finder_worker_id, daa_score, nonce, correlation_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (hash) DO UPDATE SET hash = EXCLUDED.hash
+         RETURNING id, (xmax = 0)",
+    )
+    .bind(hash.as_bytes().to_vec())
+    .bind(finder_wallet_id.0)
+    .bind(finder_worker_id.0)
+    .bind(daa_score.value() as i64)
+    .bind(nonce as i64)
+    .bind(*correlation_id.as_uuid())
+    .fetch_one(executor)
+    .await?;
+    let outcome = if row.1 {
+        EnsureOutcome::Inserted
+    } else {
+        EnsureOutcome::AlreadyExisted
+    };
+    Ok((row.0, outcome))
+}
+
 /// Find a block by hash.
 pub async fn find_by_hash<'e, E: PgExecutor<'e>>(
     executor: E,
