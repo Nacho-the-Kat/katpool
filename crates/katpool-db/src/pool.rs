@@ -1,6 +1,6 @@
 //! Connection pool builder.
 //!
-//! The new pool process owns one [`PgPool`] for the lifetime of the
+//! The new pool process owns one [`sqlx::PgPool`] for the lifetime of the
 //! process. Every service crate (`accountant`, `payout-kas`,
 //! `payout-krc20`, `api`) takes a shared clone — sqlx's `PgPool` is
 //! `Clone` and reference-counted internally.
