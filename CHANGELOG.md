@@ -52,6 +52,51 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 2 milestone 3 (importer, part A): new
+  `katpool-import-legacy` binary crate at the workspace top level
+  that walks the previous-generation pool's `katpool_mainnet`
+  database and writes into the new schema. This commit ships the
+  scaffold and the `block_details` → `(wallet, worker, block)`
+  transform, which is the largest single table to migrate
+  (production: 539,397 rows). Subsequent commits in this series
+  add the remaining transforms (`miners_balance` →
+  `nacho_rebate_accrual`; `payments` + `nacho_payments` →
+  `payout_cycle` + `payout`; `pending_krc20_transfers` →
+  `krc20_pending_transfer`).
+  Importer properties:
+    - **Idempotent.** Every write goes through an `ON CONFLICT DO
+      NOTHING` path or the repo layer's `ensure`-style UPSERT.
+      Re-running zero-cost; classified as `skipped` in stats.
+    - **Deterministic correlation ids.** UUID v5 derived from the
+      block hash (DNS namespace) so audit-log forensics are
+      reproducible across re-imports.
+    - **Validation-first.** A pure `parse_legacy_row` produces a
+      typed `Parsed` or returns a static reject reason; persistence
+      is a separate function. Soft rejections (bad bech32, bad
+      worker name, daa not parseable, hash not 64-char hex) bump
+      the `rejected` counter; hard errors (connection lost) bubble
+      up and abort.
+    - **Resumable.** Source-side cursor is `(timestamp,
+      mined_block_hash)` so a restart on row 200,000 resumes
+      without rescanning the first 199,999.
+    - **Dry-run mode.** Counts what would have been written without
+      touching the target. Useful for pre-cutover sanity checks.
+    - **JSON reconciliation report** on stdout when the binary
+      completes; structured `tracing` events on stderr. The JSON
+      contract is what the cutover runbook will pipe into the
+      evidence collection.
+  Six integration tests in
+  `katpool-import-legacy/tests/import_blocks.rs` spin up a single
+  postgres testcontainer with two databases on it (`legacy_test` +
+  `target_test`), seed the legacy schema from
+  `tests/fixtures/legacy_schema.sql`, and assert:
+  insert+idempotent-skip, wallet/worker creation, matured block
+  status with the right reward, deterministic correlation-id
+  reproducibility, rejection of bad rows (5 distinct failure
+  modes), dry-run-writes-nothing. Workspace test count: 133 → 139.
+  `uuid` workspace dep gains the `v5` feature; `clap` workspace
+  consumers can opt into the `env` feature individually (importer
+  does).
 - Phase 2 milestone 3 (prep): seven additional repository aggregates
   to complete the schema's query surface ahead of the legacy
   importer. New modules:
