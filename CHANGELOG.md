@@ -45,5 +45,27 @@ backward-incompatible ways at every minor bump.
   cargo-deny, and Trivy filesystem scans. Every third-party
   action is pinned by full commit SHA with a trailing comment
   naming the human-readable tag.
+- Phase 1 milestone 1: vendored rusty-kaspa v1.1.0 stratum bridge
+  under `bridge/`, with a documented local-divergence register
+  (`bridge/UPSTREAM.md`), per-directory `rustfmt.toml` matching
+  upstream style, bridge-local lint overrides, dual workspace
+  build (our strict pedantic-and-nursery rules for new crates,
+  upstream-tolerant for the vendored bridge), and re-vendoring
+  procedure documented for future v1.x bumps.
+- Phase 1 milestone 2: `katpool-domain` types
+  (`WalletAddress`, `WorkerName`, `ShareDifficulty`, `DaaScore`,
+  `BlockHash`, `CorrelationId`) — every newtype validates at
+  construction, returns typed errors, and serialises transparently.
+  Defines the `PoolEvent` enum (`ShareCredited`, `ShareRejected`,
+  `BlockFound`, `BlockAccepted`) and the `ShareRejectReason`
+  taxonomy (`stale`, `low_difficulty`, `bad_pow`, `missing_job`,
+  `malformed_frame`, `duplicate_submit`, `bad_address`). The
+  stratum bridge's `share_handler.rs` now emits one `PoolEvent`
+  per submission outcome and per block lifecycle event on an
+  optional `tokio::sync::broadcast` channel injected via
+  `ShareHandler::with_event_bus`. Best-effort emission with
+  shared per-submission `CorrelationId` for downstream tracing.
+  Forty-eight unit tests cover types and emission (42 in
+  `katpool-domain`, 6 in the bridge event-bus module).
 
 [Unreleased]: https://github.com/Nacho-the-Kat/katpool/commits/main
