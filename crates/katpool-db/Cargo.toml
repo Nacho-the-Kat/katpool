@@ -23,3 +23,5 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+uuid = { workspace = true }
