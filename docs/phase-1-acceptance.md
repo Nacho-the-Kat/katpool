@@ -75,8 +75,9 @@ For the avoidance of doubt: an alternative path would be to widen the
 bridge's `BridgeConfig.min_share_diff` schema to `f64` so sub-1
 difficulty is selectable in dev/testnet contexts. That is a real
 Phase 2+ improvement (the `var_diff` engine already operates on `f64`
-internally) and is captured as a follow-up issue. Phase 1 closeout
-does not require it.
+internally) and is tracked at
+[issue #6](https://github.com/Nacho-the-Kat/katpool/issues/6). Phase 1
+closeout does not require it.
 
 ### Boot evidence — 2026-05-26 02:42 UTC
 
