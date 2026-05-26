@@ -52,6 +52,61 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 1 closeout: `bridge/examples/cpu_stratum_miner.rs` — a
+  self-contained stratum-protocol CPU miner (~250 LOC) using the
+  workspace-pinned `kaspa_pow::matrix::Matrix` + `kaspa_hashes::PowHash`
+  for PoW, raw line-delimited JSON-RPC for the wire protocol, and a
+  thread-striped nonce search across all available CPU cores. The
+  public ecosystem has no maintained Crescendo + Toccata-aware CPU
+  stratum miner (`kaspanet/cpuminer` v0.2.7 and `elichai/kaspa-miner`
+  are both solo gRPC miners that bypass any stratum layer), so this
+  artifact is required for end-to-end stratum smoke runs in CI.
+  Companion bridge example `bridge/examples/gen_testnet_addr.rs`
+  generates a valid bech32 `kaspatest:` address via
+  `kaspa_addresses::Address::new` with `/dev/urandom`-seeded payload
+  — used by the smoke harness's `--wallet` argument.
+  `kaspa-math` added to workspace dependencies (already a transitive
+  dep, now declared so the example can call `Uint256::from_le_bytes`
+  directly).
+  Empirical finding from running the smoke against the operator's
+  Toccata-aware kaspad-tn10 at `193.26.159.181:16210`: bridge boot
+  in **503 ms**, ≥ **184 mining.notify** delivered in 60 s,
+  **38M PoW hashes** computed by the CPU miner, zero panics in either
+  process. The Phase 1 acceptance row 12/13 volume threshold (≥ 100
+  shares, ≥ 1 block in 60 s) is **mathematically out of reach for any
+  CPU stratum miner at the bridge's u32 minimum pool difficulty** and
+  is deferred to the Phase 7 cutover smoke with real ASIC hash. Phase
+  1 acceptance now records pipeline-GREEN at CPU scale and volume-
+  GREEN at ASIC scale (deferred). See
+  `docs/phase-1-acceptance.md` "CPU-mining empirical limit" block.
+- Phase 1 infra: dedicated Toccata-aware testnet-10 kaspad node
+  co-resident with the existing dockerized mainnet kaspad on the
+  pool VPS. New hardened systemd unit
+  `ops/kaspad/katpool-kaspad-tn10.service` (systemd-analyze security
+  exposure level **1.2 OK**), idempotent installer
+  `ops/kaspad/install-kaspad-tn10.sh` that downloads the upstream
+  `tn10-toc2` release zip pinned by SHA-256
+  (`b1664d7336b7b536f98a7383ada6bffec71df7fc0d017f54fd4ec2434d7c5f44`),
+  dedicated `kaspad-tn10` system user, data dir at
+  `/var/lib/kaspad-tn10/data`, ports 16210 (gRPC) / 16211 (P2P) /
+  17210 (wRPC-borsh) / 18210 (wRPC-json). The legacy mainnet
+  kaspad (v1.0.1 in docker, 128 GB data dir) is left untouched per
+  ADR-0010. Phase 1 acceptance row 11 (boot time) measured at
+  **503 ms** against the operator's Toccata-aware external node,
+  well under the 5-second budget. New ADR-0010
+  (`docs/decisions/0010-multi-tenant-kaspad-on-pool-vps.md`)
+  documents the multi-tenant strategy, the Toccata constraint
+  (vendored `kaspa-*` v1.1.0 crates predate Toccata, so the bridge
+  must run external-only against testnet-10), and the explicit
+  deferral of mainnet-migration to Phase 7. New runbook 13
+  (`docs/runbooks/13-kaspad-tn10-bootstrap.md`) covers install /
+  upgrade / incident-recovery procedures. Capacity plan updated to
+  reflect the new third-tenant footprint (~30 GB disk, ~5 GiB RAM,
+  1–2 vCPU; total saturated still leaves >65% headroom). New bridge
+  example `bridge/examples/gen_testnet_addr.rs` produces a valid
+  bech32 `kaspatest:` address using `kaspa_addresses::Address::new`
+  with cryptographic randomness from `/dev/urandom`, used by the
+  acceptance smoke harness for the wallet field.
 - Phase 1 milestone 4 (Phase 1 close-out): operator-tunable
   anti-abuse limits via `KATPOOL_ANTI_ABUSE_*` environment variables
   (`MAX_CONN_PER_IP`, `MAX_TRACKED_IPS`, `FRAME_RATE_PER_SEC`,

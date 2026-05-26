@@ -32,14 +32,27 @@ katpool-stratum-bridge --version
 # Reachable kaspad-testnet-10. Replace with your endpoint.
 nc -z -w 3 <kaspad-testnet10-host> 16210 && echo ok
 
-# CPU miner that talks stratum
-which kaspa-miner
+# If pointing at the local katpool-kaspad-tn10, confirm it has
+# completed IBD and is following the live tip. The discriminator is
+# the "via relay" suffix in the journal — IBD blocks come through the
+# headers-proof / sync-block paths and never have that suffix; only
+# P2P-relayed blocks (= live tip) do.
+journalctl -u katpool-kaspad-tn10 --no-pager -n 50 \
+    | grep -c 'Accepted [0-9]\+ blocks .* via relay'
+# Expect: > 0. If zero, kaspad is still in IBD (typically 30-60 min
+# from cold start on this VPS; see runbook 13).
+
+# CPU miner artifact (built from this repo)
+ls bridge/examples/cpu_stratum_miner.rs
 
 # Tools the smoke script consumes
 which curl jq
 ```
 
-If any are missing, fix and re-run.
+The smoke script itself enforces the "kaspad at tip" precondition
+when targeting `127.0.0.1:16210` — if you point at an external
+operator-owned node you are responsible for confirming its sync state
+yourself.
 
 ## Diagnose
 
