@@ -52,6 +52,67 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 2 milestone 2: repository layer over the schema introduced
+  in milestone 1. Free functions on `impl sqlx::PgExecutor<'_>`
+  organised by aggregate — works with both `&PgPool` for
+  single-statement contexts and `&mut Transaction` (via `&mut *tx`)
+  for atomic multi-statement work. Strongly-typed ID newtypes
+  (`WalletId`, `WorkerId`, `SessionId`, `ShareId`, `BlockId`,
+  `AuditLogId`) prevent confusion between table identities at the
+  type level. Aggregates shipped:
+    - `repo::wallet` — `ensure` (upsert by address with
+      `last_seen_at` refresh), `find_by_address`, `get_by_id`
+    - `repo::worker` — `ensure`, `get_by_id`, `list_for_wallet`
+    - `repo::share` — `insert_credited` (the hot-path call from
+      the accountant's `PoolEvent::ShareCredited` handler),
+      `sum_weight_for_window` / `count_for_window` /
+      `total_weight_for_window` for PROP allocation reads
+    - `repo::block` — `insert`, `find_by_hash`, lifecycle
+      transitions (`mark_submitted`, `mark_confirmed_blue`,
+      `mark_matured`, `mark_orphaned`) with idempotency, plus
+      `list_by_status` for operator views
+    - `repo::audit` — append-only log via the `NewEntry` builder
+      with subject/correlation-id wiring, `list_for_subject`
+  Validated newtypes from `katpool-domain` (`WalletAddress`,
+  `WorkerName`, `BlockHash`, `DaaScore`, `ShareDifficulty`,
+  `CorrelationId`) are the public API; the domain invariants flow
+  into the database boundary unchanged. Seventeen new integration
+  tests in `crates/katpool-db/tests/repo.rs` exercise idempotency,
+  cascade behaviour, lifecycle CHECK enforcement, transaction
+  rollback semantics, and the per-aggregate query contracts against
+  a real Postgres testcontainer. Workspace gains
+  `serde_json` as a declared dep on `katpool-db`. Two follow-up
+  issues opened proactively: #8 (`gh pr edit --add-label` chokes on
+  Projects-classic deprecation; REST workaround documented) and #9
+  (pin `testcontainers` postgres image to match production
+  `postgres:17`).
+- Phase 2 milestone 1: `katpool-db` crate with the full schema for the
+  rebuild — 14 tables (`wallet`, `worker`, `connection_session`,
+  `share`, `share_window`, `block`, `share_allocation`, `payout_cycle`,
+  `payout`, `nacho_rebate_accrual`, `krc20_pending_transfer`,
+  `treasury_snapshot`, `audit_log`, `pool_meta`), 5 enum state-machines
+  (`block_status`, `payout_kind`, `payout_cycle_status`,
+  `payout_status`, `krc20_transfer_status`), foreign-key integrity
+  throughout, CHECK constraints rejecting bad-shape data at the storage
+  layer (wallet-address format per network, balance equation in
+  `share_allocation`, lifecycle ordering in `block` and `payout`,
+  uniqueness on `payout (cycle_id, wallet_id)` for payout idempotency).
+  Connection pool builder with operator-tunable
+  `KATPOOL_DB_*` env vars (mirrors the bridge's anti-abuse config
+  pattern); typed `DbError` with `is_transient` / `is_not_found` /
+  `sqlstate()` classification helpers; embedded `sqlx::migrate!`
+  migrator that fail-closes on schema-ahead-of-binary. Twelve unit
+  tests cover `PoolConfig`/`DbError`; twelve integration tests spin
+  up an ephemeral postgres via `testcontainers-modules` and assert
+  every documented table, enum, FK cascade, CHECK constraint, and
+  idempotency invariant works end-to-end. New
+  `docs/decisions/0011-db-schema-and-migrations.md` documenting the
+  schema rationale and migration strategy (no down-migrations;
+  rollback via pgBackRest restore from ADR-0007). New
+  `docs/db-schema.md` operator reference with ER diagram and worked
+  query examples per table. Workspace gains
+  `testcontainers-modules` (with the `postgres` feature) and
+  `kaspa-math` as declared deps.
 - Phase 1 closeout: `bridge/examples/cpu_stratum_miner.rs` — a
   self-contained stratum-protocol CPU miner (~250 LOC) using the
   workspace-pinned `kaspa_pow::matrix::Matrix` + `kaspa_hashes::PowHash`
