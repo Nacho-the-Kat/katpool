@@ -10,6 +10,20 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Added
+
+- Phase 3 milestone 4 (M4): production-log replay-determinism harness.
+  - `accountant::replay` — NDJSON load, DB snapshot, dual-replay
+    `verify_dual_replay`.
+  - `katpool-replay` binary — replay NDJSON or legacy monitoring
+    logs through the accountant (`--events`, `--legacy-log`,
+    `--subsample-nth`).
+  - `KATPOOL_EVENT_RECORD_PATH` on the unified `katpool` runtime
+    (append-only NDJSON `PoolEvent` capture).
+  - `accountant/tests/replay_harness_scale.rs` — CI dual-verify at
+    ~1:50 synthetic scale.
+  - `scripts/replay-determinism-rehearsal.sh` + runbook 17.
+
 ### Fixed
 
 - Phase 3 milestone 3f: three production-grade defects uncovered by

@@ -1,0 +1,34 @@
+[package]
+name = "katpool-replay"
+description = "Replay captured PoolEvent logs (or legacy monitoring logs) through the accountant and verify byte-equal DB state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+accountant = { path = "../accountant" }
+katpool-db = { path = "../crates/katpool-db" }
+katpool-domain = { path = "../crates/katpool-domain" }
+anyhow = "1.0"
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+regex = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+
+[[bin]]
+name = "katpool-replay"
+path = "src/main.rs"

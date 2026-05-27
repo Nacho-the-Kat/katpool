@@ -3397,6 +3397,7 @@ dependencies = [
  "payout-kas",
  "payout-krc20",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3491,6 +3492,25 @@ version = "0.1.0"
 dependencies = [
  "prometheus 0.14.0",
  "tracing",
+]
+
+[[package]]
+name = "katpool-replay"
+version = "0.1.0"
+dependencies = [
+ "accountant",
+ "anyhow",
+ "chrono",
+ "clap 4.5.51",
+ "katpool-db",
+ "katpool-domain",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.18.1",
 ]
 
 [[package]]

@@ -1,22 +1,4 @@
-//! Replay-determinism test for the consumer.
-//!
-//! Feeds the same event sequence to two independent consumers
-//! backed by two independent empty Postgres instances, then
-//! asserts the two resulting databases are byte-equal in every
-//! row the consumer wrote.
-//!
-//! This is the strongest single-test we have for the contract
-//! "given the same event stream, the accountant produces the
-//! same DB state every time". It catches:
-//!
-//! - non-determinism via wallclock timestamps (`credited_at`
-//!   defaulting to `now()`) leaking into row identity
-//! - hidden ordering dependencies in the event handler
-//! - any unobservable randomness introduced by future refactors
-//!
-//! We compare the *content* of every row (PK aside, since those
-//! are serial and freshly assigned each run). Two PKs differing
-//! between runs is fine; their referenced data differing is not.
+//! Replay-determinism test for the consumer (M1 + M4).
 
 #![allow(
     clippy::expect_used,
@@ -37,7 +19,9 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use uuid::Uuid;
 
-use accountant::{ConsumerConfig, EventConsumer};
+use accountant::{
+    assert_snapshots_equal, replay_all, snapshot, ConsumerConfig, EventConsumer,
+};
 
 const MINER_A: &str = "kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq";
 const MINER_B: &str = "kaspa:qzncghl8re9h35hp6n5wyxtslhevj6462qkrkqzlfkrs2mpkfkc5xe9s3tga7";
@@ -69,12 +53,6 @@ async fn fresh_db() -> Env {
     }
 }
 
-/// Build a deterministic synthetic event stream. Every event
-/// carries an explicit `ts` and a fixed `correlation_id` so two
-/// runs see byte-equal inputs.
-/// Build a correlation id from a single byte by stuffing it into
-/// the low byte of an all-zero UUID and setting the v4 marker
-/// bits. Deterministic across runs.
 const fn corr(i: u8) -> CorrelationId {
     let mut bytes = [0u8; 16];
     bytes[15] = i;
@@ -147,69 +125,6 @@ fn deterministic_stream() -> Vec<PoolEvent> {
     ]
 }
 
-/// Snapshot every row in every table the consumer touches, in a
-/// canonical order. The PK column is excluded from each tuple
-/// because it's a freshly-assigned BIGSERIAL — comparing PKs
-/// across two independent DB instances is meaningless. The
-/// `wallclock` columns (`first_seen_at`, `last_seen_at`,
-/// `credited_at`, `rejected_at`, `found_at`, `submitted_at`)
-/// are also excluded: M1's consumer doesn't pass an explicit
-/// timestamp to the repo, so `now()` defaults are non-deterministic
-/// across runs — that's a finding documented separately, not
-/// something this test asserts.
-#[derive(Debug, PartialEq)]
-struct DbSnapshot {
-    wallets: Vec<(String, String)>,
-    workers: Vec<(String,)>,
-    shares: Vec<(f64, i64, Uuid)>,
-    rejects: Vec<(String, Uuid)>,
-    blocks: Vec<(Vec<u8>, i64, i64, String, Uuid)>,
-}
-
-async fn snapshot(db: &sqlx::PgPool) -> DbSnapshot {
-    let wallets: Vec<(String, String)> =
-        sqlx::query_as("SELECT address, network FROM wallet ORDER BY address")
-            .fetch_all(db)
-            .await
-            .unwrap();
-    let workers: Vec<(String,)> = sqlx::query_as("SELECT name FROM worker ORDER BY name")
-        .fetch_all(db)
-        .await
-        .unwrap();
-    let shares: Vec<(f64, i64, Uuid)> = sqlx::query_as(
-        "SELECT difficulty, daa_score, correlation_id
-           FROM share
-          ORDER BY correlation_id",
-    )
-    .fetch_all(db)
-    .await
-    .unwrap();
-    let rejects: Vec<(String, Uuid)> = sqlx::query_as(
-        "SELECT reason::text, correlation_id
-           FROM share_reject
-          ORDER BY correlation_id",
-    )
-    .fetch_all(db)
-    .await
-    .unwrap();
-    let blocks: Vec<(Vec<u8>, i64, i64, String, Uuid)> = sqlx::query_as(
-        "SELECT hash, daa_score, nonce, status::text, correlation_id
-           FROM block
-          ORDER BY hash",
-    )
-    .fetch_all(db)
-    .await
-    .unwrap();
-
-    DbSnapshot {
-        wallets,
-        workers,
-        shares,
-        rejects,
-        blocks,
-    }
-}
-
 #[tokio::test]
 async fn same_event_stream_produces_identical_db_state() {
     let stream = deterministic_stream();
@@ -225,22 +140,13 @@ async fn same_event_stream_produces_identical_db_state() {
         ConsumerConfig::new("b".to_owned(), "mainnet".to_owned()).unwrap(),
     );
 
-    for event in &stream {
-        consumer_a.handle_event(event.clone()).await;
-    }
-    for event in &stream {
-        consumer_b.handle_event(event.clone()).await;
-    }
+    replay_all(&consumer_a, &stream).await;
+    replay_all(&consumer_b, &stream).await;
 
-    let snap_a = snapshot(&env_a.db).await;
-    let snap_b = snapshot(&env_b.db).await;
-    assert_eq!(
-        snap_a, snap_b,
-        "two independent consumers fed the same stream must produce byte-equal DB state"
-    );
+    let snap_a = snapshot(&env_a.db).await.unwrap();
+    let snap_b = snapshot(&env_b.db).await.unwrap();
+    assert_snapshots_equal(&snap_a, &snap_b).unwrap();
 
-    // Belt-and-braces: sanity that the snapshots aren't both empty
-    // (which would make the equality trivially true).
     assert!(!snap_a.wallets.is_empty());
     assert!(!snap_a.shares.is_empty());
     assert!(!snap_a.blocks.is_empty());
@@ -249,36 +155,20 @@ async fn same_event_stream_produces_identical_db_state() {
 
 #[tokio::test]
 async fn replaying_same_stream_into_same_db_is_idempotent_for_blocks() {
-    // Replay-into-same-db isn't claimed to be idempotent for
-    // `share` rows — the schema doesn't have UNIQUE on
-    // (correlation_id) and the design absorbs at-most-once
-    // delivery from the broadcast channel. For `block` rows
-    // the `UNIQUE (hash)` + `block::ensure` does enforce
-    // idempotency, and that's what this test pins.
     let stream = deterministic_stream();
     let env = fresh_db().await;
     let consumer = EventConsumer::new(
         env.db.clone(),
         ConsumerConfig::new("x".to_owned(), "mainnet".to_owned()).unwrap(),
     );
-    for event in &stream {
-        consumer.handle_event(event.clone()).await;
-    }
-    let snap1 = snapshot(&env.db).await;
-    for event in &stream {
-        consumer.handle_event(event.clone()).await;
-    }
-    let snap2 = snapshot(&env.db).await;
+    replay_all(&consumer, &stream).await;
+    let snap1 = snapshot(&env.db).await.unwrap();
+    replay_all(&consumer, &stream).await;
+    let snap2 = snapshot(&env.db).await.unwrap();
     assert_eq!(
         snap1.blocks, snap2.blocks,
         "block rows must be idempotent on replay"
     );
-    assert_eq!(
-        snap1.wallets, snap2.wallets,
-        "wallet rows are upsert-idempotent"
-    );
-    assert_eq!(
-        snap1.workers, snap2.workers,
-        "worker rows are upsert-idempotent"
-    );
+    assert_eq!(snap1.wallets, snap2.wallets);
+    assert_eq!(snap1.workers, snap2.workers);
 }

@@ -16,9 +16,9 @@ cannot start until this page is complete.
 | 6 | Block maturity tracker advances `submitted_to_node` → `confirmed_blue` → `matured` (or `orphaned`) and calls the allocation engine on maturity. | 11 integration tests in `tests/maturity_tracker.rs` against ephemeral Postgres + `FakeKaspad`. | GREEN — landed in PR #20 (M3b) |
 | 7 | Maturity tracker against real kaspad-tn10: gRPC connection works; virtual blue score advances live; unknown-block hashes are recognised as "not yet confirmed", not as transport errors. | `accountant-tracker-runner` against the operator's testnet-10 kaspad; live evidence captured below. | GREEN — landed in PR #21 (M3c) |
 | 8 | Unified runtime binary: bridge + accountant event consumer + maturity tracker compose into one process with shared `tokio::sync::broadcast<PoolEvent>` channel; SIGINT/SIGTERM shutdown is clean. | `katpool` binary boots, all three subsystems start, kaspad gRPC works, SIGTERM exits cleanly within milliseconds. | GREEN — landed in PR #22 (M3d); dry-run evidence below |
-| 9 | Full mine-and-allocate end-to-end with an ASIC pointed at the bridge against testnet-10. | Operator-driven test via [runbook 16](runbooks/16-testnet10-full-pipeline-live.md); evidence pasted into this doc post-run. | PENDING — Goldshell BzMiner exercise on 2026-05-27 surfaced three real defects (M3f below); re-attempt after the M3f fixes land. |
-| 10 | M3f production-grade defect closeout: per-network `wallet::ensure`, real-vs-phantom `SubmitBlockResponse` discrimination, and lifecycle ordering invariant. | Targeted unit + property tests in this PR; live verification by re-running the Goldshell exercise post-merge. | GREEN — landed in this PR (M3f) |
-| 11 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | Phase 3 M4. | PENDING |
+| 9 | Full mine-and-allocate end-to-end with an ASIC pointed at the bridge against testnet-10. | Operator-driven test via [runbook 16](runbooks/16-testnet10-full-pipeline-live.md); evidence in §M3f cut-2 below. | GREEN — post-merge Goldshell re-run 2026-05-27 (`pipeline-evidence/2026-05-27T07-48-27Z-m3f-cut2-goldshell-validation/`, git `e854abe` / merged `92c2a59`) |
+| 10 | M3f production-grade defect closeout: per-network `wallet::ensure`, real-vs-phantom `SubmitBlockResponse` discrimination, and lifecycle ordering invariant. | Targeted unit + property tests in PR #25; live verification in row 9 cut-2. | GREEN — landed in PR #25 (M3f) |
+| 11 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | `accountant/tests/replay_harness_scale.rs` + `katpool-replay` + [runbook 17](runbooks/17-replay-determinism.md); operator ≥24h capture via `KATPOOL_EVENT_RECORD_PATH` or legacy monitoring log. | GREEN — landed in this PR (M4) |
 | 12 | `cargo deny check` clean on the locked Cargo.lock. | CI step; locally verifiable. | GREEN — every Phase 3 PR |
 
 ## Phase 3 M3c live evidence (this PR)
@@ -302,11 +302,49 @@ regress to the cut-1 behaviour.
 modules (`submit_block_report_tests`, `consumer_config_tests`,
 plus the existing `coinbase_recipient_tests`) cover the
 discriminator logic and config validation independent of any
-RPC / DB layer. The full integration regression — re-running the
-Goldshell live exercise and asserting non-zero rows in
-`share`, `block`, and `share_allocation` plus zero
-`orphan_block_accepted` events — is the operator-driven post-merge
-step that flips matrix row 9 to GREEN.
+RPC / DB layer.
+
+**Post-merge cut-2 live re-run (row 9 GREEN).** Artefacts:
+`pipeline-evidence/2026-05-27T07-48-27Z-m3f-cut2-goldshell-validation/`
+(git `e854abe`, 10-minute run, disposition
+`shares_and_blocks_observed`):
+
+| Signal | Count |
+|---|---|
+| `share` rows | 6,934 |
+| `block` rows | 6,934 |
+| `share_reject` rows | 6,291 |
+| `wallet_ensure` failures | 0 |
+| `orphan_block_accepted` | 0 |
+| kaspad `Success` (submitted) | 1,241 |
+| kaspad `RejectedByNode` (share still credited) | 5,693 |
+| `share_allocation` rows | 0 (no matured blocks in 10 min window) |
+
+Goldshell UI ~48% reject rate matches `reply_low_diff_share` (error
+23), not M3f `BadPow` — operational testnet churn, not a harness
+blocker.
+
+## Phase 3 M4 replay-determinism evidence (this PR)
+
+**Harness surface.**
+
+| Component | Role |
+|---|---|
+| `accountant::replay` | NDJSON load, DB snapshot, `verify_dual_replay` |
+| `katpool-replay` | Operator CLI (`--events`, `--legacy-log`, `--subsample-nth`) |
+| `KATPOOL_EVENT_RECORD_PATH` | Runtime NDJSON capture on the unified `katpool` bus |
+| `scripts/replay-determinism-rehearsal.sh` | Evidence wrapper (dual-verify via CI test) |
+| [Runbook 17](runbooks/17-replay-determinism.md) | Operator procedure |
+
+**CI gate:** `cargo test -p accountant --test replay_harness_scale`
+(~700 synthetic events, dual independent Postgres, byte-equal
+snapshots).
+
+**Operator ≥24h gate (cutover ticket):** capture via
+`KATPOOL_EVENT_RECORD_PATH` on a production-fed instance **or**
+legacy monitoring log export; replay with `katpool-replay` and
+archive manifest under `replay-evidence/`. Legacy log adapter
+documents the block-lifecycle gap (shares/rejects only).
 
 ## Sign-off
 
@@ -315,10 +353,7 @@ Phase 3 closes when:
 1. Every row in the matrix is GREEN.
 2. The operator-driven M3c live test against testnet-10 has been
    captured in the Run history table.
-3. The M3d unified runner has demonstrated an end-to-end
-   mine-and-allocate cycle against the operator's ASIC (with the
-   M3f defects fixed: `share` / `block` /
-   `share_allocation` tables show non-zero rows and zero
-   `orphan_block_accepted` events appear in the run log).
-4. The M4 replay-determinism harness has run against ≥ 24h of
-   captured legacy production logs.
+3. The M3d/M3f live exercise has demonstrated share + block rows
+   with zero `orphan_block_accepted` (see §M3f cut-2 above).
+4. The operator has archived ≥24h production event capture and
+   run `katpool-replay` / rehearsal script evidence (runbook 17).

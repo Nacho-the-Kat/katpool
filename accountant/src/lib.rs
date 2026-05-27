@@ -39,7 +39,8 @@
 //!   `KasplexTierClassifier` + schema migration adding
 //!   `applied_topline_bps`, `applied_rebate_bps`, `applied_tier`
 //!   to `share_allocation`.
-//! - **M4**: 24h-production-log replay determinism harness.
+//! - **M4**: 24h-production-log replay determinism harness
+//!   (`accountant::replay`, `katpool-replay` binary).
 //!
 //! See [`docs/decisions/0012-fee-model-and-tier-classification.md`](../../docs/decisions/0012-fee-model-and-tier-classification.md)
 //! for the architectural decision record.
@@ -59,6 +60,7 @@
 pub mod allocation;
 pub mod config;
 pub mod consumer;
+pub mod replay;
 pub mod error;
 pub mod kaspad_grpc;
 pub mod maturity;
@@ -73,6 +75,10 @@ pub use config::{
     STANDARD_REBATE_BPS, WalletTier,
 };
 pub use consumer::{ConsumerConfig, ConsumerConfigError, EventConsumer, VALID_NETWORKS};
+pub use replay::{
+    assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
+    verify_dual_replay, DbSnapshot,
+};
 pub use error::{AccountantError, EventError};
 pub use kaspad_grpc::{KaspadGrpcClient, extract_block_info};
 pub use maturity::{
