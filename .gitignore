@@ -35,6 +35,7 @@ lcov.info
 *.snap.new
 /tests/fuzz/corpus/
 /tests/fuzz/artifacts/
+/pipeline-evidence/
 
 # SBOM / security artifacts (built on demand in CI)
 /sbom/
