@@ -45,6 +45,7 @@
 //! the metric tick to surface.
 
 use katpool_db::repo::block::{self, EnsureOutcome};
+use katpool_db::repo::share_reject::{self, DbShareRejectReason};
 use katpool_db::repo::{share, wallet, worker};
 use katpool_domain::PoolEvent;
 use sqlx::PgPool;
@@ -142,14 +143,21 @@ impl EventConsumer {
                     self.log_event_error(variant, &e, &correlation_id);
                 }
             }
-            PoolEvent::ShareRejected { correlation_id, .. } => {
-                // M1 scope: count only. Reject-row persistence
-                // arrives with the per-miner stats surface in M2.
-                record_event(&self.cfg.instance_id, "share_rejected");
-                debug!(
-                    correlation_id = %correlation_id,
-                    "share rejected (metric tick; persistence deferred to M2)"
-                );
+            PoolEvent::ShareRejected {
+                wallet,
+                worker,
+                reason,
+                ts: _,
+                correlation_id,
+            } => {
+                let variant = "share_rejected";
+                record_event(&self.cfg.instance_id, variant);
+                if let Err(e) = self
+                    .handle_share_rejected(&wallet, &worker, reason, correlation_id)
+                    .await
+                {
+                    self.log_event_error(variant, &e, &correlation_id);
+                }
             }
             PoolEvent::BlockFound {
                 wallet,
@@ -189,6 +197,41 @@ impl EventConsumer {
                 warn!(event = ?other, "accountant received unknown PoolEvent variant");
             }
         }
+    }
+
+    async fn handle_share_rejected(
+        &self,
+        wallet_addr: &katpool_domain::WalletAddress,
+        worker_name: &katpool_domain::WorkerName,
+        reason: katpool_domain::ShareRejectReason,
+        correlation_id: katpool_domain::CorrelationId,
+    ) -> Result<(), EventError> {
+        // Translate first so we can bail before opening a tx if
+        // the reason has no schema mapping (recoverable, surfaces
+        // as a metric tick via the caller's error-logging path).
+        let db_reason = DbShareRejectReason::try_from(reason)
+            .map_err(|e| EventError::UnknownRejectReason { reason: e.reason })?;
+
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::ShareRejectInsert)?;
+        let w = wallet::ensure(&mut *tx, wallet_addr, NETWORK)
+            .await
+            .map_err(EventError::WalletEnsure)?;
+        let wk = worker::ensure(&mut *tx, w.id, worker_name)
+            .await
+            .map_err(EventError::WorkerEnsure)?;
+        share_reject::insert(&mut *tx, w.id, wk.id, db_reason, correlation_id)
+            .await
+            .map_err(EventError::ShareRejectInsert)?;
+        tx.commit()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::ShareRejectInsert)?;
+        Ok(())
     }
 
     async fn handle_share_credited(
@@ -327,6 +370,8 @@ impl EventConsumer {
             EventError::WalletEnsure(_) => "wallet_ensure",
             EventError::WorkerEnsure(_) => "worker_ensure",
             EventError::ShareInsert(_) => "share_insert",
+            EventError::ShareRejectInsert(_) => "share_reject_insert",
+            EventError::UnknownRejectReason { .. } => "unknown_reject_reason",
             EventError::BlockEnsure(_) => "block_ensure",
             EventError::BlockMarkSubmitted(_) => "block_mark_submitted",
             EventError::OrphanBlockAccepted { .. } => "orphan_block_accepted",

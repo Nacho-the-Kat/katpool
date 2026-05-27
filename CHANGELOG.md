@@ -52,6 +52,44 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 2 (accountant: window aggregation + reject
+  persistence + per-miner stats): the read-side primitives the
+  Phase 6 HTTP API will compose, plus the pre-aggregation that
+  M3's PROP allocation engine reads instead of scanning the
+  live `share` table per block.
+    - Migration `20260527000000_share_reject.sql` introduces the
+      `share_reject_reason` postgres enum (variants byte-for-
+      byte match `ShareRejectReason::as_str()`) and the
+      `share_reject` table with three indexes (worker-time,
+      wallet-time, reason-time) for the three canonical access
+      patterns.
+    - `repo::share_reject` — `insert`, `list_for_wallet`,
+      `count_by_reason_for_wallet`, `count_by_reason_pool_wide`,
+      plus a `TryFrom<ShareRejectReason>` mapping that
+      deliberately rejects unknown upstream variants so the
+      build fails until a paired migration ships (defends
+      against the `#[non_exhaustive]` enum drift).
+    - `repo::share_stats` — read-only aggregations:
+      `accepted_for_wallet`, `accepted_pool_wide`,
+      `hashrate_estimate_for_wallet` / `_pool_wide`
+      (`weight * 2^32 / window_secs` convention), and
+      `accepted_and_rejected_for_wallet` (one-round-trip
+      summary for the `/miner/{addr}` API endpoint).
+    - `accountant::WindowAggregator::close_window` — closes a
+      half-open `[daa_start, daa_end)` range with a single
+      transactional `INSERT ... SELECT ... GROUP BY` over
+      `share`, materialising one `share_window` row per
+      contributing wallet. Idempotent via the table's
+      `UNIQUE (wallet_id, daa_start, daa_end)` plus
+      `ON CONFLICT DO UPDATE` that refreshes
+      `total_weight` / `share_count` / `ended_at` while
+      preserving the original `started_at`.
+    - Consumer wires `ShareRejected` → `share_reject` rows in
+      addition to the existing metric tick. Unknown-reason
+      events still tick the metric but skip the insert.
+    - 14 new tests (5 window_aggregator + 4 share_reject + 5
+      share_stats), bringing the accountant suite to 33 tests
+      (11 unit + 22 integration).
 - Phase 3 milestone 1 (accountant scaffold + event ingestion):
   the pool accountant's foundation — event consumer, fee model,
   wallet-tier classification framework. Subsequent Phase 3 PRs

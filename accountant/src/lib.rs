@@ -28,11 +28,13 @@
 //!
 //! ## Phase 3 milestone surface (this PR is M1)
 //!
-//! - **M1** (this PR): scaffold + share/block event ingestion +
+//! - **M1**: scaffold + share/block event ingestion +
 //!   `FeeConfig` + `WalletTier` + `TierClassifier` trait with the
 //!   `StaticTierClassifier` stub.
-//! - **M2**: share-window aggregation; reject persistence; per-
-//!   miner stats surface.
+//! - **M2** (this PR): share-window aggregation primitive
+//!   (`WindowAggregator`), share-reject persistence
+//!   (`share_reject` table + repo), and the per-miner stats
+//!   read-side primitives (`share_stats` repo).
 //! - **M3**: PROP allocation engine + cached HTTP
 //!   `KasplexTierClassifier` + schema migration adding
 //!   `applied_topline_bps`, `applied_rebate_bps`, `applied_tier`
@@ -59,6 +61,7 @@ pub mod consumer;
 pub mod error;
 pub mod metrics;
 pub mod tier;
+pub mod window;
 
 pub use config::{
     DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig, STANDARD_REBATE_BPS, WalletTier,
@@ -66,6 +69,7 @@ pub use config::{
 pub use consumer::{ConsumerConfig, EventConsumer};
 pub use error::{AccountantError, EventError};
 pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
+pub use window::{CloseOutcome, WindowAggregator};
 
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
