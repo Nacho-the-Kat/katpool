@@ -28,6 +28,7 @@
 
 use katpool_db::repo::block::BlockStatus;
 use katpool_db::repo::payout::{Krc20TransferStatus, PayoutCycleStatus, PayoutKind, PayoutStatus};
+use katpool_db::repo::share_allocation::DbWalletTier;
 use katpool_db::repo::share_reject::DbShareRejectReason;
 use katpool_db::{PoolConfig, build_pool, migrate};
 use testcontainers::ContainerAsync;
@@ -163,6 +164,15 @@ async fn block_status_round_trips_every_variant() {
 }
 
 #[tokio::test]
+async fn wallet_tier_round_trips_every_variant() {
+    let env = setup().await;
+    for v in [DbWalletTier::Standard, DbWalletTier::Elite] {
+        let got = roundtrip(&env.db, "wallet_tier", v).await;
+        assert_eq!(got, v, "wallet_tier variant {v:?} drifted");
+    }
+}
+
+#[tokio::test]
 async fn share_reject_reason_round_trips_every_variant() {
     let env = setup().await;
     for v in [
@@ -236,6 +246,13 @@ mod exhaustiveness_guards {
             | BlockStatus::ConfirmedBlue
             | BlockStatus::Matured
             | BlockStatus::Orphaned => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    fn wallet_tier(v: DbWalletTier) {
+        match v {
+            DbWalletTier::Standard | DbWalletTier::Elite => {}
         }
     }
 

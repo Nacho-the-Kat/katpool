@@ -307,6 +307,9 @@ async fn share_allocation_balance_check_enforced() {
         pool_fee_sompi: 100,
         nacho_accrual_sompi: 100,
         net_payout_sompi: 100, // sum is 300, not 1_000
+        applied_topline_bps: 75,
+        applied_rebate_bps: 3_300,
+        applied_tier: share_allocation::DbWalletTier::Standard,
     };
     let err = share_allocation::insert_batch(&pool, block_id, &[bad])
         .await
@@ -325,24 +328,35 @@ async fn share_allocation_insert_batch_round_trip() {
         .expect("wallet 2");
 
     // Block reward 5e9 sompi; two wallets, 60/40 split.
+    // Topline 75bps (0.75%), standard tier (33% rebate of fee_share):
+    //   gross  = 3e9  → fee_share=22_500_000 → nacho=7_425_000 →
+    //                   pool_fee=15_075_000  → net=2_977_500_000
+    //   gross  = 2e9  → fee_share=15_000_000 → nacho=4_950_000 →
+    //                   pool_fee=10_050_000  → net=1_985_000_000
     let rows = vec![
         share_allocation::NewAllocation {
             wallet_id: wallet_id_a,
             weight: 60.0,
             window_total: 100.0,
             gross_share_sompi: 3_000_000_000,
-            pool_fee_sompi: 22_500_000,       // 0.75%
-            nacho_accrual_sompi: 982_125_000, // ~33% of net of fee
-            net_payout_sompi: 1_995_375_000,
+            pool_fee_sompi: 15_075_000,
+            nacho_accrual_sompi: 7_425_000,
+            net_payout_sompi: 2_977_500_000,
+            applied_topline_bps: 75,
+            applied_rebate_bps: 3_300,
+            applied_tier: share_allocation::DbWalletTier::Standard,
         },
         share_allocation::NewAllocation {
             wallet_id: w2.id,
             weight: 40.0,
             window_total: 100.0,
             gross_share_sompi: 2_000_000_000,
-            pool_fee_sompi: 15_000_000,
-            nacho_accrual_sompi: 654_750_000,
-            net_payout_sompi: 1_330_250_000,
+            pool_fee_sompi: 10_050_000,
+            nacho_accrual_sompi: 4_950_000,
+            net_payout_sompi: 1_985_000_000,
+            applied_topline_bps: 75,
+            applied_rebate_bps: 3_300,
+            applied_tier: share_allocation::DbWalletTier::Standard,
         },
     ];
 
@@ -364,7 +378,7 @@ async fn share_allocation_insert_batch_round_trip() {
     let pending_a = share_allocation::pending_balance_for_wallet(&pool, wallet_id_a)
         .await
         .expect("pending");
-    assert_eq!(pending_a, 1_995_375_000);
+    assert_eq!(pending_a, 2_977_500_000);
 }
 
 #[tokio::test]
@@ -376,8 +390,9 @@ async fn share_allocation_db_check_constraint_rejects_unbalanced_directly() {
     let err = sqlx::query(
         "INSERT INTO share_allocation
             (block_id, wallet_id, weight, window_total,
-             gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi)
-         VALUES ($1, $2, 1.0, 1.0, 1000, 1, 1, 1)",
+             gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
+             applied_topline_bps, applied_rebate_bps, applied_tier)
+         VALUES ($1, $2, 1.0, 1.0, 1000, 1, 1, 1, 75, 3300, 'standard')",
     )
     .bind(block_id.0)
     .bind(wallet_id.0)

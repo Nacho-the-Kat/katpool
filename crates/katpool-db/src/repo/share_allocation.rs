@@ -13,6 +13,34 @@ use sqlx::PgExecutor;
 use crate::DbError;
 use crate::repo::{BlockId, WalletId};
 
+/// Postgres-enum-backed wallet tier.
+///
+/// Mirrors `accountant::WalletTier` byte-for-byte; defined here
+/// (rather than re-imported from the accountant crate) so the
+/// db crate keeps zero accountant-side dependencies and the
+/// allocation insert code can take a tier value without forming
+/// a circular dep. The accountant converts between the two
+/// representations explicitly at the call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(type_name = "wallet_tier", rename_all = "snake_case")]
+pub enum DbWalletTier {
+    /// Default tier.
+    Standard,
+    /// NACHO NFT holder OR ≥ 100M NACHO holder.
+    Elite,
+}
+
+impl DbWalletTier {
+    /// Stable lowercase string suitable for log fields.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::Elite => "elite",
+        }
+    }
+}
+
 /// One row of the `share_allocation` table.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ShareAllocation {
@@ -28,15 +56,24 @@ pub struct ShareAllocation {
     pub window_total: f64,
     /// `round(miner_reward_sompi * weight / window_total)`.
     pub gross_share_sompi: i64,
-    /// Pool fee taken from `gross` (typically 0.75%).
+    /// Pool revenue from `gross` (net of the NACHO rebate).
     pub pool_fee_sompi: i64,
-    /// NACHO rebate accrued from `gross` (33% of `gross - pool_fee`).
+    /// NACHO rebate accrued from `gross`, denominated in sompi
+    /// (converted to NACHO tokens at krc-20 payout-cycle time).
     pub nacho_accrual_sompi: i64,
     /// `gross - pool_fee - nacho_accrual`. Sums to the wallet's
     /// pending KAS payout for this block.
     pub net_payout_sompi: i64,
     /// Computation timestamp.
     pub computed_at: DateTime<Utc>,
+    /// Topline-fee basis points applied at compute time. Audit
+    /// trail — operator changes to `KATPOOL_FEE_TOPLINE_BPS` do
+    /// not affect already-allocated rows.
+    pub applied_topline_bps: i16,
+    /// Rebate basis points applied at compute time.
+    pub applied_rebate_bps: i16,
+    /// Tier classification used at compute time.
+    pub applied_tier: DbWalletTier,
 }
 
 /// A single allocation row to insert. Used by [`insert_batch`].
@@ -50,12 +87,18 @@ pub struct NewAllocation {
     pub window_total: f64,
     /// Gross sompi attributable.
     pub gross_share_sompi: i64,
-    /// Pool fee.
+    /// Pool revenue.
     pub pool_fee_sompi: i64,
-    /// NACHO accrual.
+    /// NACHO accrual in sompi.
     pub nacho_accrual_sompi: i64,
-    /// Net payout.
+    /// Net KAS payout.
     pub net_payout_sompi: i64,
+    /// Topline bps that produced this row.
+    pub applied_topline_bps: i16,
+    /// Rebate bps that produced this row.
+    pub applied_rebate_bps: i16,
+    /// Tier classification used.
+    pub applied_tier: DbWalletTier,
 }
 
 impl NewAllocation {
@@ -109,14 +152,19 @@ where
     let fee: Vec<i64> = rows.iter().map(|r| r.pool_fee_sompi).collect();
     let accrual: Vec<i64> = rows.iter().map(|r| r.nacho_accrual_sompi).collect();
     let net: Vec<i64> = rows.iter().map(|r| r.net_payout_sompi).collect();
+    let topline_bps: Vec<i16> = rows.iter().map(|r| r.applied_topline_bps).collect();
+    let rebate_bps: Vec<i16> = rows.iter().map(|r| r.applied_rebate_bps).collect();
+    let tiers: Vec<DbWalletTier> = rows.iter().map(|r| r.applied_tier).collect();
 
     let result = sqlx::query(
         "INSERT INTO share_allocation
             (block_id, wallet_id, weight, window_total,
-             gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi)
+             gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
+             applied_topline_bps, applied_rebate_bps, applied_tier)
          SELECT $1, *
            FROM UNNEST($2::bigint[], $3::float8[], $4::float8[],
-                      $5::bigint[], $6::bigint[], $7::bigint[], $8::bigint[])",
+                       $5::bigint[], $6::bigint[], $7::bigint[], $8::bigint[],
+                       $9::smallint[], $10::smallint[], $11::wallet_tier[])",
     )
     .bind(block_id.0)
     .bind(&wallet_ids)
@@ -126,6 +174,9 @@ where
     .bind(&fee)
     .bind(&accrual)
     .bind(&net)
+    .bind(&topline_bps)
+    .bind(&rebate_bps)
+    .bind(&tiers)
     .execute(executor)
     .await?;
 
@@ -140,7 +191,7 @@ pub async fn list_for_block<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, ShareAllocation>(
         "SELECT id, block_id, wallet_id, weight, window_total,
                 gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
-                computed_at
+                computed_at, applied_topline_bps, applied_rebate_bps, applied_tier
            FROM share_allocation
           WHERE block_id = $1
           ORDER BY weight DESC",
@@ -160,7 +211,7 @@ pub async fn list_for_wallet<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, ShareAllocation>(
         "SELECT id, block_id, wallet_id, weight, window_total,
                 gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
-                computed_at
+                computed_at, applied_topline_bps, applied_rebate_bps, applied_tier
            FROM share_allocation
           WHERE wallet_id = $1
           ORDER BY computed_at DESC

@@ -56,13 +56,16 @@
     )
 )]
 
+pub mod allocation;
 pub mod config;
 pub mod consumer;
 pub mod error;
 pub mod metrics;
 pub mod tier;
+pub mod tier_kasplex;
 pub mod window;
 
+pub use allocation::{AllocationEngine, AllocationEngineError, AllocationOutcome};
 pub use config::{
     Allocation, AllocationError, DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig,
     STANDARD_REBATE_BPS, WalletTier,
@@ -70,6 +73,10 @@ pub use config::{
 pub use consumer::{ConsumerConfig, EventConsumer};
 pub use error::{AccountantError, EventError};
 pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
+pub use tier_kasplex::{
+    DEFAULT_ELITE_KRC20_THRESHOLD, DEFAULT_HTTP_TIMEOUT, DEFAULT_KRC20_BASE, DEFAULT_NACHO_TICKER,
+    DEFAULT_NFT_BASE, DEFAULT_TTL, KasplexConfig, KasplexTierClassifier,
+};
 pub use window::{CloseOutcome, WindowAggregator};
 
 /// Crate version constant.
