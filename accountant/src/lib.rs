@@ -60,6 +60,7 @@ pub mod allocation;
 pub mod config;
 pub mod consumer;
 pub mod error;
+pub mod maturity;
 pub mod metrics;
 pub mod tier;
 pub mod tier_kasplex;
@@ -72,6 +73,11 @@ pub use config::{
 };
 pub use consumer::{ConsumerConfig, EventConsumer};
 pub use error::{AccountantError, EventError};
+pub use maturity::{
+    BlockInfo, DEFAULT_BATCH_SIZE, DEFAULT_MATURITY_DEPTH, DEFAULT_POLL_INTERVAL,
+    DEFAULT_WINDOW_DAA_SPAN, KaspadClient, KaspadError, MaturityConfig, MaturityTracker,
+    SweepStats, TrackerError,
+};
 pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
 pub use tier_kasplex::{
     DEFAULT_ELITE_KRC20_THRESHOLD, DEFAULT_HTTP_TIMEOUT, DEFAULT_KRC20_BASE, DEFAULT_NACHO_TICKER,

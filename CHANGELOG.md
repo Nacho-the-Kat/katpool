@@ -52,6 +52,52 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 3b (accountant: block maturity tracker):
+  the kaspad-watching loop that drives the M3 allocation engine
+  on every matured block. Closes the loop from `submitted_to_node`
+  through `confirmed_blue` to `matured` (or `orphaned` on DAG
+  re-org).
+    - `accountant::maturity::KaspadClient` trait — minimal
+      surface (`get_virtual_blue_score`, `get_block`) over the
+      kaspad gRPC surface, so the tracker's state machine has
+      deterministic test coverage against an in-memory fake
+      (`FakeKaspad`). Real `KaspadGrpcClient` impl deferred to
+      M3c per ADR-0014 § 2.
+    - `accountant::maturity::MaturityTracker::{run_once,
+      run_loop}` — single polling sweep + cancellation-aware
+      loop driven by `tokio::sync::watch`. Operator-tunable
+      `MaturityConfig { poll_interval, maturity_depth,
+      window_daa_span, batch_size }`. Defaults: 15s polling,
+      100-block depth (matches Kaspa's coinbase_maturity), 600
+      DAA window (~60s at 10 BPS), 200 blocks/sweep batch limit.
+    - State transitions: submitted→confirmed_blue when kaspad
+      reports `is_blue`; confirmed_blue→matured when
+      `virtual_blue_score - block.blue_score ≥ maturity_depth`
+      (calls the engine atomically); confirmed_blue→orphaned
+      when kaspad has lost the block OR reports it as red. The
+      `matured` path hands off to
+      `AllocationEngine::allocate_matured_block` with the
+      window `[block.daa_score - window_daa_span,
+      block.daa_score)`.
+    - Per-block error isolation: a single kaspad/DB failure
+      logs + counts in `SweepStats.errors` and the sweep
+      continues. Whole-sweep failures (kaspad transport down)
+      bubble out as `TrackerError` but `run_loop` catches +
+      retries at the next interval — the loop never dies.
+    - 11 integration tests against ephemeral Postgres +
+      in-memory `FakeKaspad`: confirmed-blue happy path; stays
+      when kaspad doesn't know the block; stays when block is
+      red; matures + triggers engine when depth reached; waits
+      when depth insufficient; orphans on missing-from-DAG;
+      orphans on reorg-to-red; whole-sweep fails on
+      virtual-blue transport error; per-block error isolated;
+      batch_size enforces per-sweep limit; run_loop exits
+      cleanly on shutdown signal.
+    - ADR-0014 captures the polling-vs-subscription decision,
+      the kaspad-trait abstraction rationale, the window-size
+      policy (independent from coinbase maturity), reward
+      extraction as M3c's concern, error-isolation strategy,
+      and shutdown via `watch`.
 - Phase 3 milestone 3 (accountant: PROP allocation engine + HTTP
   tier classifier + audit-trail migration): the money-math
   milestone. Closes the loop from "block confirms blue" through
