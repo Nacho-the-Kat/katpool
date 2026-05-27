@@ -52,6 +52,59 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 3d (unified runtime): the `katpool` binary
+  embeds the stratum bridge + the accountant event consumer +
+  the maturity tracker into one process with a shared
+  `tokio::sync::broadcast<PoolEvent>` channel. This is the
+  binary the operator points a testnet ASIC at for the M3d
+  acceptance test.
+    - Bridge: new `listen_and_serve_with_events` public function
+      (a small UPSTREAM divergence captured in
+      `bridge/UPSTREAM.md`) that accepts an optional
+      `broadcast::Sender<PoolEvent>` and wires it into
+      `ShareHandler::with_event_bus`. The original
+      `listen_and_serve` is preserved as a thin wrapper passing
+      `None`, so the bridge's own `main.rs` keeps the upstream
+      call shape.
+    - `katpool/src/main.rs`: env-configurable Phase 7 wiring
+      binary, partially active in M3d. Subsystems:
+        1. stratum bridge (listener on `KATPOOL_STRATUM_PORT`,
+           talks to kaspad via `KaspaApi`)
+        2. accountant `EventConsumer::run` against the shared
+           broadcast channel
+        3. `MaturityTracker::run_loop` against
+           `KaspadGrpcClient` connected to the same kaspad
+      All three share a `tokio::sync::watch::Receiver<bool>`
+      for graceful shutdown. Required env vars:
+      `KASPAD_GRPC_URL`, `KATPOOL_DATABASE_URL`,
+      `KATPOOL_POOL_ADDRESS`, `KATPOOL_STRATUM_PORT`.
+    - `katpool/Cargo.toml`: replaces the scaffold-machete
+      ignore with explicit per-phase ignores (Phase 4
+      `payout-kas`, Phase 5 `payout-krc20`, Phase 6 `api`,
+      Phase 7 telemetry/secrets/config still-unwired). Each
+      future-phase PR drops its own entry as it activates.
+    - `scripts/testnet10-full-pipeline-live.sh`: operator-
+      facing full-pipeline live exercise. Stands up throwaway
+      Docker Postgres, runs the `katpool` binary on a free
+      stratum port, captures wallet/share/block/allocation
+      counts into a timestamped artefact directory. Exit codes
+      distinguish "shares + blocks observed" / "shares only" /
+      "no activity".
+    - Runbook 16 (`docs/runbooks/16-testnet10-full-pipeline-live.md`):
+      preconditions, ASIC config syntax, success criteria,
+      exit-code table, cleanup, and what-to-paste-into-the-
+      acceptance-ticket.
+    - `docs/phase-3-acceptance.md` updated with the M3d
+      dry-run evidence (both runs: the pre-fix shutdown-
+      ordering bug surface and the post-fix validation).
+    - Dry-run on the VPS surfaced a real shutdown-ordering
+      bug: consumer hung waiting for `broadcast::Sender`
+      clones held by the bridge's internal kaspad-notification
+      tasks. Fixed by aborting the consumer JoinHandle
+      directly rather than draining it; at-most-once delivery
+      is the design contract so dropping in-flight events on
+      shutdown is correct. Clean exit measured at 218
+      microseconds from SIGTERM.
 - Phase 3 milestone 3c (accountant: real kaspad gRPC client +
   tracker-only live exercise): the real `KaspadClient` impl
   backed by `kaspa-grpc-client` so the maturity tracker (M3b)

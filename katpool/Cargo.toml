@@ -12,16 +12,36 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Scaffold binary — every dep below is reserved for the Phase 7
-# wiring crate that composes the workspace into a single process.
+# Phase 7 wiring binary, partially-active.
+#
+# Phase 3 M3d activates the bridge + accountant composition (the
+# `katpool` binary runs the stratum bridge + the accountant event
+# consumer + the maturity tracker in one process with a shared
+# broadcast channel).
+#
+# Phase 4 will wire `payout-kas`, Phase 5 `payout-krc20`, Phase 6
+# `api`, Phase 7 closes out the remaining scaffold-only deps
+# (`katpool-config`, `katpool-secrets`, `katpool-telemetry`,
+# `katpool-metrics`). Until each phase lands, machete must ignore
+# the corresponding dep below.
 [package.metadata.cargo-machete]
 ignored = [
-    "anyhow",
+    # Phase 4/5/6 scaffold deps — listed here so Phase N's PR
+    # can drop the entry it activates without touching the
+    # rest.
+    "payout-kas",
+    "payout-krc20",
+    "api",
+    # Phase 7 telemetry/secrets/metrics — currently no direct
+    # use; wired in Phase 7's main composition.
+    "katpool-config",
+    "katpool-metrics",
+    "katpool-telemetry",
+    "katpool-secrets",
+    # Workspace deps the M3d binary doesn't yet use; Phase 7
+    # will.
     "serde",
     "thiserror",
-    "tokio",
-    "tracing",
-    "tracing-subscriber",
 ]
 
 [[bin]]
@@ -39,7 +59,17 @@ accountant = { path = "../accountant" }
 payout-kas = { path = "../payout-kas" }
 payout-krc20 = { path = "../payout-krc20" }
 api = { path = "../api" }
-tokio = { workspace = true }
+# Bridge — embedded as a library so the unified runtime can run
+# both the stratum server and the accountant in one process.
+kaspa-stratum-bridge = { path = "../bridge" }
+
+# Kaspad gRPC for the accountant's maturity tracker. Same node
+# the bridge talks to, but a separate client connection.
+kaspa-addresses = { workspace = true }
+kaspa-grpc-client = { workspace = true }
+kaspa-rpc-core = { workspace = true }
+
+tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time", "signal"] }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

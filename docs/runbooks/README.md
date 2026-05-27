@@ -21,6 +21,7 @@ stop when the corresponding alert fires.
 | [13](13-kaspad-tn10-bootstrap.md) | kaspad-tn10 install / upgrade / recover | — (ops procedure) |
 | [14](14-legacy-importer.md) | Legacy-database importer (cutover) | — (one-shot cutover procedure) |
 | [15](15-testnet10-tracker-live.md) | Phase 3 M3c — maturity-tracker live exercise on testnet-10 | — (acceptance procedure) |
+| [16](16-testnet10-full-pipeline-live.md) | Phase 3 M3d — full mine-and-allocate pipeline live exercise on testnet-10 | — (acceptance procedure with ASIC) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

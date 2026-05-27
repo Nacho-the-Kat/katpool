@@ -7,8 +7,10 @@ use crate::{
     stratum_context::StratumContext,
     stratum_listener::{StratumListener, StratumListenerConfig},
 };
+use katpool_domain::PoolEvent;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 pub struct BridgeConfig {
@@ -59,6 +61,29 @@ pub async fn listen_and_serve<T: KaspaApiTrait + Send + Sync + 'static>(
     // Optional: if concrete KaspaApi is provided, use notification-based listener
     concrete_kaspa_api: Option<Arc<KaspaApi>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    listen_and_serve_with_events(config, kaspa_api, concrete_kaspa_api, None).await
+}
+
+/// `listen_and_serve` plus an optional broadcast sender for
+/// `PoolEvent`s.
+///
+/// katpool fork addition. When `event_tx` is provided, the
+/// internal `ShareHandler` is wired via
+/// [`ShareHandler::with_event_bus`] and every share / block
+/// lifecycle event the handler emits goes into the channel.
+/// This is the seam the unified `katpool` runtime binary uses to
+/// connect the bridge to the accountant in the same process.
+///
+/// Pass `None` to get identical behaviour to the original
+/// `listen_and_serve` (the upstream call shape).
+///
+/// Logged divergence per `bridge/UPSTREAM.md`.
+pub async fn listen_and_serve_with_events<T: KaspaApiTrait + Send + Sync + 'static>(
+    config: BridgeConfig,
+    kaspa_api: Arc<T>,
+    concrete_kaspa_api: Option<Arc<KaspaApi>>,
+    event_tx: Option<broadcast::Sender<PoolEvent>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Calculate min diff with pow2 clamp if needed
     let mut min_diff = config.min_share_diff as f64;
     if config.pow2_clamp && min_diff > 0.0 {
@@ -78,9 +103,18 @@ pub async fn listen_and_serve<T: KaspaApiTrait + Send + Sync + 'static>(
         2 // Default to 2, will be auto-detected per client anyway
     };
 
-    // Create share handler with instance identifier
+    // Create share handler with instance identifier. When the
+    // caller supplied an event bus sender, wire it in so every
+    // share + block lifecycle event flows to the downstream
+    // accountant consumer.
     let instance_id = config.instance_id.clone();
-    let share_handler = Arc::new(ShareHandler::new(instance_id.clone()));
+    let share_handler = {
+        let mut handler = ShareHandler::new(instance_id.clone());
+        if let Some(tx) = event_tx {
+            handler = handler.with_event_bus(tx);
+        }
+        Arc::new(handler)
+    };
 
     // Create client handler
     // Note: extranonce_size parameter is now only used for backward compatibility
