@@ -15,9 +15,10 @@ workspace = true
 [dependencies]
 katpool-domain = { path = "../crates/katpool-domain" }
 katpool-db = { path = "../crates/katpool-db" }
-katpool-metrics = { path = "../crates/katpool-metrics" }
-katpool-idempotency = { path = "../crates/katpool-idempotency" }
-katpool-telemetry = { path = "../crates/katpool-telemetry" }
+# `katpool-metrics`, `katpool-idempotency`, `katpool-telemetry` will
+# be wired in M3 (allocation engine + cached HTTP tier classifier)
+# when their public APIs settle; adding them now would be
+# speculative and trip cargo-machete.
 tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time"] }
 sqlx = { workspace = true }
 serde = { workspace = true }
@@ -32,3 +33,4 @@ anyhow = "1.0"
 proptest = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
+uuid = { workspace = true }

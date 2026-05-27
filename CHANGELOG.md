@@ -52,6 +52,49 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 hardening: verification-posture pass before M3.
+  Closes the gaps identified in a self-audit of "are we
+  *deterministically verifying* what we ship, or cargo-culting
+  good practice".
+    - `FeeConfig::compute_allocation` — the per-block allocation
+      math, lifted out of M3's planned scope so M2 can land it
+      now with full proptest coverage. Integer-only throughout;
+      truncation residues stay with the pool so the balance
+      equation `gross == pool_fee + nacho_accrual + net_payout`
+      holds exactly. Returns typed `AllocationError` for
+      negative gross / overflow / balance-check failure.
+    - `accountant/tests/allocation_properties.rs` (13 tests) —
+      proptest over `(gross, topline_bps, tier)` for: balance
+      equation, non-negativity, tier monotonicity, topline
+      monotonicity, audit-trail faithfulness, elite-rebate-
+      always-100%, standard-rebate-≈33%, boundary cases. Caught a
+      genuine overflow at the i64 limit during initial run —
+      surfaced as `AllocationError::Overflow { stage: "fee_share" }`
+      now covered by a boundary test.
+    - `crates/katpool-db/tests/enum_parity.rs` (6 tests) —
+      round-trips every variant of every `sqlx::Type` enum
+      (`payout_kind`, `payout_cycle_status`, `payout_status`,
+      `krc20_transfer_status`, `block_status`,
+      `share_reject_reason`) through a typed temporary table.
+      Exhaustiveness-guard `match`es fail the build when a Rust
+      variant is added without extending the round-trip loop.
+    - `accountant/tests/replay_determinism.rs` (2 tests) — feeds
+      an identical event stream to two independent consumers
+      (separate Postgres instances) and asserts byte-equal
+      content in every table the consumer wrote.
+    - CI gates: added `typos` (kaspa-tuned `_typos.toml`) and
+      `cargo machete` (workspace-scoped unused-dep detection).
+      Both are blocking. The machete run identified pre-existing
+      drift in 15 crates' Cargo.tomls; cleaned up the active
+      crates (accountant, katpool-db, katpool-import-legacy)
+      and added documented `[package.metadata.cargo-machete]
+      ignored` blocks to scaffold crates with comments naming the
+      phase that activates each dep.
+    - Genuine typo fix: `unparseab` → `unparsab` in 5 files
+      (function names, doc comments, runbook text).
+    - ADR-0013 (`docs/decisions/0013-verification-posture.md`)
+      documents the project's seven verification layers and the
+      explicit out-of-scope items.
 - Phase 3 milestone 2 (accountant: window aggregation + reject
   persistence + per-miner stats): the read-side primitives the
   Phase 6 HTTP API will compose, plus the pre-aggregation that

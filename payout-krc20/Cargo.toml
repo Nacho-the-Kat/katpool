@@ -12,6 +12,29 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — every dep below is reserved for Phase 5
+# (KRC-20 NACHO payout engine).
+[package.metadata.cargo-machete]
+ignored = [
+    "async-trait",
+    "chrono",
+    "hex",
+    "katpool-db",
+    "katpool-domain",
+    "katpool-idempotency",
+    "katpool-metrics",
+    "katpool-secrets",
+    "katpool-storagemass",
+    "katpool-telemetry",
+    "reqwest",
+    "secrecy",
+    "serde",
+    "serde_json",
+    "thiserror",
+    "tokio",
+    "tracing",
+]
+
 [dependencies]
 katpool-domain = { path = "../crates/katpool-domain" }
 katpool-db = { path = "../crates/katpool-db" }

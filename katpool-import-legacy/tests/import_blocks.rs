@@ -230,7 +230,7 @@ async fn correlation_id_is_deterministic_across_runs() {
 }
 
 #[tokio::test]
-async fn rejects_rows_with_unparseable_data() {
+async fn rejects_rows_with_unparsable_data() {
     let env = setup().await;
 
     // 1. Missing wallet.

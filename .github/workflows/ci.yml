@@ -144,6 +144,49 @@ jobs:
       - name: cargo doc
         run: cargo doc --workspace --no-deps --locked
 
+  # Catches typos in code, comments, and docs. Configuration in
+  # `_typos.toml` at the repo root tunes the crate-ci/typos
+  # defaults for our domain vocabulary (kaspa-specific terms,
+  # KRC-20/KRC-721, etc.).
+  typos:
+    name: typos
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: typos
+        uses: crate-ci/typos@7b04f660f4ee4f048d18fd341887cf28dfbedfe2 # v1.46.3
+
+  # Catches unused dependencies — orphaned `[dependencies]` entries
+  # that no `use` references anywhere in the crate. Tightens the
+  # supply-chain attack surface (every dep is one fewer crate to
+  # audit) and keeps `Cargo.toml` honest about what the code
+  # actually needs.
+  machete:
+    name: machete
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: "1.88"
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          shared-key: katpool-machete
+      - name: Install cargo-machete
+        run: cargo install --locked cargo-machete --version '^0.9'
+      - name: cargo machete
+        run: cargo machete --skip-target-dir
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest

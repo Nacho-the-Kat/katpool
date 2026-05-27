@@ -39,7 +39,7 @@ pub enum DbShareRejectReason {
     BadPow,
     /// Stratum job id not recognised.
     MissingJob,
-    /// Submission frame unparseable.
+    /// Submission frame unparsable.
     MalformedFrame,
     /// Dedup window saw the same submission twice.
     DuplicateSubmit,

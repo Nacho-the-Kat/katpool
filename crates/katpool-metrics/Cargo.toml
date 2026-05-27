@@ -12,6 +12,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — deps reserved for the Phase 7 metrics
+# registry helpers (bounded-cardinality wrappers around
+# prometheus). The accountant's M1 metric registration is
+# currently inline; the M3 work will fold it into this crate.
+[package.metadata.cargo-machete]
+ignored = ["prometheus", "tracing"]
+
 [dependencies]
 prometheus = { workspace = true }
 tracing = { workspace = true }

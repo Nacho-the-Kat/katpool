@@ -117,7 +117,7 @@ jq '.reconcile.checks[] | select(.passed == false)' reconcile-cutover.json
 For each failed check:
 
 - **`blocks.row_count`** mismatch → some `block_details` rows had
-  unparseable `mined_block_hash`. Grep stderr for `"blocks row rejected"`.
+  unparsable `mined_block_hash`. Grep stderr for `"blocks row rejected"`.
 - **`payments.amount_total_sompi`** mismatch → some `payments` rows
   had invalid `transaction_hash` (rejected) or invalid recipient
   wallet (rejected). Grep stderr for `"payments row rejected"`.

@@ -64,7 +64,8 @@ pub mod tier;
 pub mod window;
 
 pub use config::{
-    DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig, STANDARD_REBATE_BPS, WalletTier,
+    Allocation, AllocationError, DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig,
+    STANDARD_REBATE_BPS, WalletTier,
 };
 pub use consumer::{ConsumerConfig, EventConsumer};
 pub use error::{AccountantError, EventError};
