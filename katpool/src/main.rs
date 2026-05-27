@@ -109,9 +109,31 @@ async fn main() -> Result<()> {
 
     // ---- kaspad clients (bridge + accountant share the URL,
     //      separate connections) ---------------------------------------
-    let kaspa_api = KaspaApi::new(cfg.kaspad_url.clone(), Duration::from_millis(500), None)
-        .await
-        .map_err(|e| anyhow::anyhow!("KaspaApi: {e}"))?;
+    // Custodial PROP-pool mode: every block template the bridge
+    // requests from kaspad pays the pool's address (regardless of
+    // which miner authorized). The miner-supplied wallet on
+    // `mining.authorize` becomes purely the share-credit identity;
+    // the accountant pro-rates the matured coinbase across miners
+    // by share weight; the payout engine (Phase 4) sends KAS to
+    // each miner's authorized address.
+    let coinbase_override = cfg
+        .pool_addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("KATPOOL_POOL_ADDRESS is empty"))?;
+    if cfg.pool_addresses.len() > 1 {
+        warn!(
+            "multiple pool addresses supplied; bridge coinbase override uses the first ({coinbase_override}); accountant reward extraction matches against all"
+        );
+    }
+    let kaspa_api = KaspaApi::new(
+        cfg.kaspad_url.clone(),
+        Duration::from_millis(500),
+        None,
+        Some(coinbase_override),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("KaspaApi: {e}"))?;
     let tracker_grpc = GrpcClient::connect_with_args(
         NotificationMode::Direct,
         cfg.kaspad_url.clone(),
