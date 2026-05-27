@@ -20,6 +20,7 @@ stop when the corresponding alert fires.
 | [12](12-testnet10-smoke.md) | testnet-10 bridge smoke | — (release-candidate acceptance) |
 | [13](13-kaspad-tn10-bootstrap.md) | kaspad-tn10 install / upgrade / recover | — (ops procedure) |
 | [14](14-legacy-importer.md) | Legacy-database importer (cutover) | — (one-shot cutover procedure) |
+| [15](15-testnet10-tracker-live.md) | Phase 3 M3c — maturity-tracker live exercise on testnet-10 | — (acceptance procedure) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

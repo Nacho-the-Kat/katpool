@@ -60,6 +60,7 @@ pub mod allocation;
 pub mod config;
 pub mod consumer;
 pub mod error;
+pub mod kaspad_grpc;
 pub mod maturity;
 pub mod metrics;
 pub mod tier;
@@ -73,6 +74,7 @@ pub use config::{
 };
 pub use consumer::{ConsumerConfig, EventConsumer};
 pub use error::{AccountantError, EventError};
+pub use kaspad_grpc::{KaspadGrpcClient, extract_block_info};
 pub use maturity::{
     BlockInfo, DEFAULT_BATCH_SIZE, DEFAULT_MATURITY_DEPTH, DEFAULT_POLL_INTERVAL,
     DEFAULT_WINDOW_DAA_SPAN, KaspadClient, KaspadError, MaturityConfig, MaturityTracker,
