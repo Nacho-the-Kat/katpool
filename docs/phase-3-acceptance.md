@@ -265,14 +265,38 @@ including a lock-step contract test that fails if anyone adds /
 removes a network in the migration without updating
 `VALID_NETWORKS`.
 
-**Defect 1 closeout.** `KaspaApi::submit_block` now collapses
-`SubmitBlockReport::Reject(reason)` into
-`Err(anyhow!("kaspad rejected block: {label}"))` *before* the
-existing `match &result` block, so every caller — including
-`share_handler::handle_submit` — sees only real acceptances as
-`Ok`. The operator-visible reject labels (`BlockInvalid`,
-`IsInIBD`, `RouteIsFull`) are pinned by a contract test so
-dashboards and runbooks can safely filter on them.
+**Defect 1 closeout (cut 2).** The first M3f cut collapsed
+`SubmitBlockReport::Reject(_)` directly into `Err`. That over-
+correction spiked the miner-visible reject rate to ~68% during
+the cut-1 verification run on 2026-05-27 07:24 (artefacts in
+`pipeline-evidence/2026-05-27T07-24-38Z-m3f-goldshell-validation/`):
+1,410 real `Success` responses, 5,460 `Reject(BlockInvalid)`
+responses, and the Goldshell UI flagged ~68% of submissions as
+rejected because the share-handler's existing `Err` arm
+classified the outcome as `ShareRejectReason::BadPow` — yet by
+construction the miner's PoW was valid (the share met the
+network target or we would never have called `submit_block`).
+Cut 2 fixes the regression with a typed outcome:
+
+```rust
+pub enum BlockSubmitOutcome {
+    Accepted(SubmitBlockResponse),               // kaspad: Success → block in DAG, share credited, BlockAccepted emitted
+    RejectedByNode(SubmitBlockRejectReason),     // kaspad: Reject(*) → share credited, BlockAccepted suppressed, no miner-visible reject
+}
+```
+
+The share-handler's match now has three explicit arms
+(`Ok(RejectedByNode)` → credit share, skip event;
+`Ok(Accepted)` → credit share, emit event, spawn confirmation
+poll; `Err(_)` → existing transport / `ErrDuplicateBlock` path
+mapped to `ShareRejectReason::Stale` or `BadPow`). `Err` is now
+reserved for true transport failures and `ErrDuplicateBlock`.
+Operator-visible reject labels (`BlockInvalid`, `IsInIBD`,
+`RouteIsFull`) are pinned by a contract test. Five new pure-
+function regression tests in `submit_block_report_tests`
+explicitly assert that `Reject(_)` round-trips as
+`Ok(RejectedByNode(_))` — not `Err` — so a future refactor cannot
+regress to the cut-1 behaviour.
 
 **Verification posture.** Three pure-function regression test
 modules (`submit_block_report_tests`, `consumer_config_tests`,

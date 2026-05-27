@@ -51,13 +51,24 @@ backward-incompatible ways at every minor bump.
     `PoolEvent::BlockAccepted` for every `Reject(BlockInvalid)`
     / `Reject(IsInIBD)` / `Reject(RouteIsFull)` — 79% of all
     submissions during the Goldshell live exercise.
-    `submit_block` now collapses a `Reject(reason)` report into
-    `Err(anyhow!("kaspad rejected block: {label}"))` *before* the
-    `match &result` block, so every existing caller — including
-    `share_handler::handle_submit` — sees only real
-    acceptances as `Ok`. Operator-visible labels (`BlockInvalid`,
-    `IsInIBD`, `RouteIsFull`) are pinned by a contract test so
-    dashboards / runbooks can filter on stable strings.
+    `submit_block` now returns a typed
+    `BlockSubmitOutcome { Accepted(SubmitBlockResponse) |
+    RejectedByNode(SubmitBlockRejectReason) }`, so the
+    share-handler can credit the miner's share (their PoW met
+    the network target by construction) while suppressing the
+    phantom `BlockAccepted` event. `Err` is reserved for
+    genuine RPC failures plus `ErrDuplicateBlock` (mapped to
+    `ShareRejectReason::Stale` as before). Operator-visible
+    labels (`BlockInvalid`, `IsInIBD`, `RouteIsFull`) are
+    pinned by a contract test so dashboards / runbooks can
+    filter on stable strings. *The first M3f cut collapsed
+    `Reject(_)` into `Err` directly; that over-correction spiked
+    the miner-visible reject rate to ~68% during the Goldshell
+    cut-1 verification run because the share-handler's existing
+    `Err` arm classified the outcome as
+    `ShareRejectReason::BadPow`. The typed-outcome refactor in
+    cut 2 fixes the regression without bringing back the
+    phantom accept.*
 
 ### Added
 
