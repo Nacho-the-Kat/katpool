@@ -10,8 +10,73 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- Phase 3 milestone 3f: three production-grade defects uncovered by
+  the Goldshell live exercise on 2026-05-27 (see
+  `docs/phase-3-acceptance.md` §M3f). All three fixes ship together
+  because they only become observable end-to-end once Defect 2
+  unblocks DB writes:
+  - **Defect 2 (`wallet_ensure` upsert failure, 9,775 occurrences):**
+    `accountant::ConsumerConfig` previously hard-coded the schema
+    network to `mainnet`, causing every `wallet::ensure` on a
+    testnet run to fail the
+    `wallet.wallet_address_format` CHECK constraint
+    (`crates/katpool-db/migrations/20260526000000_bootstrap.sql`).
+    `ConsumerConfig::new` now takes a validated `network: String`
+    (checked against
+    `accountant::consumer::VALID_NETWORKS = ["mainnet",
+    "testnet-10", "testnet-11", "devnet", "simnet"]` at
+    construction time); the unified `katpool` runtime derives the
+    default from the pool address bech32 prefix (`kaspa:` →
+    `mainnet`, `kaspatest:` → `testnet-10`) with `KATPOOL_NETWORK`
+    as the operator override (required for `testnet-11`,
+    `devnet`, `simnet`, which share prefixes with other targets).
+    Five regression tests pin the validation surface, including a
+    lock-step contract test against the migration's CHECK
+    constraint list.
+  - **Defect 3 (`orphan_block_accepted`, 4,853 occurrences):
+    auto-resolved.** Was a downstream consequence of Defect 2 —
+    when `BlockFound` failed `wallet::ensure`, the `block` row
+    never inserted, so the subsequent `BlockAccepted` event had
+    no prior `found` row and the accountant correctly refused
+    the orphan. Fixing Defect 2 restores the lifecycle invariant
+    without touching the bridge.
+  - **Defect 1 (phantom `BLOCK ACCEPTED` log on kaspad reject,
+    3,849 occurrences):** the bridge's
+    `KaspaApi::submit_block` matched only `Ok(_)` on the gRPC
+    response and ignored `SubmitBlockResponse::report`, which
+    carries the actual acceptance verdict. The pre-M3f code
+    logged "🎉🎉🎉 BLOCK ACCEPTED BY NODE!" and emitted
+    `PoolEvent::BlockAccepted` for every `Reject(BlockInvalid)`
+    / `Reject(IsInIBD)` / `Reject(RouteIsFull)` — 79% of all
+    submissions during the Goldshell live exercise.
+    `submit_block` now returns a typed
+    `BlockSubmitOutcome { Accepted(SubmitBlockResponse) |
+    RejectedByNode(SubmitBlockRejectReason) }`, so the
+    share-handler can credit the miner's share (their PoW met
+    the network target by construction) while suppressing the
+    phantom `BlockAccepted` event. `Err` is reserved for
+    genuine RPC failures plus `ErrDuplicateBlock` (mapped to
+    `ShareRejectReason::Stale` as before). Operator-visible
+    labels (`BlockInvalid`, `IsInIBD`, `RouteIsFull`) are
+    pinned by a contract test so dashboards / runbooks can
+    filter on stable strings. *The first M3f cut collapsed
+    `Reject(_)` into `Err` directly; that over-correction spiked
+    the miner-visible reject rate to ~68% during the Goldshell
+    cut-1 verification run because the share-handler's existing
+    `Err` arm classified the outcome as
+    `ShareRejectReason::BadPow`. The typed-outcome refactor in
+    cut 2 fixes the regression without bringing back the
+    phantom accept.*
+
 ### Added
 
+- Phase 3 milestone 3f operator hardening: `RuntimeConfig.network`
+  field plus the `KATPOOL_NETWORK` env override (see Fixed → Defect
+  2). Startup tracing now includes `network=<value>` so the live
+  acceptance evidence captures the exact network identifier used
+  for every `wallet::ensure` in the run.
 - Phase 0 milestone 1: cargo workspace bootstrap with 14 crates pinning
   Rust 1.88 and edition 2024, strict workspace-wide lint configuration
   (forbid `unsafe_code`; deny `unwrap` / `expect` / `panic` / `indexing` /

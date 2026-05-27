@@ -15,10 +15,11 @@ cannot start until this page is complete.
 | 5 | Kasplex tier classifier resolves a wallet to `Standard` or `Elite` via either NACHO KRC-721 ownership or ≥ 100M NACHO KRC-20 balance (locked counts); errors fall back to `Standard`. | 10 wiremock-backed tests against canned kasplex responses. | GREEN — landed in PR #19 (M3) |
 | 6 | Block maturity tracker advances `submitted_to_node` → `confirmed_blue` → `matured` (or `orphaned`) and calls the allocation engine on maturity. | 11 integration tests in `tests/maturity_tracker.rs` against ephemeral Postgres + `FakeKaspad`. | GREEN — landed in PR #20 (M3b) |
 | 7 | Maturity tracker against real kaspad-tn10: gRPC connection works; virtual blue score advances live; unknown-block hashes are recognised as "not yet confirmed", not as transport errors. | `accountant-tracker-runner` against the operator's testnet-10 kaspad; live evidence captured below. | GREEN — landed in PR #21 (M3c) |
-| 8 | Unified runtime binary: bridge + accountant event consumer + maturity tracker compose into one process with shared `tokio::sync::broadcast<PoolEvent>` channel; SIGINT/SIGTERM shutdown is clean. | `katpool` binary boots, all three subsystems start, kaspad gRPC works, SIGTERM exits cleanly within milliseconds. | GREEN — landed in this PR (M3d); dry-run evidence below |
-| 9 | Full mine-and-allocate end-to-end with an ASIC pointed at the bridge against testnet-10. | Operator-driven test via [runbook 16](runbooks/16-testnet10-full-pipeline-live.md); evidence pasted into this doc post-run. | PENDING (operator action) |
-| 10 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | Phase 3 M4. | PENDING |
-| 11 | `cargo deny check` clean on the locked Cargo.lock. | CI step; locally verifiable. | GREEN — every Phase 3 PR |
+| 8 | Unified runtime binary: bridge + accountant event consumer + maturity tracker compose into one process with shared `tokio::sync::broadcast<PoolEvent>` channel; SIGINT/SIGTERM shutdown is clean. | `katpool` binary boots, all three subsystems start, kaspad gRPC works, SIGTERM exits cleanly within milliseconds. | GREEN — landed in PR #22 (M3d); dry-run evidence below |
+| 9 | Full mine-and-allocate end-to-end with an ASIC pointed at the bridge against testnet-10. | Operator-driven test via [runbook 16](runbooks/16-testnet10-full-pipeline-live.md); evidence pasted into this doc post-run. | PENDING — Goldshell BzMiner exercise on 2026-05-27 surfaced three real defects (M3f below); re-attempt after the M3f fixes land. |
+| 10 | M3f production-grade defect closeout: per-network `wallet::ensure`, real-vs-phantom `SubmitBlockResponse` discrimination, and lifecycle ordering invariant. | Targeted unit + property tests in this PR; live verification by re-running the Goldshell exercise post-merge. | GREEN — landed in this PR (M3f) |
+| 11 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | Phase 3 M4. | PENDING |
+| 12 | `cargo deny check` clean on the locked Cargo.lock. | CI step; locally verifiable. | GREEN — every Phase 3 PR |
 
 ## Phase 3 M3c live evidence (this PR)
 
@@ -200,6 +201,113 @@ catch — kept the issue out of the operator-driven run.
   production firehose in shadow mode for 48-72h with 0-sompi
   divergence from the legacy stack.
 
+## Phase 3 M3f live evidence (this PR)
+
+**Run date (UTC):** 2026-05-27 06:30 (first run); diagnosis + fix
+landed before the operator-driven re-run.
+
+**Environment.** Pool VPS (NetCup), `kaspad-tn10` at
+`grpc://127.0.0.1:16210`, Docker Postgres 17-alpine, unified
+`katpool` runtime, ASIC: Goldshell running `BzMiner/v14.0.2`
+firmware, worker `goldshell-rig`, IP `23.148.36.54`.
+
+**Symptoms observed in the 2.5-minute live run** (artefacts in
+`pipeline-evidence/2026-05-27T06-30-03Z-m3d-asic-debug2/`, 129 MB
+debug log):
+
+| Signal | Count |
+|---|---|
+| Share submits from miner (`mining.submit`) | 14,664 |
+| Bridge `submit_block` attempts | 4,853 |
+| **kaspad `report = Success`** | **1,004** |
+| kaspad `report = Reject(BlockInvalid)` | 3,849 |
+| Bridge `"🎉 BLOCK ACCEPTED BY NODE"` log lines | **4,853** |
+| Accountant `wallet_ensure` failures | **9,775** |
+| Accountant `orphan_block_accepted` errors | **4,853** |
+| Rows written across all 6 business tables | **0** |
+
+**Root-cause analysis.** The three defects are causally chained:
+
+1. **Defect 2 (gating).** `accountant::ConsumerConfig` hard-coded
+   `NETWORK = "mainnet"`. Every `wallet::ensure` against the
+   testnet-10 address violated the
+   `wallet.wallet_address_format` CHECK constraint
+   (SQLSTATE 23514). 9,775 occurrences.
+2. **Defect 3 (downstream consequence).** Because the
+   `BlockFound` handler's `wallet::ensure` failed first, the
+   `block` row never inserted; the subsequent `BlockAccepted`
+   event correctly tripped the consumer's
+   `OrphanBlockAccepted` invariant. 4,853 occurrences.
+3. **Defect 1 (independent bridge bug).** The bridge's
+   `KaspaApi::submit_block` matched only `Ok(_)` on the gRPC
+   result and ignored `SubmitBlockResponse::report`, treating
+   `Reject(BlockInvalid)` / `Reject(IsInIBD)` / `Reject(RouteIsFull)`
+   as wins. 79% of all bridge "accepted" logs in this run were
+   false positives.
+
+**Defect 1 dual signal.** The 79% reject rate also confirms a
+non-defect operational reality: at testnet-10's 10 BPS against
+share-difficulty 1, many submissions race the network tip and
+lose. That's expected; what was broken is reporting these races
+as wins.
+
+**Defects 2/3 closeout.** `ConsumerConfig::new(instance_id,
+network)` now takes a validated network string
+(`accountant::consumer::VALID_NETWORKS`, identical to the
+migration's `wallet_network_valid` CHECK list). The unified
+`katpool` runtime derives the default from the pool address
+bech32 prefix (`kaspa:` → `mainnet`, `kaspatest:` →
+`testnet-10`) with `KATPOOL_NETWORK` as the operator override
+(required for `testnet-11`, `devnet`, `simnet`, which share
+bech32 prefixes with other targets). Five regression tests
+in `consumer_config_tests` pin the validation surface,
+including a lock-step contract test that fails if anyone adds /
+removes a network in the migration without updating
+`VALID_NETWORKS`.
+
+**Defect 1 closeout (cut 2).** The first M3f cut collapsed
+`SubmitBlockReport::Reject(_)` directly into `Err`. That over-
+correction spiked the miner-visible reject rate to ~68% during
+the cut-1 verification run on 2026-05-27 07:24 (artefacts in
+`pipeline-evidence/2026-05-27T07-24-38Z-m3f-goldshell-validation/`):
+1,410 real `Success` responses, 5,460 `Reject(BlockInvalid)`
+responses, and the Goldshell UI flagged ~68% of submissions as
+rejected because the share-handler's existing `Err` arm
+classified the outcome as `ShareRejectReason::BadPow` — yet by
+construction the miner's PoW was valid (the share met the
+network target or we would never have called `submit_block`).
+Cut 2 fixes the regression with a typed outcome:
+
+```rust
+pub enum BlockSubmitOutcome {
+    Accepted(SubmitBlockResponse),               // kaspad: Success → block in DAG, share credited, BlockAccepted emitted
+    RejectedByNode(SubmitBlockRejectReason),     // kaspad: Reject(*) → share credited, BlockAccepted suppressed, no miner-visible reject
+}
+```
+
+The share-handler's match now has three explicit arms
+(`Ok(RejectedByNode)` → credit share, skip event;
+`Ok(Accepted)` → credit share, emit event, spawn confirmation
+poll; `Err(_)` → existing transport / `ErrDuplicateBlock` path
+mapped to `ShareRejectReason::Stale` or `BadPow`). `Err` is now
+reserved for true transport failures and `ErrDuplicateBlock`.
+Operator-visible reject labels (`BlockInvalid`, `IsInIBD`,
+`RouteIsFull`) are pinned by a contract test. Five new pure-
+function regression tests in `submit_block_report_tests`
+explicitly assert that `Reject(_)` round-trips as
+`Ok(RejectedByNode(_))` — not `Err` — so a future refactor cannot
+regress to the cut-1 behaviour.
+
+**Verification posture.** Three pure-function regression test
+modules (`submit_block_report_tests`, `consumer_config_tests`,
+plus the existing `coinbase_recipient_tests`) cover the
+discriminator logic and config validation independent of any
+RPC / DB layer. The full integration regression — re-running the
+Goldshell live exercise and asserting non-zero rows in
+`share`, `block`, and `share_allocation` plus zero
+`orphan_block_accepted` events — is the operator-driven post-merge
+step that flips matrix row 9 to GREEN.
+
 ## Sign-off
 
 Phase 3 closes when:
@@ -208,6 +316,9 @@ Phase 3 closes when:
 2. The operator-driven M3c live test against testnet-10 has been
    captured in the Run history table.
 3. The M3d unified runner has demonstrated an end-to-end
-   mine-and-allocate cycle against the operator's ASIC.
+   mine-and-allocate cycle against the operator's ASIC (with the
+   M3f defects fixed: `share` / `block` /
+   `share_allocation` tables show non-zero rows and zero
+   `orphan_block_accepted` events appear in the run log).
 4. The M4 replay-determinism harness has run against ≥ 24h of
    captured legacy production logs.

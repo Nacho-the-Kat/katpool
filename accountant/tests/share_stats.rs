@@ -179,7 +179,10 @@ async fn hashrate_estimate_rejects_inverted_window() {
 async fn combined_summary_one_round_trip() {
     let env = setup().await;
     let ((wa, wka), _) = ensure_a_b(&env.db).await;
-    let consumer = EventConsumer::new(env.db.clone(), ConsumerConfig::new("test".to_owned()));
+    let consumer = EventConsumer::new(
+        env.db.clone(),
+        ConsumerConfig::new("test".to_owned(), "mainnet".to_owned()).unwrap(),
+    );
 
     // Two accepted, three rejected for wallet A.
     for _ in 0..2 {

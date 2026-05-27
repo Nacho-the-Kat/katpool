@@ -19,7 +19,7 @@ mod common;
 use common::{MINER_A, MINER_B, setup};
 
 fn cfg() -> ConsumerConfig {
-    ConsumerConfig::new("test".to_owned())
+    ConsumerConfig::new("test".to_owned(), "mainnet".to_owned()).unwrap()
 }
 
 fn rej(addr: &str, worker_name: &str, reason: ShareRejectReason) -> PoolEvent {

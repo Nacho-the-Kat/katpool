@@ -8,7 +8,8 @@ use kaspa_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
 use kaspa_rpc_core::notify::mode::NotificationMode;
 use kaspa_rpc_core::{
     GetBlockDagInfoRequest, GetBlockTemplateRequest, GetConnectedPeerInfoRequest, GetCurrentBlockColorRequest, GetInfoRequest,
-    GetServerInfoRequest, Notification, RpcHash, RpcRawBlock, SubmitBlockRequest, SubmitBlockResponse, api::rpc::RpcApi,
+    GetServerInfoRequest, Notification, RpcHash, RpcRawBlock, SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockRequest,
+    SubmitBlockResponse, api::rpc::RpcApi,
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -19,6 +20,51 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+
+/// Outcome of [`KaspaApi::submit_block`].
+///
+/// Discriminates three operationally distinct cases that the
+/// pre-M3f bridge collapsed into a single `Result<SubmitBlockResponse>`:
+///
+/// * [`Accepted`] — kaspad replied with
+///   `SubmitBlockReport::Success`; the block is in the DAG (or
+///   staged for propagation). The caller emits
+///   `PoolEvent::BlockAccepted` and the accountant credits the
+///   coinbase reward when it matures.
+/// * [`RejectedByNode`] — the RPC transport succeeded but kaspad
+///   declined to add the block (most commonly a tip-race
+///   `BlockInvalid`). The miner's PoW is still valid (the
+///   submission only reaches the `submit_block` call when the
+///   share meets network target), so the caller MUST credit the
+///   share to the miner. Only the block goes unrecorded.
+/// * `Err` (separate from this enum) — true RPC / transport
+///   failure or `ErrDuplicateBlock`; the share-handler maps the
+///   latter to `ShareRejectReason::Stale`.
+///
+/// See `docs/phase-3-acceptance.md` §M3f for the live-evidence
+/// trail that motivated this discriminator.
+///
+/// [`Accepted`]: BlockSubmitOutcome::Accepted
+/// [`RejectedByNode`]: BlockSubmitOutcome::RejectedByNode
+#[derive(Debug)]
+pub enum BlockSubmitOutcome {
+    /// kaspad added the block to the DAG (or staged it for
+    /// propagation). Carries the full
+    /// [`SubmitBlockResponse`] for diagnostics.
+    Accepted(SubmitBlockResponse),
+    /// kaspad accepted the RPC but rejected the block; the
+    /// reason discriminates transient (`IsInIBD`, `RouteIsFull`)
+    /// from permanent (`BlockInvalid`).
+    RejectedByNode(SubmitBlockRejectReason),
+}
+
+impl BlockSubmitOutcome {
+    /// True iff the block is in kaspad's DAG (or about to be).
+    #[must_use]
+    pub const fn is_accepted(&self) -> bool {
+        matches!(self, Self::Accepted(_))
+    }
+}
 
 const STRATUM_COINBASE_TAG_BYTES: &[u8] = b"RK-Stratum";
 const MAX_COINBASE_TAG_SUFFIX_LEN: usize = 64;
@@ -342,8 +388,27 @@ impl KaspaApi {
         }
     }
 
-    /// Submit a block
-    pub async fn submit_block(&self, block: Block) -> Result<SubmitBlockResponse> {
+    /// Submit a block to kaspad.
+    ///
+    /// Returns:
+    /// * `Ok(BlockSubmitOutcome::Accepted(response))` when kaspad
+    ///   replied with `SubmitBlockReport::Success` — the block is
+    ///   in the DAG (or at least staged for propagation).
+    /// * `Ok(BlockSubmitOutcome::RejectedByNode(reason))` when
+    ///   kaspad accepted the RPC but rejected the block itself
+    ///   (`Reject(BlockInvalid)` / `Reject(IsInIBD)` /
+    ///   `Reject(RouteIsFull)`). The miner's PoW is still valid
+    ///   (they met the share/network difficulty by definition —
+    ///   that's how we got here); the caller therefore credits the
+    ///   share even though no block is recorded. This matches the
+    ///   pre-M3f miner-facing behaviour while preventing the
+    ///   pre-M3f phantom `BlockAccepted` accounting bug — see
+    ///   `docs/phase-3-acceptance.md` §M3f for the live-evidence
+    ///   trail that motivated this discriminator.
+    /// * `Err(e)` only for true transport / RPC-layer failures
+    ///   (including `ErrDuplicateBlock`, which the share handler
+    ///   maps to `ShareRejectReason::Stale`).
+    pub async fn submit_block(&self, block: Block) -> Result<BlockSubmitOutcome> {
         // Use kaspa_consensus_core::hashing::header::hash() for block hash calculation
         // In Kaspa, the block hash is the header hash (transactions are represented by hash_merkle_root in header)
         use kaspa_consensus_core::hashing::header;
@@ -375,11 +440,53 @@ impl KaspaApi {
         // Convert Block to RpcRawBlock (use reference)
         let rpc_block: RpcRawBlock = (&block).into();
 
-        // Submit block (don't allow non-DAA blocks)
+        // Submit block (don't allow non-DAA blocks).
+        //
+        // CRITICAL discrimination: the RPC `submit_block_call`
+        // returns `Ok(SubmitBlockResponse)` whenever the transport
+        // succeeded — *even when kaspad rejected the block*. The
+        // `report` field carries the actual acceptance verdict:
+        //
+        //   * `SubmitBlockReport::Success`                — accepted
+        //   * `SubmitBlockReport::Reject(BlockInvalid)`   — bad header / tx / coinbase / stale tip race
+        //   * `SubmitBlockReport::Reject(IsInIBD)`        — node not yet synced
+        //   * `SubmitBlockReport::Reject(RouteIsFull)`    — back-pressure; retry later
+        //
+        // The pre-M3f bridge ignored `report` and matched only on
+        // `Ok(_)`, which produced the "phantom block accepted" log
+        // storm uncovered during the Goldshell live exercise
+        // (`docs/phase-3-acceptance.md` §M3f, 79% of submissions
+        // were rejected but logged as wins). The first M3f cut
+        // over-corrected: it collapsed `Reject(reason)` into an
+        // `Err` so the share handler ALSO treated the outcome as
+        // a miner PoW failure (`ShareRejectReason::BadPow`),
+        // which spiked the miner-visible reject rate to ~68%
+        // even though the miner's work was valid (Reject reasons
+        // are pool-side race conditions / node state issues, not
+        // miner faults — the share by definition met the network
+        // target or we would not have entered this branch). We
+        // now return a structured `BlockSubmitOutcome` so callers
+        // can distinguish "block in DAG" from "submitted but
+        // kaspad rejected" without conflating either with
+        // transport failure — `Err` is reserved for genuine RPC
+        // errors and `ErrDuplicateBlock`.
         debug!("{} {}", LogColors::api("[API]"), "Calling submit_block via RPC client...");
-        let result =
+        let rpc_result =
             self.client.submit_block_call(None, SubmitBlockRequest::new(rpc_block, false)).await.context("Failed to submit block");
+        let result: Result<BlockSubmitOutcome> = match rpc_result {
+            Ok(response) => match response.report {
+                SubmitBlockReport::Success => Ok(BlockSubmitOutcome::Accepted(response)),
+                SubmitBlockReport::Reject(reason) => Ok(BlockSubmitOutcome::RejectedByNode(reason)),
+            },
+            Err(e) => Err(e),
+        };
 
+        // The block-submit guard only needs to be cleared on a
+        // transport failure (so the submit can be retried). A
+        // `RejectedByNode` outcome means kaspad already saw the
+        // hash and produced a verdict — re-submitting would just
+        // reproduce it — so we keep the guard set to suppress
+        // duplicate noise on rapid re-races.
         if let Err(e) = &result {
             let error_str = e.to_string();
             let is_duplicate = error_str.contains("ErrDuplicateBlock") || error_str.contains("duplicate");
@@ -391,7 +498,31 @@ impl KaspaApi {
         }
 
         match &result {
-            Ok(response) => {
+            Ok(BlockSubmitOutcome::RejectedByNode(reason)) => {
+                // Submitted but kaspad declined to add to its DAG.
+                // The miner's share is still valid (they hit
+                // network target); only the block goes
+                // unrecorded. Log at WARN — operationally
+                // significant but not actionable per-event;
+                // dashboards should track rate, not absolute
+                // count.
+                warn!(
+                    "{} {}",
+                    LogColors::api("[API]"),
+                    LogColors::validation(&format!(
+                        "===== BLOCK REJECTED BY KASPA NODE: {} ===== Hash: {}",
+                        submit_block_reject_label(*reason),
+                        block_hash
+                    ))
+                );
+                debug!(
+                    "{} {} {}",
+                    LogColors::api("[API]"),
+                    LogColors::label("  - Blue Score:"),
+                    format!("{}, Timestamp: {}, Nonce: {:x}", blue_score, timestamp, nonce)
+                );
+            }
+            Ok(BlockSubmitOutcome::Accepted(response)) => {
                 // Keep block accepted message at info (important operational event)
                 info!(
                     "{} {}",
@@ -769,10 +900,7 @@ impl KaspaApiTrait for KaspaApi {
         })
     }
 
-    async fn submit_block(
-        &self,
-        block: Block,
-    ) -> Result<kaspa_rpc_core::SubmitBlockResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn submit_block(&self, block: Block) -> Result<BlockSubmitOutcome, Box<dyn std::error::Error + Send + Sync>> {
         KaspaApi::submit_block(self, block)
             .await
             .map_err(|e| Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>)
@@ -806,6 +934,22 @@ fn resolve_coinbase_recipient(override_addr: &Option<Address>, wallet_addr: &str
         return Ok(a.clone());
     }
     Address::try_from(wallet_addr).map_err(|e| anyhow::anyhow!("Could not decode address {}: {}", wallet_addr, e))
+}
+
+/// Stable, operator-friendly label for a kaspad submit-block
+/// rejection reason. Used in the WARN log emitted from the
+/// `Ok(BlockSubmitOutcome::RejectedByNode(_))` arm of
+/// [`KaspaApi::submit_block`] so operators / dashboards / runbooks
+/// can discriminate "node not synced" (`IsInIBD`, transient),
+/// "back-pressure" (`RouteIsFull`, transient), and
+/// "kaspad refused" (`BlockInvalid`, persistent — usually a tip
+/// race or coinbase / DAA mismatch).
+const fn submit_block_reject_label(reason: SubmitBlockRejectReason) -> &'static str {
+    match reason {
+        SubmitBlockRejectReason::BlockInvalid => "BlockInvalid",
+        SubmitBlockRejectReason::IsInIBD => "IsInIBD",
+        SubmitBlockRejectReason::RouteIsFull => "RouteIsFull",
+    }
 }
 
 #[cfg(test)]
@@ -850,5 +994,87 @@ mod coinbase_recipient_tests {
         let pool = Address::try_from(POOL_ADDR).expect("valid pool address");
         let resolved = resolve_coinbase_recipient(&Some(pool.clone()), "not-a-kaspa-address").expect("resolves");
         assert_eq!(resolved, pool);
+    }
+}
+
+#[cfg(test)]
+mod submit_block_report_tests {
+    //! Regression guards for the "phantom block accepted" bug
+    //! uncovered during the Goldshell M3d live exercise: the
+    //! pre-M3f bridge treated every `Ok(SubmitBlockResponse)` as a
+    //! win even when `report = Reject(BlockInvalid)`, producing
+    //! 4,853 false-positive "BLOCK ACCEPTED" log lines against
+    //! 1,004 actual acceptances. These tests pin the
+    //! discriminator's behaviour so a future refactor cannot
+    //! silently regress.
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+    use super::*;
+
+    /// Mirrors the production discriminator inserted in
+    /// [`KaspaApi::submit_block`]. Kept here as a pure function
+    /// so the test exercises identical logic without standing up
+    /// a gRPC client.
+    fn classify(response: SubmitBlockResponse) -> BlockSubmitOutcome {
+        match response.report {
+            SubmitBlockReport::Success => BlockSubmitOutcome::Accepted(response),
+            SubmitBlockReport::Reject(reason) => BlockSubmitOutcome::RejectedByNode(reason),
+        }
+    }
+
+    #[test]
+    fn success_report_resolves_to_accepted() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Success };
+        let out = classify(resp);
+        assert!(out.is_accepted(), "Success must produce BlockSubmitOutcome::Accepted");
+        match out {
+            BlockSubmitOutcome::Accepted(r) => assert!(matches!(r.report, SubmitBlockReport::Success)),
+            BlockSubmitOutcome::RejectedByNode(r) => panic!("unexpected RejectedByNode({r:?})"),
+        }
+    }
+
+    #[test]
+    fn reject_block_invalid_resolves_to_rejected_not_err() {
+        // Critical regression guard: the first M3f cut collapsed
+        // this into Err, which the share-handler then mapped to
+        // ShareRejectReason::BadPow — penalising the miner for a
+        // pool-side race condition (Goldshell 68% reject UI
+        // regression). Reject(*) must stay Ok(RejectedByNode(_))
+        // so the share-handler credits the share and only the
+        // BlockAccepted event is suppressed.
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::BlockInvalid) };
+        let out = classify(resp);
+        assert!(!out.is_accepted(), "Reject(BlockInvalid) must NOT be Accepted");
+        match out {
+            BlockSubmitOutcome::RejectedByNode(SubmitBlockRejectReason::BlockInvalid) => {}
+            other => panic!("expected RejectedByNode(BlockInvalid), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_is_in_ibd_resolves_to_rejected() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::IsInIBD) };
+        match classify(resp) {
+            BlockSubmitOutcome::RejectedByNode(SubmitBlockRejectReason::IsInIBD) => {}
+            other => panic!("expected RejectedByNode(IsInIBD), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reject_route_is_full_resolves_to_rejected() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) };
+        match classify(resp) {
+            BlockSubmitOutcome::RejectedByNode(SubmitBlockRejectReason::RouteIsFull) => {}
+            other => panic!("expected RejectedByNode(RouteIsFull), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn label_is_stable_for_all_known_reasons() {
+        // Pin the operator-visible labels — dashboards / alerts /
+        // runbooks may filter on these exact strings; treat the
+        // mapping as a public contract.
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::BlockInvalid), "BlockInvalid");
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::IsInIBD), "IsInIBD");
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::RouteIsFull), "RouteIsFull");
     }
 }

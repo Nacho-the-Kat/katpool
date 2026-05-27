@@ -57,12 +57,15 @@ use crate::metrics::{
     record_block_transition, record_event, record_event_error, record_lag, record_share_insert,
 };
 
-// Network for `wallet::ensure`. Hard-coded to `mainnet` at this
-// milestone — when we add testnet smoke runs through the
-// accountant, the bridge will supply the network in the event
-// payload (or via the consumer constructor). For now, mainnet is
-// the only target.
-const NETWORK: &str = "mainnet";
+/// The five network identifiers the schema's `wallet_address_format`
+/// CHECK constraint accepts (see
+/// `crates/katpool-db/migrations/20260526000000_bootstrap.sql`).
+///
+/// Keep this list in lock-step with the migration: a value the
+/// schema rejects would cause every `wallet::ensure` to fail with
+/// SQLSTATE `23514`, which is exactly the M3d `wallet_ensure`
+/// production incident this constant was introduced to prevent.
+pub const VALID_NETWORKS: &[&str] = &["mainnet", "testnet-10", "testnet-11", "devnet", "simnet"];
 
 /// Configuration carried by every consumer instance. Cheap to
 /// clone (it's all `Arc`-able internals + a small instance label).
@@ -72,14 +75,48 @@ pub struct ConsumerConfig {
     /// Typical value: the systemd instance name (e.g. `primary`,
     /// `shadow`).
     pub instance_id: String,
+    /// Kaspa network identifier — passed verbatim to
+    /// [`katpool_db::repo::wallet::ensure`]. Must be one of
+    /// [`VALID_NETWORKS`]; otherwise every wallet upsert would fail
+    /// the schema's `wallet_address_format` CHECK constraint at
+    /// runtime. Validated at construction time so misconfiguration
+    /// fails fast instead of silently dropping every share /
+    /// block event.
+    pub network: String,
 }
 
 impl ConsumerConfig {
-    /// Construct with the given instance id.
-    #[must_use]
-    pub const fn new(instance_id: String) -> Self {
-        Self { instance_id }
+    /// Construct with the given instance id and network.
+    ///
+    /// # Errors
+    /// Returns an error if `network` is not one of [`VALID_NETWORKS`].
+    pub fn new(instance_id: String, network: String) -> Result<Self, ConsumerConfigError> {
+        if !VALID_NETWORKS.contains(&network.as_str()) {
+            return Err(ConsumerConfigError::InvalidNetwork {
+                supplied: network,
+                allowed: VALID_NETWORKS,
+            });
+        }
+        Ok(Self {
+            instance_id,
+            network,
+        })
     }
+}
+
+/// Errors raised by [`ConsumerConfig::new`].
+#[derive(Debug, thiserror::Error)]
+pub enum ConsumerConfigError {
+    /// The supplied `network` is not in [`VALID_NETWORKS`]; the DB's
+    /// `wallet_address_format` CHECK constraint would reject every
+    /// wallet upsert.
+    #[error("invalid network `{supplied}` (allowed: {allowed:?})")]
+    InvalidNetwork {
+        /// The rejected value the caller passed.
+        supplied: String,
+        /// The set of values the schema accepts.
+        allowed: &'static [&'static str],
+    },
 }
 
 /// The consumer task. Holds the DB pool + the consumer's
@@ -218,7 +255,7 @@ impl EventConsumer {
             .await
             .map_err(katpool_db::DbError::from)
             .map_err(EventError::ShareRejectInsert)?;
-        let w = wallet::ensure(&mut *tx, wallet_addr, NETWORK)
+        let w = wallet::ensure(&mut *tx, wallet_addr, &self.cfg.network)
             .await
             .map_err(EventError::WalletEnsure)?;
         let wk = worker::ensure(&mut *tx, w.id, worker_name)
@@ -248,7 +285,7 @@ impl EventConsumer {
             .await
             .map_err(katpool_db::DbError::from)
             .map_err(EventError::ShareInsert)?;
-        let w = wallet::ensure(&mut *tx, wallet_addr, NETWORK)
+        let w = wallet::ensure(&mut *tx, wallet_addr, &self.cfg.network)
             .await
             .map_err(EventError::WalletEnsure)?;
         let wk = worker::ensure(&mut *tx, w.id, worker_name)
@@ -287,7 +324,7 @@ impl EventConsumer {
             .await
             .map_err(katpool_db::DbError::from)
             .map_err(EventError::BlockEnsure)?;
-        let w = wallet::ensure(&mut *tx, wallet_addr, NETWORK)
+        let w = wallet::ensure(&mut *tx, wallet_addr, &self.cfg.network)
             .await
             .map_err(EventError::WalletEnsure)?;
         let wk = worker::ensure(&mut *tx, w.id, worker_name)
@@ -383,6 +420,64 @@ impl EventConsumer {
             kind,
             error = %err,
             "accountant event handler failed"
+        );
+    }
+}
+
+#[cfg(test)]
+mod consumer_config_tests {
+    //! Regression guards for the Goldshell M3d live-exercise
+    //! production incident in which `ConsumerConfig` hard-coded
+    //! `NETWORK = "mainnet"`, causing every `wallet::ensure` on a
+    //! testnet run to fail the schema's `wallet_address_format`
+    //! CHECK constraint (9,775 occurrences in a single 2.5-minute
+    //! window). These tests pin both the validation behaviour and
+    //! the set of accepted networks.
+    use super::{ConsumerConfig, ConsumerConfigError, VALID_NETWORKS};
+
+    #[test]
+    fn accepts_every_network_the_schema_accepts() {
+        for net in VALID_NETWORKS {
+            let cfg = ConsumerConfig::new("test".to_owned(), (*net).to_owned())
+                .unwrap_or_else(|e| panic!("{net} should be accepted: {e}"));
+            assert_eq!(cfg.network, *net);
+        }
+    }
+
+    #[test]
+    fn rejects_obvious_typos() {
+        // `kaspatest` is the address bech32 prefix, not the
+        // schema-network value — easy operator confusion. Make
+        // sure the constructor catches it.
+        let err = ConsumerConfig::new("test".to_owned(), "kaspatest".to_owned())
+            .expect_err("must reject bech32 prefix");
+        assert!(matches!(err, ConsumerConfigError::InvalidNetwork { .. }));
+    }
+
+    #[test]
+    fn rejects_legacy_capitalised_value() {
+        // The schema CHECK is case-sensitive; `Mainnet` would
+        // pass `ConsumerConfig::new` only to fail every DB call.
+        // Fail fast at startup instead.
+        assert!(ConsumerConfig::new("test".to_owned(), "Mainnet".to_owned()).is_err());
+    }
+
+    #[test]
+    fn rejects_empty_string() {
+        assert!(ConsumerConfig::new("test".to_owned(), String::new()).is_err());
+    }
+
+    #[test]
+    fn schema_network_list_matches_migration() {
+        // The full list is duplicated in
+        // `crates/katpool-db/migrations/20260526000000_bootstrap.sql`
+        // (`wallet_network_valid` CHECK). Treat this assertion as
+        // a compile-time-style contract: if the migration ever
+        // adds or removes a network, this test must be updated in
+        // the same commit so the two stay in lock-step.
+        assert_eq!(
+            VALID_NETWORKS,
+            &["mainnet", "testnet-10", "testnet-11", "devnet", "simnet"]
         );
     }
 }

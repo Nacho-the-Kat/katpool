@@ -844,7 +844,36 @@ impl ShareHandler {
                 let block_submit_result = kaspa_api.submit_block(block.clone()).await;
 
                 match block_submit_result {
-                    Ok(_response) => {
+                    // kaspad accepted the RPC but declined the block (most
+                    // commonly a tip-race `Reject(BlockInvalid)` against
+                    // testnet-10's 10 BPS). The miner's PoW is still
+                    // valid by construction — we only entered this branch
+                    // because the share met the network target — so we
+                    // credit the share but SKIP `PoolEvent::BlockAccepted`
+                    // and the BLOCK_CONFIRM_MAX_ATTEMPTS polling job.
+                    // This restores the pre-M3f miner-facing accept rate
+                    // without bringing back the pre-M3f phantom
+                    // `BlockAccepted` accounting bug. See
+                    // `docs/phase-3-acceptance.md` §M3f for the live
+                    // evidence (Goldshell 68% reject regression).
+                    Ok(crate::kaspaapi::BlockSubmitOutcome::RejectedByNode(_reason)) => {
+                        // `kaspaapi::submit_block` already emitted the
+                        // operator-visible WARN with the reject reason
+                        // and block hash; no second log here keeps the
+                        // share-handler log volume bounded at high
+                        // submission rates.
+                        let prom_worker = crate::prom::WorkerContext {
+                            instance_id: self.instance_id.clone(),
+                            worker_name: worker_name.clone(),
+                            miner: String::new(),
+                            wallet: wallet_addr.clone(),
+                            ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
+                        };
+                        record_block_not_confirmed_blue(&prom_worker);
+                        invalid_share = false;
+                        break;
+                    }
+                    Ok(crate::kaspaapi::BlockSubmitOutcome::Accepted(_response)) => {
                         let prefix = self.log_prefix();
                         // Block accepted - log after submit to get it submitted faster
                         info!(
@@ -1615,7 +1644,7 @@ pub trait KaspaApiTrait: Send + Sync {
     async fn submit_block(
         &self,
         block: Block,
-    ) -> Result<kaspa_rpc_core::SubmitBlockResponse, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<crate::kaspaapi::BlockSubmitOutcome, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Get balances by addresses (for Prometheus metrics)
     /// Get balances for addresses
