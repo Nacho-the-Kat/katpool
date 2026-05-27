@@ -8,7 +8,8 @@ use kaspa_notify::{listener::ListenerId, scope::NewBlockTemplateScope};
 use kaspa_rpc_core::notify::mode::NotificationMode;
 use kaspa_rpc_core::{
     GetBlockDagInfoRequest, GetBlockTemplateRequest, GetConnectedPeerInfoRequest, GetCurrentBlockColorRequest, GetInfoRequest,
-    GetServerInfoRequest, Notification, RpcHash, RpcRawBlock, SubmitBlockRequest, SubmitBlockResponse, api::rpc::RpcApi,
+    GetServerInfoRequest, Notification, RpcHash, RpcRawBlock, SubmitBlockRejectReason, SubmitBlockReport, SubmitBlockRequest,
+    SubmitBlockResponse, api::rpc::RpcApi,
 };
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
@@ -375,10 +376,38 @@ impl KaspaApi {
         // Convert Block to RpcRawBlock (use reference)
         let rpc_block: RpcRawBlock = (&block).into();
 
-        // Submit block (don't allow non-DAA blocks)
+        // Submit block (don't allow non-DAA blocks).
+        //
+        // CRITICAL discrimination: the RPC `submit_block_call`
+        // returns `Ok(SubmitBlockResponse)` whenever the transport
+        // succeeded — *even when kaspad rejected the block*. The
+        // `report` field carries the actual acceptance verdict:
+        //
+        //   * `SubmitBlockReport::Success`                — accepted
+        //   * `SubmitBlockReport::Reject(BlockInvalid)`   — bad header / tx / coinbase
+        //   * `SubmitBlockReport::Reject(IsInIBD)`        — node not yet synced
+        //   * `SubmitBlockReport::Reject(RouteIsFull)`    — back-pressure; retry later
+        //
+        // The pre-M3f bridge ignored `report` and matched only on
+        // `Ok(_)`, which produced the "phantom block accepted" log
+        // storm uncovered during the Goldshell live exercise
+        // (`docs/phase-3-acceptance.md` §M3f, 79% of submissions
+        // were rejected but logged as wins). We collapse the
+        // reject case into an `Err` here so the downstream
+        // `match &result` arms — and every caller — see only
+        // *real* acceptances as `Ok(response)`.
         debug!("{} {}", LogColors::api("[API]"), "Calling submit_block via RPC client...");
-        let result =
+        let rpc_result =
             self.client.submit_block_call(None, SubmitBlockRequest::new(rpc_block, false)).await.context("Failed to submit block");
+        let result: Result<SubmitBlockResponse> = match rpc_result {
+            Ok(response) => match response.report {
+                SubmitBlockReport::Success => Ok(response),
+                SubmitBlockReport::Reject(reason) => {
+                    Err(anyhow::anyhow!("kaspad rejected block: {}", submit_block_reject_label(reason)))
+                }
+            },
+            Err(e) => Err(e),
+        };
 
         if let Err(e) = &result {
             let error_str = e.to_string();
@@ -808,6 +837,20 @@ fn resolve_coinbase_recipient(override_addr: &Option<Address>, wallet_addr: &str
     Address::try_from(wallet_addr).map_err(|e| anyhow::anyhow!("Could not decode address {}: {}", wallet_addr, e))
 }
 
+/// Stable, operator-friendly label for a kaspad submit-block
+/// rejection reason. Used in the error message returned by
+/// [`KaspaApi::submit_block`] so the share-handler's existing
+/// `Err(e)` arm carries enough context for operators / dashboards
+/// to discriminate "node not synced" (transient) from
+/// "block invalid" (permanent).
+const fn submit_block_reject_label(reason: SubmitBlockRejectReason) -> &'static str {
+    match reason {
+        SubmitBlockRejectReason::BlockInvalid => "BlockInvalid",
+        SubmitBlockRejectReason::IsInIBD => "IsInIBD",
+        SubmitBlockRejectReason::RouteIsFull => "RouteIsFull",
+    }
+}
+
 #[cfg(test)]
 mod coinbase_recipient_tests {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -850,5 +893,69 @@ mod coinbase_recipient_tests {
         let pool = Address::try_from(POOL_ADDR).expect("valid pool address");
         let resolved = resolve_coinbase_recipient(&Some(pool.clone()), "not-a-kaspa-address").expect("resolves");
         assert_eq!(resolved, pool);
+    }
+}
+
+#[cfg(test)]
+mod submit_block_report_tests {
+    //! Regression guards for the "phantom block accepted" bug
+    //! uncovered during the Goldshell M3d live exercise: the
+    //! pre-M3f bridge treated every `Ok(SubmitBlockResponse)` as a
+    //! win even when `report = Reject(BlockInvalid)`, producing
+    //! 4,853 false-positive "BLOCK ACCEPTED" log lines against
+    //! 1,004 actual acceptances. These tests pin the
+    //! discriminator's behaviour so a future refactor cannot
+    //! silently regress.
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+    use super::*;
+
+    /// Mirrors the production discriminator inserted in
+    /// [`KaspaApi::submit_block`]. Kept here as a pure function
+    /// so the test exercises identical logic without standing up
+    /// a gRPC client.
+    fn classify(response: SubmitBlockResponse) -> Result<SubmitBlockResponse> {
+        match response.report {
+            SubmitBlockReport::Success => Ok(response),
+            SubmitBlockReport::Reject(reason) => Err(anyhow::anyhow!("kaspad rejected block: {}", submit_block_reject_label(reason))),
+        }
+    }
+
+    #[test]
+    fn success_report_resolves_to_ok() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Success };
+        let out = classify(resp).expect("Success must round-trip as Ok");
+        assert!(matches!(out.report, SubmitBlockReport::Success));
+    }
+
+    #[test]
+    fn reject_block_invalid_resolves_to_err_with_label() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::BlockInvalid) };
+        let err = classify(resp).expect_err("Reject(BlockInvalid) must surface as Err");
+        let msg = format!("{err}");
+        assert!(msg.contains("BlockInvalid"), "error must name the kaspad reject reason; got: {msg}");
+    }
+
+    #[test]
+    fn reject_is_in_ibd_resolves_to_err_with_label() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::IsInIBD) };
+        let err = classify(resp).expect_err("Reject(IsInIBD) must surface as Err");
+        assert!(format!("{err}").contains("IsInIBD"));
+    }
+
+    #[test]
+    fn reject_route_is_full_resolves_to_err_with_label() {
+        let resp = SubmitBlockResponse { report: SubmitBlockReport::Reject(SubmitBlockRejectReason::RouteIsFull) };
+        let err = classify(resp).expect_err("Reject(RouteIsFull) must surface as Err");
+        assert!(format!("{err}").contains("RouteIsFull"));
+    }
+
+    #[test]
+    fn label_is_stable_for_all_known_reasons() {
+        // Pin the operator-visible labels — dashboards / alerts /
+        // runbooks may filter on these exact strings; treat the
+        // mapping as a public contract.
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::BlockInvalid), "BlockInvalid");
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::IsInIBD), "IsInIBD");
+        assert_eq!(submit_block_reject_label(SubmitBlockRejectReason::RouteIsFull), "RouteIsFull");
     }
 }

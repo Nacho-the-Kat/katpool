@@ -216,8 +216,14 @@ async fn same_event_stream_produces_identical_db_state() {
     let env_a = fresh_db().await;
     let env_b = fresh_db().await;
 
-    let consumer_a = EventConsumer::new(env_a.db.clone(), ConsumerConfig::new("a".to_owned()));
-    let consumer_b = EventConsumer::new(env_b.db.clone(), ConsumerConfig::new("b".to_owned()));
+    let consumer_a = EventConsumer::new(
+        env_a.db.clone(),
+        ConsumerConfig::new("a".to_owned(), "mainnet".to_owned()).unwrap(),
+    );
+    let consumer_b = EventConsumer::new(
+        env_b.db.clone(),
+        ConsumerConfig::new("b".to_owned(), "mainnet".to_owned()).unwrap(),
+    );
 
     for event in &stream {
         consumer_a.handle_event(event.clone()).await;
@@ -251,7 +257,10 @@ async fn replaying_same_stream_into_same_db_is_idempotent_for_blocks() {
     // idempotency, and that's what this test pins.
     let stream = deterministic_stream();
     let env = fresh_db().await;
-    let consumer = EventConsumer::new(env.db.clone(), ConsumerConfig::new("x".to_owned()));
+    let consumer = EventConsumer::new(
+        env.db.clone(),
+        ConsumerConfig::new("x".to_owned(), "mainnet".to_owned()).unwrap(),
+    );
     for event in &stream {
         consumer.handle_event(event.clone()).await;
     }

@@ -72,7 +72,7 @@ pub use config::{
     Allocation, AllocationError, DEFAULT_TOPLINE_BPS, ELITE_REBATE_BPS, FeeConfig,
     STANDARD_REBATE_BPS, WalletTier,
 };
-pub use consumer::{ConsumerConfig, EventConsumer};
+pub use consumer::{ConsumerConfig, ConsumerConfigError, EventConsumer, VALID_NETWORKS};
 pub use error::{AccountantError, EventError};
 pub use kaspad_grpc::{KaspadGrpcClient, extract_block_info};
 pub use maturity::{

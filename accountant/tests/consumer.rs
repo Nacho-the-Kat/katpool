@@ -23,7 +23,7 @@ use common::{
 };
 
 fn cfg() -> ConsumerConfig {
-    ConsumerConfig::new("test".to_owned())
+    ConsumerConfig::new("test".to_owned(), "mainnet".to_owned()).unwrap()
 }
 
 #[tokio::test]

@@ -50,7 +50,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use kaspa_addresses::Address;
+use kaspa_addresses::{Address, Prefix};
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::notify::mode::NotificationMode;
 use kaspa_stratum_bridge::{
@@ -87,6 +87,7 @@ async fn main() -> Result<()> {
         instance = %cfg.instance_id,
         kaspad = %cfg.kaspad_url,
         stratum_port = %cfg.stratum_port,
+        network = %cfg.network,
         pool_addresses = ?cfg.pool_addresses.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "katpool runtime starting"
     );
@@ -167,7 +168,11 @@ async fn main() -> Result<()> {
         cfg.maturity,
         cfg.instance_id.clone(),
     );
-    let consumer = EventConsumer::new(db.clone(), ConsumerConfig::new(cfg.instance_id.clone()));
+    let consumer = EventConsumer::new(
+        db.clone(),
+        ConsumerConfig::new(cfg.instance_id.clone(), cfg.network.clone())
+            .context("building accountant ConsumerConfig")?,
+    );
 
     // ---- shutdown channel ------------------------------------------
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -298,6 +303,14 @@ struct RuntimeConfig {
     min_share_diff: u32,
     broadcast_capacity: usize,
     maturity: MaturityConfig,
+    /// Network identifier passed to the accountant for
+    /// `wallet::ensure`. One of `mainnet`, `testnet-10`,
+    /// `testnet-11`, `devnet`, `simnet` (see
+    /// [`accountant::consumer::VALID_NETWORKS`]). Derived from the
+    /// pool address prefix unless `KATPOOL_NETWORK` overrides it
+    /// (testnet-11 must be set explicitly because the bech32 prefix
+    /// is shared with testnet-10).
+    network: String,
 }
 
 impl RuntimeConfig {
@@ -329,6 +342,7 @@ impl RuntimeConfig {
         let maturity_depth = optional_u64("KATPOOL_MATURITY_DEPTH")?.unwrap_or(100);
         let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
+        let network = resolve_network(&pool_addresses)?;
         Ok(Self {
             kaspad_url,
             database_url,
@@ -340,6 +354,7 @@ impl RuntimeConfig {
             fee_topline_bps,
             min_share_diff,
             broadcast_capacity,
+            network,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
                 maturity_depth,
@@ -401,4 +416,42 @@ fn optional_usize(var: &str) -> Result<Option<usize>> {
                 .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
         })
         .transpose()
+}
+
+/// Resolve the schema-network identifier for `wallet::ensure`.
+///
+/// Order of precedence:
+/// 1. `KATPOOL_NETWORK` env override (required for `testnet-11`,
+///    `devnet`, `simnet` because their bech32 prefixes overlap
+///    other targets).
+/// 2. Derived from the first pool address bech32 prefix — `kaspa:` →
+///    `mainnet`, `kaspatest:` → `testnet-10` (the active testnet at
+///    the time of writing; override via `KATPOOL_NETWORK` for
+///    testnet-11).
+///
+/// The returned string is validated against
+/// [`accountant::consumer::VALID_NETWORKS`] (matching the DB CHECK
+/// constraint) so a misconfiguration fails fast on startup instead
+/// of being discovered at the first `wallet::ensure` call.
+fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
+    let resolved = if let Some(override_value) = optional("KATPOOL_NETWORK") {
+        override_value
+    } else {
+        let first = pool_addresses
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("resolve_network: pool_addresses empty"))?;
+        match first.prefix {
+            Prefix::Mainnet => "mainnet".to_owned(),
+            Prefix::Testnet => "testnet-10".to_owned(),
+            Prefix::Devnet => "devnet".to_owned(),
+            Prefix::Simnet => "simnet".to_owned(),
+        }
+    };
+    if !accountant::VALID_NETWORKS.contains(&resolved.as_str()) {
+        anyhow::bail!(
+            "KATPOOL_NETWORK=`{resolved}` not in {:?}",
+            accountant::VALID_NETWORKS
+        );
+    }
+    Ok(resolved)
 }
