@@ -41,9 +41,27 @@ cargo test --workspace
 
 # 5. Supply-chain (warm: ~3s, cold: ~30s)
 cargo deny check
+
+# 6. Typos. CI runs typos v1.46.3 from the GitHub releases binary
+#    (its MSRV is 1.91, ahead of our 1.88, so `cargo install` would
+#    pin you to an older 1.42.x that misses dictionary updates).
+#    Match CI exactly by downloading the same binary:
+#
+#      wget -q https://github.com/crate-ci/typos/releases/download/v1.46.3/typos-v1.46.3-x86_64-unknown-linux-musl.tar.gz
+#      tar xzf typos-v1.46.3-x86_64-unknown-linux-musl.tar.gz --no-same-owner ./typos
+#      install ./typos /usr/local/bin/typos
+#
+#    Whitelist updates live in `_typos.toml`. Add entries ONLY for
+#    legitimate domain vocabulary; every false-positive entry chips
+#    away at the catcher's signal.
+typos
+
+# 7. Unused dependencies.
+cargo install --locked cargo-machete --version '^0.9'  # one-time
+cargo machete --skip-target-dir
 ```
 
-A failure in any of (1)–(5) is the same kind of failure CI will see.
+A failure in any of (1)–(7) is the same kind of failure CI will see.
 If you are stuck on a CI failure that the local gate did not catch,
 the local gate has a gap — fix it here in this file at the same time
 you fix the CI symptom.

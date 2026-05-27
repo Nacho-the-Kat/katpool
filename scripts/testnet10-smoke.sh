@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-# ---------- Configurables -------------------------------------------
+# ---------- Configuration -------------------------------------------
 BRIDGE_BIN=${KATPOOL_BRIDGE_BIN:-katpool-stratum-bridge}
 BRIDGE_CONFIG=${KATPOOL_BRIDGE_CONFIG:-./config.yaml}
 KASPAD=${KASPAD_TESTNET10_GRPC:-127.0.0.1:16210}
