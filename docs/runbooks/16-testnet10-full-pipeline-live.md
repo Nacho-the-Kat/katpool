@@ -67,22 +67,37 @@ The script:
 
 ## ASIC configuration
 
+The pool runs in **custodial PROP-pool mode**: every block's
+coinbase pays the **pool's** address (`KATPOOL_POOL_ADDRESS`),
+and the accountant later pro-rates the matured reward across the
+miners who contributed shares (Phase 4 payout engine sends KAS to
+each miner's authorized address).
+
+So the address the miner authorizes with on `mining.authorize`
+is the **miner's own** address (the one they want their share of
+the payout sent to in Phase 4), **NOT** the pool's address.
+
 Most testnet ASICs accept stratum URLs of the form:
 
 ```
 URL:           stratum+tcp://<host>:<port>
-Worker name:   <kaspatest-address>.<rig-id>
+Worker name:   <miner-kaspatest-address>.<rig-id>
 Password:      x
 ```
 
-Example for an IceRiver KS5L on a LAN with the host at
-`192.168.1.10`:
+Example for an IceRiver KS0 on a LAN with the host at
+`192.168.1.10`, with the miner's wallet
+`kaspatest:qy.....abc`:
 
 ```
 URL:           stratum+tcp://192.168.1.10:15555
-Worker name:   kaspatest:qz.../rig-01     ← address.worker
+Worker name:   kaspatest:qy.....abc.ks0-rig01     ← MINER's address.worker
 Password:      x
 ```
+
+The pool address is the separate `KATPOOL_POOL_ADDRESS` env var
+on the VPS side. The two addresses are **expected to differ** —
+that's how the custodial model works.
 
 The bridge auto-detects miner-vendor extranonce conventions on
 `mining.subscribe` — no per-vendor flag needed.

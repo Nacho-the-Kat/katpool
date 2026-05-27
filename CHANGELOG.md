@@ -52,6 +52,46 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 3e (custodial PROP pool coinbase override):
+  the bridge's block-template path now routes every coinbase to
+  the pool's address regardless of which miner authorized.
+  Required to make M3d's live test representative of the
+  production design — without it the bridge runs in solo /
+  MM-pool mode where each miner mines to themselves and the pool
+  never takes custody.
+    - `KaspaApi::new` accepts a new
+      `coinbase_address_override: Option<Address>` constructor
+      argument. When `Some`, every `get_block_template` call
+      replaces the miner-supplied `wallet_addr` with the pool's
+      address before calling kaspad. When `None`, preserves
+      upstream solo / MM-pool behaviour byte-for-byte. The
+      override-or-fallback logic is extracted into a pure
+      `resolve_coinbase_recipient` helper with 4 dedicated unit
+      tests covering both branches plus malformed-address edge
+      cases.
+    - Bridge's own `main.rs` passes `None` (single-line
+      divergence: 1 added arg). Standalone bridge binary keeps
+      identical behaviour to upstream.
+    - `katpool/src/main.rs` parses
+      `KATPOOL_POOL_ADDRESS` (first entry; warns on multi-address
+      configs since the bridge override takes only one), passes
+      it to both the bridge (`KaspaApi::new` override) and the
+      accountant (`KaspadGrpcClient::pool_addresses`). One env
+      var, single source of truth for "what is the pool's
+      address" across both subsystems.
+    - Runbook 16 rewritten to drop the "addresses must match"
+      workaround. Worker name on the ASIC is now the **miner's**
+      address (the production pattern: miners receive their
+      payout share at the address they authorize with). Pool
+      address is the separate `KATPOOL_POOL_ADDRESS` env var.
+      Documents that the two addresses are **expected to
+      differ**.
+    - `bridge/UPSTREAM.md` gains two new rows: `src/kaspaapi.rs`
+      (override + helper + tests) and `src/main.rs` (the
+      one-line constructor-arg addition).
+    - Dry-run on the VPS validates the override fires:
+      `INFO Coinbase recipient override active: every block
+      template will pay kaspatest:qz...` appears at startup.
 - Phase 3 milestone 3d (unified runtime): the `katpool` binary
   embeds the stratum bridge + the accountant event consumer +
   the maturity tracker into one process with a shared

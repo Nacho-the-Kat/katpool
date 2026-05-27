@@ -194,10 +194,20 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     // Create shared kaspa API client (all instances use the same node)
-    let kaspa_api =
-        KaspaApi::new(config.global.kaspad_address.clone(), config.global.block_wait_time, config.global.coinbase_tag_suffix.clone())
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create Kaspa API client: {}", e))?;
+    // katpool fork divergence: KaspaApi::new now accepts an
+    // optional `coinbase_address_override` for custodial PROP-pool
+    // mode (every block template pays the pool, regardless of which
+    // miner authorized). The bridge's standalone binary preserves
+    // upstream solo / MM-pool parity by passing `None` — only the
+    // unified `katpool` runtime binary opts in via env config.
+    let kaspa_api = KaspaApi::new(
+        config.global.kaspad_address.clone(),
+        config.global.block_wait_time,
+        config.global.coinbase_tag_suffix.clone(),
+        None,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to create Kaspa API client: {}", e))?;
 
     let mut instance_handles = Vec::new();
     for (idx, instance_config) in config.instances.iter().enumerate() {

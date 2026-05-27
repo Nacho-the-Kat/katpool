@@ -134,11 +134,33 @@ pub struct KaspaApi {
     notification_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<Notification>>>>,
     connected: Arc<Mutex<bool>>,
     coinbase_tag: Vec<u8>,
+    /// katpool fork addition. When `Some`, every
+    /// [`Self::get_block_template`] call replaces the
+    /// miner-supplied `wallet_addr` with this address before
+    /// calling kaspad. That's how a custodial PROP pool works:
+    /// miners authorize with their own addresses (used for
+    /// share-credit attribution), but every block's coinbase
+    /// pays the **pool**, which then pro-rates the matured
+    /// reward across miners' share weights in the accountant.
+    ///
+    /// When `None`, preserves upstream behaviour: each miner's
+    /// coinbase pays the miner directly (solo / MM-pool model).
+    coinbase_address_override: Option<Address>,
 }
 
 impl KaspaApi {
-    /// Create a new Kaspa API client
-    pub async fn new(address: String, _block_wait_time: Duration, coinbase_tag_suffix: Option<String>) -> Result<Arc<Self>> {
+    /// Create a new Kaspa API client.
+    ///
+    /// `coinbase_address_override` carries the pool's address
+    /// when running in custodial PROP-pool mode (see the
+    /// struct-level docs). Pass `None` to keep upstream
+    /// behaviour.
+    pub async fn new(
+        address: String,
+        _block_wait_time: Duration,
+        coinbase_tag_suffix: Option<String>,
+        coinbase_address_override: Option<Address>,
+    ) -> Result<Arc<Self>> {
         info!("Connecting to Kaspa node at {}", address);
 
         // GrpcClient requires explicit "grpc://" prefix for connection
@@ -195,7 +217,11 @@ impl KaspaApi {
         };
 
         let coinbase_tag = build_coinbase_tag_bytes(coinbase_tag_suffix.as_deref());
-        let api = Arc::new(Self { client, notification_rx, connected: Arc::new(Mutex::new(true)), coinbase_tag });
+        if let Some(addr) = &coinbase_address_override {
+            info!("Coinbase recipient override active: every block template will pay {}", addr);
+        }
+        let api =
+            Arc::new(Self { client, notification_rx, connected: Arc::new(Mutex::new(true)), coinbase_tag, coinbase_address_override });
 
         // Wait for node to sync
         api.wait_for_sync(true).await?;
@@ -529,9 +555,13 @@ impl KaspaApi {
         let mut last_error = None;
 
         for attempt in 0..max_retries {
-            // Parse wallet address each time (in case Address doesn't implement Clone)
-            let address =
-                Address::try_from(wallet_addr).map_err(|e| anyhow::anyhow!("Could not decode address {}: {}", wallet_addr, e))?;
+            // Resolve coinbase recipient. In custodial PROP-pool
+            // mode (`coinbase_address_override = Some(_)`), every
+            // template pays the pool regardless of which miner
+            // authorized — see the struct-level docs. Falls back
+            // to the miner-supplied `wallet_addr` for upstream
+            // solo / MM-pool parity when no override is set.
+            let address = resolve_coinbase_recipient(&self.coinbase_address_override, wallet_addr)?;
 
             // Request block template using RPC client wrapper
             let response = match self
@@ -761,5 +791,64 @@ impl KaspaApiTrait for KaspaApi {
         KaspaApi::get_current_block_color(self, block_hash)
             .await
             .map_err(|e| Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>)
+    }
+}
+
+/// Pure helper that resolves which `Address` to use as the
+/// coinbase recipient for one block-template request.
+///
+/// Extracted so the override behaviour has a deterministic unit
+/// test independent of the gRPC layer. See
+/// [`KaspaApi::coinbase_address_override`] for the
+/// pool-custody rationale.
+fn resolve_coinbase_recipient(override_addr: &Option<Address>, wallet_addr: &str) -> Result<Address> {
+    if let Some(a) = override_addr {
+        return Ok(a.clone());
+    }
+    Address::try_from(wallet_addr).map_err(|e| anyhow::anyhow!("Could not decode address {}: {}", wallet_addr, e))
+}
+
+#[cfg(test)]
+mod coinbase_recipient_tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+    use super::*;
+
+    // Both addresses are freshly-generated testnet keypairs
+    // (`gen_testnet_addr` example) — distinct so the test can
+    // assert override-replaces-miner without false positives
+    // when override == miner.
+    const MINER_ADDR: &str = "kaspatest:qzcf94f8pzhtgzy8fpprvv0ag28f9zf9fks6mnu334c8nm5qtne2shh0nv9ht";
+    const POOL_ADDR: &str = "kaspatest:qqv47dr4nn4yqjnlqrkcr49j8h0ezdzhss7fjnnzha49fhvvw2fu5qqqxn0l7";
+
+    #[test]
+    fn override_replaces_miner_address_when_set() {
+        let pool = Address::try_from(POOL_ADDR).expect("valid pool address");
+        let resolved = resolve_coinbase_recipient(&Some(pool.clone()), MINER_ADDR).expect("resolves");
+        assert_eq!(resolved, pool, "override must replace the miner-supplied address");
+    }
+
+    #[test]
+    fn no_override_falls_through_to_miner_address() {
+        let resolved = resolve_coinbase_recipient(&None, MINER_ADDR).expect("resolves");
+        let expected = Address::try_from(MINER_ADDR).expect("valid miner address");
+        assert_eq!(resolved, expected, "with no override the miner-supplied address is used (upstream behaviour)");
+    }
+
+    #[test]
+    fn no_override_propagates_malformed_miner_address() {
+        let err = resolve_coinbase_recipient(&None, "not-a-kaspa-address").expect_err("invalid address must error");
+        let msg = format!("{err}");
+        assert!(msg.contains("Could not decode address"), "unexpected error message: {msg}");
+    }
+
+    #[test]
+    fn override_ignores_malformed_miner_address() {
+        // Important: a configured pool override must short-circuit
+        // the wallet_addr parse, otherwise a single misbehaving
+        // miner sending garbage on `mining.authorize` would crash
+        // every block-template fetch.
+        let pool = Address::try_from(POOL_ADDR).expect("valid pool address");
+        let resolved = resolve_coinbase_recipient(&Some(pool.clone()), "not-a-kaspa-address").expect("resolves");
+        assert_eq!(resolved, pool);
     }
 }
