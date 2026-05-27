@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "hex",
  "katpool-db",
  "katpool-domain",
  "prometheus 0.14.0",
