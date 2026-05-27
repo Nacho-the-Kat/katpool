@@ -52,6 +52,48 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 3c (accountant: real kaspad gRPC client +
+  tracker-only live exercise): the real `KaspadClient` impl
+  backed by `kaspa-grpc-client` so the maturity tracker (M3b)
+  reaches a real `kaspad-tn10` instead of the in-memory fake.
+    - `accountant::kaspad_grpc::KaspadGrpcClient`: thin
+      translation layer over `kaspa-grpc-client`. Two methods:
+      `get_virtual_blue_score` (via `RpcApi::get_sink_blue_score`)
+      and `get_block` (via `get_block_call` with
+      `include_transactions: true`).
+    - `accountant::kaspad_grpc::extract_block_info`: pure
+      function that turns an `RpcBlock` + configured pool
+      addresses into the abstract `BlockInfo`. Sums the
+      coinbase tx's outputs whose
+      `verbose_data.script_public_key_address` matches a
+      configured pool address. Defends against missing verbose
+      data, hash mismatch between request and response,
+      zero-transaction blocks, and i64-overflowing sums.
+      11 unit tests against canned RpcBlock fixtures.
+    - `is_block_not_found` heuristic. Matches several wordings
+      observed in the wild — including the kaspad v1.1.0 /
+      Toccata `"cannot find header <hash>"` response that the
+      M3c dry-run caught and we patched in the same PR.
+    - New binary `accountant-tracker-runner`
+      (`accountant/src/bin/accountant-tracker-runner.rs`):
+      env-configurable runner that wires the kaspad client +
+      DB pool + StaticTierClassifier + AllocationEngine +
+      MaturityTracker into a SIGTERM-aware loop. Required by
+      runbook 15.
+    - `scripts/testnet10-tracker-live.sh`: operator-facing
+      live-exercise script. Stands up throwaway Docker
+      Postgres, applies migrations, seeds a known testnet
+      block, runs the binary for N seconds, captures evidence
+      (manifest.json + tracker.log + db-final.txt).
+    - Runbook 15 `docs/runbooks/15-testnet10-tracker-live.md`:
+      preconditions, command, success criteria, exit-code
+      table, cleanup, what-to-paste-into-the-acceptance-ticket.
+    - `docs/phase-3-acceptance.md`: new Phase 3 acceptance
+      evidence page modelled on the Phase 1 and Phase 2
+      siblings. Includes the M3c dry-run evidence (both runs:
+      the pre-fix bug surface and the post-fix validation) and
+      cross-references the remaining gates (M3d, M4) that close
+      out Phase 3.
 - Phase 3 milestone 3b (accountant: block maturity tracker):
   the kaspad-watching loop that drives the M3 allocation engine
   on every matured block. Closes the loop from `submitted_to_node`

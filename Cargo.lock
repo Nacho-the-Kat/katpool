@@ -10,6 +10,10 @@ dependencies = [
  "async-trait",
  "chrono",
  "hex",
+ "kaspa-addresses",
+ "kaspa-grpc-client",
+ "kaspa-hashes",
+ "kaspa-rpc-core",
  "katpool-db",
  "katpool-domain",
  "prometheus 0.14.0",
@@ -23,6 +27,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid 1.18.1",
  "wiremock",
 ]
