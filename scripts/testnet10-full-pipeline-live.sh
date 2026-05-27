@@ -133,7 +133,7 @@ KATPOOL_POOL_ADDRESS="$KATPOOL_POOL_ADDRESS" \
 KATPOOL_STRATUM_PORT="$STRATUM_PORT" \
 KATPOOL_INSTANCE_ID="$INSTANCE_ID" \
 KATPOOL_MATURITY_POLL_SECS=10 \
-RUST_LOG=info,accountant=debug,kaspa_stratum_bridge=info \
+RUST_LOG="${RUST_LOG:-info,accountant=debug,kaspa_stratum_bridge=info}" \
   "$BIN" > "$OUTDIR/katpool.log" 2>&1 &
 KATPOOL_PID=$!
 
