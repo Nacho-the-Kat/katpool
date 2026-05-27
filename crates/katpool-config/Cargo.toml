@@ -12,6 +12,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — deps reserved for Phase 7 config loader.
+[package.metadata.cargo-machete]
+ignored = ["config", "serde", "thiserror", "validator"]
+
 [dependencies]
 serde = { workspace = true }
 config = { workspace = true }

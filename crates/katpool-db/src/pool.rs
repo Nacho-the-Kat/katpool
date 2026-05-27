@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn from_lookup_rejects_unparseable_value() {
+    fn from_lookup_rejects_unparsable_value() {
         let result = PoolConfig::from_lookup(|k| match k {
             "KATPOOL_DATABASE_URL" => Some(url()),
             "KATPOOL_DB_MAX_CONNECTIONS" => Some("not-a-number".to_owned()),

@@ -562,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn from_lookup_rejects_unparseable_value() {
+    fn from_lookup_rejects_unparsable_value() {
         let result = AntiAbuseConfig::from_lookup(|k| {
             if k == "KATPOOL_ANTI_ABUSE_MAX_CONN_PER_IP" { Some("not-a-number".to_owned()) } else { None }
         });

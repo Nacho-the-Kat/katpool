@@ -13,6 +13,16 @@ repository.workspace = true
 # Upstream had `include.workspace = true`; our workspace.package has no
 # `include` field because `publish = false` makes it irrelevant.
 
+# cargo-machete ignores. The bridge is vendored from
+# kaspanet/rusty-kaspa v1.1.0; upstream's Cargo.toml lists deps
+# their broader workspace links transitively. We preserve the
+# list verbatim (per UPSTREAM.md's "keep divergence minimal"
+# rule) and accept that some entries aren't referenced from our
+# subset of the upstream binaries. Pruning these is an upstream
+# concern, not ours.
+[package.metadata.cargo-machete]
+ignored = ["blake2", "faster-hex", "kaspa-rpc-service", "kaspad", "uuid"]
+
 [dependencies]
 # katpool fork: shared domain types for the event-bus broadcast.
 # This is intentionally the only katpool-* dep on the vendored bridge —

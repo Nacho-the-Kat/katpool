@@ -12,6 +12,25 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — every dep below is reserved for Phase 6
+# (read-only HTTP API).
+[package.metadata.cargo-machete]
+ignored = [
+    "axum",
+    "chrono",
+    "katpool-db",
+    "katpool-domain",
+    "katpool-metrics",
+    "katpool-telemetry",
+    "serde",
+    "serde_json",
+    "thiserror",
+    "tokio",
+    "tower",
+    "tower-http",
+    "tracing",
+]
+
 [dependencies]
 katpool-domain = { path = "../crates/katpool-domain" }
 katpool-db = { path = "../crates/katpool-db" }

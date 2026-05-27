@@ -12,6 +12,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — deps reserved for Phase 3-5 idempotency
+# helpers (payout retry keys, distributed locks).
+[package.metadata.cargo-machete]
+ignored = [
+    "chrono",
+    "katpool-db",
+    "katpool-domain",
+    "sqlx",
+    "thiserror",
+    "tokio",
+    "tracing",
+]
+
 [dependencies]
 katpool-domain = { path = "../katpool-domain" }
 katpool-db = { path = "../katpool-db" }

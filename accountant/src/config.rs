@@ -144,6 +144,141 @@ impl WalletTier {
     }
 }
 
+/// One wallet's allocation breakdown for a single block. Computed
+/// from a `(gross, FeeConfig, WalletTier)` tuple by
+/// [`FeeConfig::compute_allocation`].
+///
+/// Always satisfies the schema's `share_allocation_balance`
+/// invariant: `gross == pool_fee + nacho_accrual + net_payout`.
+/// Held in integer sompi end-to-end; no rounding loss.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Allocation {
+    /// Wallet's gross share of the matured coinbase reward.
+    pub gross_sompi: i64,
+    /// Sompi the pool keeps net of the NACHO rebate.
+    pub pool_fee_sompi: i64,
+    /// Sompi-equivalent NACHO rebated to the miner (settled at
+    /// krc-20 payout-cycle time).
+    pub nacho_accrual_sompi: i64,
+    /// KAS paid out to the miner.
+    pub net_payout_sompi: i64,
+    /// Topline-fee basis points that were applied (audit trail).
+    pub applied_topline_bps: u16,
+    /// Rebate basis points that were applied (audit trail).
+    pub applied_rebate_bps: u16,
+    /// Tier that was applied (audit trail).
+    pub applied_tier: WalletTier,
+}
+
+impl Allocation {
+    /// Verify the four-way balance equation. The schema's CHECK
+    /// constraint enforces this server-side; callers may want a
+    /// client-side guard for tight loops.
+    #[must_use]
+    pub const fn is_balanced(&self) -> bool {
+        self.gross_sompi == self.pool_fee_sompi + self.nacho_accrual_sompi + self.net_payout_sompi
+    }
+}
+
+impl FeeConfig {
+    /// Compute one wallet's `Allocation` from its `gross` sompi share
+    /// of a block reward, applying the configured topline and the
+    /// tier's rebate ratio.
+    ///
+    /// All math is integer truncation:
+    /// ```text
+    /// fee_share     = gross * topline_bps / 10_000
+    /// nacho_accrual = fee_share * rebate_bps / 10_000
+    /// pool_fee      = fee_share - nacho_accrual
+    /// net_payout    = gross - fee_share
+    /// ```
+    /// Truncation residues stay with the pool: `pool_fee` absorbs
+    /// every dropped sub-sompi remainder, so the balance equation
+    /// holds exactly without rounding tricks.
+    ///
+    /// Returns `Err` only on `gross < 0`. Both `topline_bps` and
+    /// `rebate_bps(tier)` are `u16` and the constants enforce
+    /// `topline_bps <= 1_000`, `rebate_bps <= 10_000`, so the
+    /// math is total elsewhere.
+    // Integer division is denied workspace-wide because most of our
+    // money math should be integer-explicit; the allocation routine
+    // is the one place where integer truncation IS the semantics
+    // (per the function-level doc above), so a locally-scoped allow
+    // is the honest expression of intent.
+    #[allow(clippy::integer_division)]
+    pub fn compute_allocation(
+        self,
+        gross_sompi: i64,
+        tier: WalletTier,
+    ) -> Result<Allocation, AllocationError> {
+        if gross_sompi < 0 {
+            return Err(AllocationError::NegativeGross { gross_sompi });
+        }
+        let topline = i64::from(self.topline_bps());
+        let rebate = i64::from(self.rebate_bps(tier));
+
+        // `gross * topline` is bounded by i64::MAX / 10_000 once
+        // gross stays under ~9.2e14 (which covers the entire Kaspa
+        // supply cap in sompi). i64::checked_mul guards regardless.
+        let fee_share = gross_sompi
+            .checked_mul(topline)
+            .ok_or(AllocationError::Overflow { stage: "fee_share" })?
+            / 10_000;
+        let nacho_accrual = fee_share
+            .checked_mul(rebate)
+            .ok_or(AllocationError::Overflow {
+                stage: "nacho_accrual",
+            })?
+            / 10_000;
+        // pool_fee absorbs the rebate-side truncation residue.
+        let pool_fee = fee_share - nacho_accrual;
+        let net_payout = gross_sompi - fee_share;
+
+        let allocation = Allocation {
+            gross_sompi,
+            pool_fee_sompi: pool_fee,
+            nacho_accrual_sompi: nacho_accrual,
+            net_payout_sompi: net_payout,
+            applied_topline_bps: self.topline_bps(),
+            applied_rebate_bps: self.rebate_bps(tier),
+            applied_tier: tier,
+        };
+        // Belt-and-braces — fires only on a code bug (the math
+        // above is total within the validated input ranges, so
+        // this branch is unreachable in practice).
+        if !allocation.is_balanced() {
+            return Err(AllocationError::Unbalanced(allocation));
+        }
+        Ok(allocation)
+    }
+}
+
+/// Errors from [`FeeConfig::compute_allocation`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum AllocationError {
+    /// Gross sompi value was negative. Allocations never make
+    /// sense for negative grosses; surfaces a caller bug.
+    #[error("gross_sompi must be >= 0, got {gross_sompi}")]
+    NegativeGross {
+        /// The offending value.
+        gross_sompi: i64,
+    },
+    /// An intermediate multiplication overflowed `i64`. Unreachable
+    /// in practice within the Kaspa supply cap; kept as an explicit
+    /// error so a future supply-cap change doesn't silently wrap.
+    #[error("integer overflow at stage `{stage}`")]
+    Overflow {
+        /// Which arithmetic step blew the limit.
+        stage: &'static str,
+    },
+    /// Belt-and-braces guard — the balance equation didn't hold
+    /// after computation. Unreachable within the validated input
+    /// ranges; reaching this variant means a code bug.
+    #[error("allocation failed balance check: {0:?}")]
+    Unbalanced(Allocation),
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]

@@ -12,6 +12,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold crate — deps reserved for Phase 4 treasury custody.
+[package.metadata.cargo-machete]
+ignored = ["secrecy", "thiserror", "tracing", "zeroize"]
+
 [dependencies]
 secrecy = { workspace = true }
 zeroize = { workspace = true }

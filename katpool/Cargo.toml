@@ -12,6 +12,18 @@ publish.workspace = true
 [lints]
 workspace = true
 
+# Scaffold binary — every dep below is reserved for the Phase 7
+# wiring crate that composes the workspace into a single process.
+[package.metadata.cargo-machete]
+ignored = [
+    "anyhow",
+    "serde",
+    "thiserror",
+    "tokio",
+    "tracing",
+    "tracing-subscriber",
+]
+
 [[bin]]
 name = "katpool"
 path = "src/main.rs"
