@@ -172,8 +172,10 @@ async fn block_accepted_without_prior_found_is_no_op() {
 }
 
 #[tokio::test]
-async fn share_rejected_does_not_write_to_share() {
-    // M1 scope: ShareRejected is metric-only; no DB write.
+async fn share_rejected_persists_to_share_reject_not_share() {
+    // M2: ShareRejected lands in `share_reject`, NOT `share`.
+    // Wallet + worker rows ARE created so per-miner stats can
+    // aggregate against them.
     let env = setup().await;
     let consumer = EventConsumer::new(env.db.clone(), cfg());
 
@@ -190,14 +192,25 @@ async fn share_rejected_does_not_write_to_share() {
         .fetch_one(&env.db)
         .await
         .unwrap();
+    let share_reject_count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM share_reject")
+        .fetch_one(&env.db)
+        .await
+        .unwrap();
     let wallet_count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM wallet")
         .fetch_one(&env.db)
         .await
         .unwrap();
-    assert_eq!(share_count, 0);
     assert_eq!(
-        wallet_count, 0,
-        "M1 doesn't write wallet rows for rejected shares"
+        share_count, 0,
+        "rejected shares must NOT land in the share table"
+    );
+    assert_eq!(
+        share_reject_count, 1,
+        "rejected shares must land in share_reject"
+    );
+    assert_eq!(
+        wallet_count, 1,
+        "M2 creates wallet rows for rejected shares so stats aggregate them"
     );
 }
 

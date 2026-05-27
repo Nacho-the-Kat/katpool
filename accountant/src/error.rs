@@ -45,6 +45,20 @@ pub enum EventError {
     #[error("share insert failed: {0}")]
     ShareInsert(katpool_db::DbError),
 
+    /// `share_reject::insert` failed.
+    #[error("share_reject insert failed: {0}")]
+    ShareRejectInsert(katpool_db::DbError),
+
+    /// A `ShareRejected` event arrived with a domain reason that
+    /// the DB enum doesn't yet know. Means the bridge added a
+    /// `non_exhaustive` variant without a paired schema migration.
+    /// Recoverable: log + metric, skip persistence.
+    #[error("unknown share-reject reason `{reason}`; add a migration")]
+    UnknownRejectReason {
+        /// `as_str()` label of the unmapped reason.
+        reason: &'static str,
+    },
+
     /// `block::ensure` failed.
     #[error("block ensure failed: {0}")]
     BlockEnsure(katpool_db::DbError),

@@ -61,6 +61,8 @@ pub mod payout;
 pub mod pool_meta;
 pub mod share;
 pub mod share_allocation;
+pub mod share_reject;
+pub mod share_stats;
 pub mod share_window;
 pub mod treasury;
 pub mod wallet;
@@ -95,3 +97,8 @@ pub struct BlockId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct AuditLogId(pub i64);
+
+/// Strongly-typed wrapper around a `share_reject.id` value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct ShareRejectId(pub i64);
