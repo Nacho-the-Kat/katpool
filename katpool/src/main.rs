@@ -1,29 +1,382 @@
-//! katpool — main wiring binary.
+//! katpool — Phase 7 wiring binary.
 //!
-//! Phase 0 stub. The real wiring (load config, init telemetry, init DB,
-//! start bridge, start accountant, start payout schedulers, start API,
-//! handle graceful shutdown) lands across Phases 1-6.
+//! As of Phase 3 M3d the binary composes the **stratum bridge**
+//! plus the **accountant**'s event consumer and maturity tracker
+//! into a single process with a shared `broadcast::Sender<PoolEvent>`
+//! channel. Phase 4 adds payout-kas, Phase 5 payout-krc20,
+//! Phase 6 the read-only API, Phase 7 closes out telemetry/
+//! secrets/config wiring.
+//!
+//! ## Subsystems
+//!
+//! 1. **Bridge stratum server**. Listens on `KATPOOL_STRATUM_PORT`.
+//!    Talks to kaspad via the bridge's own `KaspaApi` (block
+//!    template fetch + submission). Emits `PoolEvent` into the
+//!    shared broadcast channel.
+//! 2. **Accountant event consumer**. Drains the broadcast channel,
+//!    writes share / block rows via the new schema's repo layer.
+//! 3. **Maturity tracker**. Polls kaspad (via the same gRPC URL,
+//!    separate client) for blue-score / block-info; transitions
+//!    blocks `submitted_to_node → confirmed_blue → matured` and
+//!    calls the accountant's allocation engine on maturity.
+//!
+//! All three subsystems shut down cleanly on SIGINT / SIGTERM via
+//! a `tokio::sync::watch::Receiver<bool>` propagated from the
+//! signal task.
+//!
+//! ## Configuration (env-var only in M3d; YAML in Phase 7)
+//!
+//! Required:
+//! - `KASPAD_GRPC_URL`               (e.g. `grpc://127.0.0.1:16210`)
+//! - `KATPOOL_DATABASE_URL`          postgres URL
+//! - `KATPOOL_POOL_ADDRESS`          kaspa address(es), comma-separated
+//!   (coinbase outputs to these become pool revenue)
+//! - `KATPOOL_STRATUM_PORT`          e.g. `5555`
+//!
+//! Optional:
+//! - `KATPOOL_INSTANCE_ID`           default `katpool-runtime`
+//! - `KATPOOL_FEE_TOPLINE_BPS`       default 75
+//! - `KATPOOL_MIN_SHARE_DIFF`        default 1
+//! - `KATPOOL_PROM_PORT`             default empty (disabled)
+//! - `KATPOOL_HEALTH_CHECK_PORT`     default empty (disabled)
+//! - `KATPOOL_MATURITY_POLL_SECS`    default 15
+//! - `KATPOOL_MATURITY_DEPTH`        default 100
+//! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
+//! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
-/// Process entrypoint. In Phase 0 this just prints version banners for
-/// every linked crate to prove the workspace links correctly, then exits.
-fn main() {
-    // Single allowed `println!` outside of `tracing`. This is the entrypoint
-    // before telemetry is initialised. All real output once we wire telemetry
-    // (Phase 1) goes through `tracing`.
-    #[allow(clippy::print_stdout)]
-    {
-        println!("katpool v{}", env!("CARGO_PKG_VERSION"));
-        println!("  katpool-domain         v{}", katpool_domain::VERSION);
-        println!("  katpool-config         v{}", katpool_config::VERSION);
-        println!("  katpool-db             v{}", katpool_db::VERSION);
-        println!("  katpool-metrics        v{}", katpool_metrics::VERSION);
-        println!("  katpool-telemetry      v{}", katpool_telemetry::VERSION);
-        println!("  katpool-secrets        v{}", katpool_secrets::VERSION);
-        println!("  accountant             v{}", accountant::VERSION);
-        println!("  payout-kas             v{}", payout_kas::VERSION);
-        println!("  payout-krc20           v{}", payout_krc20::VERSION);
-        println!("  api                    v{}", api::VERSION);
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::{Context, Result};
+use kaspa_addresses::Address;
+use kaspa_grpc_client::GrpcClient;
+use kaspa_rpc_core::notify::mode::NotificationMode;
+use kaspa_stratum_bridge::{
+    BridgeConfig as BridgeServerConfig, KaspaApi, listen_and_serve_with_events,
+};
+use katpool_db::{PoolConfig, build_pool};
+use katpool_domain::PoolEvent;
+use tokio::signal;
+use tokio::sync::{broadcast, watch};
+use tracing::{error, info, warn};
+use tracing_subscriber::EnvFilter;
+
+use accountant::{
+    AllocationEngine, ConsumerConfig, EventConsumer, FeeConfig, KaspadGrpcClient, MaturityConfig,
+    MaturityTracker, StaticTierClassifier,
+};
+
+// The runtime orchestrator is intentionally long-form: every step
+// is a single named operation against the workspace's subsystems,
+// and abstracting them out reduces traceability for a path that
+// composes multiple critical lifecycles.
+#[allow(clippy::too_many_lines)]
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .with_target(true)
+        .init();
+
+    let cfg = RuntimeConfig::from_env().context("loading runtime config")?;
+    info!(
+        instance = %cfg.instance_id,
+        kaspad = %cfg.kaspad_url,
+        stratum_port = %cfg.stratum_port,
+        pool_addresses = ?cfg.pool_addresses.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        "katpool runtime starting"
+    );
+
+    // ---- DB pool -----------------------------------------------------
+    let db = build_pool(&PoolConfig {
+        url: cfg.database_url.clone(),
+        min_connections: 2,
+        max_connections: 16,
+        application_name: format!("katpool[{}]", cfg.instance_id),
+        ..PoolConfig::production("placeholder".to_owned())
+    })
+    .await
+    .context("opening Postgres pool")?;
+
+    // ---- shared event bus -------------------------------------------
+    // Capacity sized for ~3 minutes of sustained 20 shares/s
+    // (default 4096); operator-tunable for higher-throughput runs.
+    let (event_tx, _event_rx_template) = broadcast::channel::<PoolEvent>(cfg.broadcast_capacity);
+
+    // ---- kaspad clients (bridge + accountant share the URL,
+    //      separate connections) ---------------------------------------
+    let kaspa_api = KaspaApi::new(cfg.kaspad_url.clone(), Duration::from_millis(500), None)
+        .await
+        .map_err(|e| anyhow::anyhow!("KaspaApi: {e}"))?;
+    let tracker_grpc = GrpcClient::connect_with_args(
+        NotificationMode::Direct,
+        cfg.kaspad_url.clone(),
+        None,
+        true,
+        None,
+        false,
+        Some(500_000),
+        Arc::default(),
+    )
+    .await
+    .context("tracker gRPC connect")?;
+    let tracker_kaspad = Arc::new(KaspadGrpcClient::new(
+        Arc::new(tracker_grpc),
+        cfg.pool_addresses.clone(),
+    ));
+
+    // ---- accountant pipeline ----------------------------------------
+    let fee =
+        FeeConfig::new(cfg.fee_topline_bps).map_err(|e| anyhow::anyhow!("fee config: {e}"))?;
+    let engine = Arc::new(AllocationEngine::new(
+        db.clone(),
+        fee,
+        Arc::new(StaticTierClassifier::standard()),
+        cfg.instance_id.clone(),
+    ));
+    let tracker = MaturityTracker::new(
+        db.clone(),
+        tracker_kaspad,
+        Arc::clone(&engine),
+        cfg.maturity,
+        cfg.instance_id.clone(),
+    );
+    let consumer = EventConsumer::new(db.clone(), ConsumerConfig::new(cfg.instance_id.clone()));
+
+    // ---- shutdown channel ------------------------------------------
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let signal_task = {
+        let tx = shutdown_tx.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                res = signal::ctrl_c() => {
+                    if res.is_ok() { info!("SIGINT received"); }
+                }
+                () = sigterm() => info!("SIGTERM received"),
+            }
+            if tx.send(true).is_err() {
+                warn!("shutdown channel closed before signal arrived");
+            }
+        })
+    };
+
+    // ---- spawn the three subsystems ---------------------------------
+    let event_rx = event_tx.subscribe();
+    let consumer_handle = tokio::spawn({
+        let consumer = consumer;
+        async move { consumer.run(event_rx).await }
+    });
+    let tracker_handle = tokio::spawn({
+        let rx = shutdown_rx.clone();
+        async move { tracker.run_loop(rx).await }
+    });
+
+    // Bridge is the long-running stratum listener. Its
+    // `listen_and_serve_with_events` doesn't currently respect a
+    // shutdown channel (upstream limitation); we drive its lifetime
+    // off the JoinHandle here and depend on SIGTERM/SIGINT killing
+    // the process when we want it down.
+    let bridge_config = BridgeServerConfig {
+        instance_id: cfg.instance_id.clone(),
+        stratum_port: cfg.stratum_port.clone(),
+        kaspad_address: cfg.kaspad_url.clone(),
+        prom_port: cfg.prom_port.clone(),
+        print_stats: false,
+        log_to_file: false,
+        health_check_port: cfg.health_check_port.clone(),
+        block_wait_time: Duration::from_millis(500),
+        min_share_diff: cfg.min_share_diff,
+        var_diff: false,
+        shares_per_min: 0,
+        var_diff_stats: false,
+        extranonce_size: 2,
+        pow2_clamp: true,
+        coinbase_tag_suffix: None,
+    };
+    let bridge_tx = event_tx.clone();
+    let bridge_api = Arc::clone(&kaspa_api);
+    let bridge_concrete = Some(Arc::clone(&kaspa_api));
+    let bridge_handle = tokio::spawn(async move {
+        listen_and_serve_with_events(bridge_config, bridge_api, bridge_concrete, Some(bridge_tx))
+            .await
+    });
+
+    info!("subsystems running; awaiting shutdown signal");
+
+    // ---- wait for shutdown ------------------------------------------
+    let mut shutdown_observer = shutdown_rx;
+    let _ = shutdown_observer.changed().await;
+    info!("shutdown signal observed; tearing down subsystems");
+
+    // Shutdown semantics by subsystem:
+    //
+    // - **Tracker** has a clean shutdown channel (`shutdown_rx`)
+    //   and exits at its next interval tick after the signal.
+    // - **Bridge** and **consumer** do not yet have clean
+    //   shutdown semantics:
+    //   * the bridge's `listen_and_serve_with_events` spawns
+    //     internal kaspad-notification tasks (per the upstream
+    //     impl) that hold cloned `Arc<ShareHandler>` past the
+    //     listener-task abort, which keeps clones of the
+    //     `broadcast::Sender<PoolEvent>` alive;
+    //   * the consumer drains until every Sender is dropped.
+    //   The combination means a "drain to RecvError::Closed"
+    //   path blocks indefinitely.
+    //
+    // Pragmatic M3d shutdown: abort the bridge + consumer
+    // JoinHandles after the tracker is done. At-most-once
+    // delivery is the design (lossy at restart is the
+    // documented contract), so dropping in-flight events on
+    // shutdown is correct. Phase 7's wiring rework will replace
+    // the abort path with a clean shutdown if upstream grows
+    // one.
+    drop(event_tx);
+    if let Err(e) = tracker_handle.await? {
+        error!(error = %e, "tracker exited with error");
     }
+    bridge_handle.abort();
+    consumer_handle.abort();
+    let _ = bridge_handle.await;
+    let _ = consumer_handle.await;
+    signal_task.abort();
+    let _ = signal_task.await;
+
+    info!("katpool runtime exiting cleanly");
+    Ok(())
+}
+
+async fn sigterm() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let Ok(mut sig) = signal(SignalKind::terminate()) {
+            sig.recv().await;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        std::future::pending::<()>().await;
+    }
+}
+
+#[derive(Debug)]
+struct RuntimeConfig {
+    kaspad_url: String,
+    database_url: String,
+    pool_addresses: Vec<Address>,
+    stratum_port: String,
+    prom_port: String,
+    health_check_port: String,
+    instance_id: String,
+    fee_topline_bps: u16,
+    min_share_diff: u32,
+    broadcast_capacity: usize,
+    maturity: MaturityConfig,
+}
+
+impl RuntimeConfig {
+    fn from_env() -> Result<Self> {
+        let kaspad_url = required("KASPAD_GRPC_URL")?;
+        let database_url = required("KATPOOL_DATABASE_URL")?;
+        let stratum_port = required("KATPOOL_STRATUM_PORT")?;
+        let pool_address_raw = required("KATPOOL_POOL_ADDRESS")?;
+        let pool_addresses = pool_address_raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                Address::try_from(s)
+                    .map_err(|e| anyhow::anyhow!("KATPOOL_POOL_ADDRESS entry `{s}`: {e}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if pool_addresses.is_empty() {
+            anyhow::bail!("KATPOOL_POOL_ADDRESS produced an empty list");
+        }
+        let instance_id =
+            optional("KATPOOL_INSTANCE_ID").unwrap_or_else(|| "katpool-runtime".to_owned());
+        let prom_port = optional("KATPOOL_PROM_PORT").unwrap_or_default();
+        let health_check_port = optional("KATPOOL_HEALTH_CHECK_PORT").unwrap_or_default();
+        let fee_topline_bps = optional_u16("KATPOOL_FEE_TOPLINE_BPS")?.unwrap_or(75);
+        let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?.unwrap_or(1);
+        let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?.unwrap_or(4096);
+        let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
+        let maturity_depth = optional_u64("KATPOOL_MATURITY_DEPTH")?.unwrap_or(100);
+        let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
+        let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
+        Ok(Self {
+            kaspad_url,
+            database_url,
+            pool_addresses,
+            stratum_port,
+            prom_port,
+            health_check_port,
+            instance_id,
+            fee_topline_bps,
+            min_share_diff,
+            broadcast_capacity,
+            maturity: MaturityConfig {
+                poll_interval: Duration::from_secs(poll_secs),
+                maturity_depth,
+                window_daa_span,
+                batch_size,
+            },
+        })
+    }
+}
+
+fn required(var: &str) -> Result<String> {
+    std::env::var(var).map_err(|_| anyhow::anyhow!("required env var {var} unset"))
+}
+
+fn optional(var: &str) -> Option<String> {
+    std::env::var(var).ok().filter(|s| !s.is_empty())
+}
+
+fn optional_u16(var: &str) -> Result<Option<u16>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<u16>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_u32(var: &str) -> Result<Option<u32>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<u32>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_u64(var: &str) -> Result<Option<u64>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<u64>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_i64(var: &str) -> Result<Option<i64>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<i64>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_usize(var: &str) -> Result<Option<usize>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<usize>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
 }
