@@ -191,9 +191,33 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Coverage is informational only (ADR-0013 § Layer 7). The
+    # number is uploaded as an artefact for inspection but the
+    # job's pass/fail does NOT gate PRs — gating on a number would
+    # distort incentives. `continue-on-error` makes the workflow
+    # report SUCCESS even on tarpaulin failure (e.g. transient
+    # runner disk exhaustion); the artefact still uploads when
+    # the run succeeds and is simply absent when it fails.
+    continue-on-error: true
     permissions:
       contents: read
     steps:
+      - name: Free disk space
+        # Tarpaulin instruments every compilation unit, so the
+        # `target/` tree balloons to 12-15 GB on top of the
+        # workspace + transitive kaspad deps. The `ubuntu-latest`
+        # runner provides ~14 GB free out of the box; we reclaim
+        # ~30 GB by uninstalling pre-cached toolchains we don't
+        # use (Haskell, Android, .NET, etc.).
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install system deps
