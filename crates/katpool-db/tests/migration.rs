@@ -246,8 +246,9 @@ async fn share_allocation_balance_check_rejects_mismatch() {
     // Bad allocation: gross != fee + accrual + net.
     let err = sqlx::query(
         "INSERT INTO share_allocation (block_id, wallet_id, weight, window_total,
-            gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi)
-         VALUES ($1, $2, 100.0, 100.0, 100, 1, 1, 1)",
+            gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
+            applied_topline_bps, applied_rebate_bps, applied_tier)
+         VALUES ($1, $2, 100.0, 100.0, 100, 1, 1, 1, 75, 3300, 'standard')",
     )
     .bind(block_id)
     .bind(wallet_id)

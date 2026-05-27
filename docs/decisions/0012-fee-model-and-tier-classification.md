@@ -89,36 +89,42 @@ implementations:
 
 - `StaticTierClassifier` (this milestone) — always returns a
   configured tier; for tests and as a safe fallback.
-- `KasplexTierClassifier` (Phase 3 M3) — HTTP client against
-  `https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/NACHO`
-  for NFT ownership, plus the KRC-20 `NACHO` balance endpoint, with
-  a small in-process TTL cache (~5 min) so we don't hammer kasplex
-  on every matured block.
+- `KasplexTierClassifier` (Phase 3 M3) — HTTP client backed by two
+  endpoints:
+    1. `GET https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/NACHO`
+       — wallet has ≥ 1 NACHO KRC-721 token iff `result.is_empty() == false`.
+    2. `GET https://api.kasplex.org/v1/krc20/address/{addr}/token/NACHO`
+       — wallet has ≥ 100M NACHO iff `balance + locked >= 10^16`
+       base units (NACHO is 8-decimal precision, so 100M tokens
+       = `10^16` base units).
+  Either condition qualifies independently (OR semantics). A
+  small in-process TTL cache (5-min default) prevents hammering
+  the endpoints on every matured block. Calls run in parallel
+  per allocation cycle.
+  **Locked tokens count.** Including `locked` in the threshold
+  check defends against a wallet that has staked-but-not-spent
+  NACHO; locking is a holding strategy, not dispossession. We
+  document this here so the choice is reviewable.
 
 On any classifier error the safe fallback is `Standard` (the lower
 rebate tier). The pool never over-rebates from a transient upstream
 failure.
 
-### 7. Audit-trail schema migration deferred to M3
+### 7. Audit-trail schema migration landed in M3
 
-The plan adds three columns to `share_allocation`:
-- `applied_topline_bps SMALLINT NOT NULL`
-- `applied_rebate_bps  SMALLINT NOT NULL`
+`20260527000001_wallet_tier_audit.sql` adds three columns to
+`share_allocation`:
+- `applied_topline_bps SMALLINT NOT NULL CHECK (0 ≤ x ≤ 1000)`
+- `applied_rebate_bps  SMALLINT NOT NULL CHECK (0 ≤ x ≤ 10000)`
 - `applied_tier        wallet_tier NOT NULL`
 
-Each row will be self-describing — historical allocations remain
-inspectable and reproducible across future config changes.
-
-The migration lands in the M3 PR together with the code that
-populates the columns, *not* in this M1 PR. Two reasons:
-
-1. **Atomicity of intent.** A schema column nobody writes to is a
-   readiness trap: somebody could later assume rows have non-NULL
-   data when historical rows do not.
-2. **Reversibility.** If M2 work changes our mind about the column
-   shape (e.g. we decide to also record the `topline_bps`
-   denominator or include a `block_id` cross-check), we haven't
-   committed prematurely.
+Plus a `wallet_tier` postgres enum (`standard`, `elite`). Each row
+is now self-describing — historical allocations remain
+inspectable and reproducible across future operator changes to
+`KATPOOL_FEE_TOPLINE_BPS`. The migration adds the columns with
+`DEFAULT`s (to satisfy NOT-NULL against any pre-existing rows)
+then immediately `DROP DEFAULT`s so future INSERT statements must specify
+the column values explicitly.
 
 ### 8. Wallet-tier postgres enum
 

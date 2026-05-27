@@ -52,6 +52,72 @@ backward-incompatible ways at every minor bump.
   build (our strict pedantic-and-nursery rules for new crates,
   upstream-tolerant for the vendored bridge), and re-vendoring
   procedure documented for future v1.x bumps.
+- Phase 3 milestone 3 (accountant: PROP allocation engine + HTTP
+  tier classifier + audit-trail migration): the money-math
+  milestone. Closes the loop from "block confirms blue" through
+  "every contributing wallet has its share row written + NACHO
+  rebate accrued" in one transactional engine call.
+    - Migration `20260527000001_wallet_tier_audit.sql`:
+      `wallet_tier` postgres enum (`standard`, `elite`) + three
+      audit-trail columns on `share_allocation`
+      (`applied_topline_bps`, `applied_rebate_bps`,
+      `applied_tier`) with CHECK-constrained bps ranges. Every
+      allocation row is now self-describing — historical
+      allocations stay reproducible across future operator
+      changes to `KATPOOL_FEE_TOPLINE_BPS`. Round-trip parity
+      test added.
+    - `repo::share_allocation::DbWalletTier`,
+      `NewAllocation`/`ShareAllocation` extended with the audit
+      fields; the `insert_batch` UNNEST INSERT widened to bind
+      them.
+    - `accountant::KasplexTierClassifier` (~340 LOC):
+      `reqwest`-backed HTTP client against
+      `krc721.kat.foundation` (NFT ownership) and
+      `api.kasplex.org` (KRC-20 NACHO balance). OR semantics —
+      either dimension qualifies the wallet as `Elite`.
+      `locked` counts toward the threshold (documented in
+      ADR-0012). In-process TTL cache (5-min default) keyed by
+      wallet address; aggressive 2s connect-timeout so a degraded
+      kasplex doesn't stall block-maturity allocation. Both
+      calls run in parallel; on any error the classifier falls
+      back to `Standard` (safe direction per ADR-0012's "never
+      over-rebate from a transient upstream failure").
+      Numeric parsing is integer-only (kasplex returns balance
+      values as strings to dodge JS's safe-int limit; we parse
+      to `u128`).
+    - `accountant::AllocationEngine::allocate_matured_block`:
+      transactional orchestrator. Closes the share window,
+      reads per-wallet rollups, pro-rates the coinbase reward
+      across wallets (`floor(reward × weight / total_weight)`),
+      classifies each wallet's tier, runs
+      `FeeConfig::compute_allocation`, batches
+      `share_allocation` inserts, accrues
+      `nacho_rebate` additively, advances the block to
+      `matured` with the reward recorded, and appends an
+      `audit_log` entry. All inside one Postgres transaction.
+      Truncation residue (max N-1 sompi) awarded
+      deterministically to the smallest-wallet_id contributor.
+      Idempotent: re-calling on a `matured` block is a no-op
+      returning `AllocationOutcome::AlreadyAllocated`. Empty
+      windows produce `NoContributingWallets` with the reward
+      retained by the pool and audited.
+    - 20 new tests (accountant suite now 90+):
+        - 10 `kasplex_classifier` against wiremock-mocked
+          endpoints: NFT-only elite, KRC-20-only elite,
+          locked-counts-toward-threshold, just-below-threshold
+          standard, empty result, both-5xx fallback, mixed
+          5xx + true, cache hit, malformed JSON fallback, clear
+          cache forces refetch.
+        - 10 `allocation_engine` integration tests against
+          ephemeral Postgres: happy path with sum invariant
+          assertion, mixed-tier elite-dominates, block status
+          advances, rebate accrues additively across blocks,
+          idempotent replay, empty window, unknown hash, wrong
+          status, negative reward rejection, audit_log entry
+          shape.
+    - ADR-0012 updated with the OR semantics, the
+      locked-counts-toward-threshold decision, the kasplex API
+      endpoints used, and the audit-trail migration status.
 - Phase 3 hardening: verification-posture pass before M3.
   Closes the gaps identified in a self-audit of "are we
   *deterministically verifying* what we ship, or cargo-culting

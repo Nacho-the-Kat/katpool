@@ -16,17 +16,19 @@ workspace = true
 katpool-domain = { path = "../crates/katpool-domain" }
 katpool-db = { path = "../crates/katpool-db" }
 # `katpool-metrics`, `katpool-idempotency`, `katpool-telemetry` will
-# be wired in M3 (allocation engine + cached HTTP tier classifier)
-# when their public APIs settle; adding them now would be
-# speculative and trip cargo-machete.
+# be wired in M4 (replay-harness + production wiring) when their
+# public APIs settle; adding them now would be speculative and
+# trip cargo-machete.
 tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time"] }
 sqlx = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 prometheus = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
 anyhow = "1.0"
 
 [dev-dependencies]
@@ -34,3 +36,5 @@ proptest = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 uuid = { workspace = true }
+wiremock = { workspace = true }
+serde_json = { workspace = true }
