@@ -12,13 +12,8 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Scaffold crate — deps reserved for Phase 4-5 storage-mass /
-# transient-mass calculators (KIP-9 + KIP-13).
-[package.metadata.cargo-machete]
-ignored = ["katpool-domain", "thiserror"]
-
 [dependencies]
-katpool-domain = { path = "../katpool-domain" }
+kaspa-consensus-core = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
