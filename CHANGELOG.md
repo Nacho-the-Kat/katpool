@@ -12,6 +12,9 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.3 (M4.3): KAS payout eligibility query
+  (`repo::payout::list_kas_eligible_wallets`), idempotent `ensure_payout`,
+  and `payout_kas::plan_kas_cycle` (DB-only cycle planning).
 - `scripts/ci-fast.sh` and `scripts/ci-local.sh` — local parity with gating CI
   jobs (`fmt`, `clippy --locked`, `doc`; full test + deny in `ci-local`).
 - Phase 4 milestone 4.2 (M4.2): `katpool_storagemass::plan_batches` — greedy,
