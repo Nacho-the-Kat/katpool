@@ -12,6 +12,14 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- `scripts/ci-fast.sh` and `scripts/ci-local.sh` — local parity with gating CI
+  jobs (`fmt`, `clippy --locked`, `doc`; full test + deny in `ci-local`).
+- Phase 4 milestone 4.2 (M4.2): `katpool_storagemass::plan_batches` — greedy,
+  mass-aware payout batch planner (`TreasuryUtxo`, `PayoutRecipient`,
+  `PlannedBatch`); defers outputs below `MIN_PAYOUT_OUTPUT_SOMPI`; re-injects
+  change as planning-only virtual UTXOs for multi-batch plans; unit +
+  `proptest` invariants. Execution-layer live UTXO refresh documented in
+  `docs/kips.md` §5.4 (`payout-kas`, M4.6+).
 - Phase 4 milestone 4.1 (M4.1): `katpool-storagemass` mass evaluator wrapping
   `kaspa-consensus-core` (compute + KIP-9 storage + KIP-13 transient);
   `docs/phase-4-acceptance.md` acceptance matrix.
@@ -26,6 +34,10 @@ backward-incompatible ways at every minor bump.
   - `accountant/tests/replay_harness_scale.rs` — CI dual-verify at
     ~1:50 synthetic scale.
   - `scripts/replay-determinism-rehearsal.sh` + runbook 17.
+
+### Changed
+
+- CI: coverage job runs on `main` pushes only (informational; was ~23 min per PR).
 
 ### Fixed
 

@@ -7,7 +7,17 @@
 //! recorded with an idempotency key in `idempotency_keys` BEFORE signing
 //! so a mid-cycle restart can never double-pay.
 //!
-//! Real implementation lands in Phase 4.
+//! ## UTXO lifecycle (see `docs/kips.md` §5.4)
+//!
+//! - **Plan:** `plan_batches` may use virtual change UTXOs to chain many
+//!   batches in one offline plan; those outpoints are not broadcastable.
+//! - **Execute:** before each sign/submit, refresh treasury UTXOs from
+//!   kaspad and bind planned inputs to confirmed coins (prior batch change
+//!   replaces the virtual outpoint). Re-run mass check; abort on drift.
+//! - **Maintain:** scheduled consolidation when the treasury UTXO count
+//!   exceeds threshold (`docs/kips.md` §5.3, runbook 07).
+//!
+//! Real implementation lands in Phase 4 (M4.3–M4.8).
 
 #![cfg_attr(not(test), warn(missing_docs))]
 

@@ -116,6 +116,18 @@ Approach:
 - Use the same mass-aware planner — the answer is usually "one tx per
   recipient" but the planner returns a precise verdict.
 
+### 5.4 Plan vs execute (treasury UTXO lifecycle)
+
+Two layers — do not conflate them:
+
+| Layer | Crate | Responsibility |
+|---|---|---|
+| **Plan** | `katpool-storagemass` | Given recipients + a starting UTXO snapshot, produce mass-valid batches. Re-injects each batch's **change** as a *planning-only* virtual UTXO (`PLANNING_VIRTUAL_TXID_HEX`) so one large treasury coin can fund many txs in the plan. Virtual coins are never signed or broadcast. |
+| **Execute** | `payout-kas` (M4.6+) | Before **each** sign/submit: fetch the live treasury UTXO set from kaspad, map planned inputs to real outpoints (replace virtual change with confirmed change from the prior tx), re-check mass, then sign. Abort the cycle on mismatch — never guess. |
+| **Maintain** | `payout-kas` background job | When the treasury accumulates many small UTXOs (§5.3), run `sweep_to_self` / compounding so the input side stays mass-efficient. |
+
+A cycle therefore: **plan once** (dry-run + idempotency rows) → **execute sequentially** with live UTXO refresh per batch → optional consolidation between cycles.
+
 ### 5.3 UTXO maintenance
 
 When the treasury's UTXO set drifts toward many small dust outputs

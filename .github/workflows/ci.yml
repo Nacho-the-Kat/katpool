@@ -189,6 +189,8 @@ jobs:
 
   coverage:
     name: coverage
+    # Informational only; skip on PRs to cut ~20 min wall-clock per push.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Coverage is informational only (ADR-0013 § Layer 7). The
