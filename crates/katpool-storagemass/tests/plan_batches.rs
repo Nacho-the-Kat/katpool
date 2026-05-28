@@ -3,7 +3,9 @@
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
-    clippy::cast_possible_truncation
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing
 )]
 
 use std::str::FromStr;
@@ -115,7 +117,7 @@ fn monolithic_fanout_exceeds_block_mass() {
     let evaluator = MassEvaluator::mainnet();
     let change = empty_script();
     let utxos = vec![treasury_utxo(0, 500_000_000_000_000)];
-    let recipients: Vec<_> = (0..80)
+    let recipients: Vec<_> = (0..80_usize)
         .map(|i| {
             recipient(
                 &format!("dust{i}"),
@@ -158,7 +160,7 @@ fn single_utxo_funds_many_recipients_via_planned_change() {
             .batches
             .iter()
             .flat_map(|b| b.inputs.iter())
-            .any(|u| u.is_planning_virtual()),
+            .any(TreasuryUtxo::is_planning_virtual),
         "later batches should spend planned change"
     );
     assert_all_batches_mass_valid(&evaluator, &result);

@@ -16,8 +16,8 @@ pub use evaluator::{
 pub use planner::plan_batches;
 pub use tx_build::build_populated;
 pub use types::{
-    PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo, PLANNING_VIRTUAL_TXID_BYTES,
-    PLANNING_VIRTUAL_TXID_HEX,
+    PLANNING_VIRTUAL_TXID_BYTES, PLANNING_VIRTUAL_TXID_HEX, PayoutRecipient, PlanBatchesResult,
+    PlannedBatch, TreasuryUtxo,
 };
 
 /// Crate version constant.

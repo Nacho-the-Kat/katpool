@@ -12,7 +12,7 @@ use kaspa_consensus_core::tx::{
 use crate::evaluator::{MassEvaluator, TxMass};
 use crate::tx_build::build_populated;
 use crate::types::{
-    PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo, PLANNING_VIRTUAL_TXID_BYTES,
+    PLANNING_VIRTUAL_TXID_BYTES, PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo,
 };
 
 /// Heuristic from `docs/kips.md` §5.1: keep output count modest per input.

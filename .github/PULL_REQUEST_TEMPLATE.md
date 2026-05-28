@@ -35,8 +35,9 @@ Tick every applicable item. Each unchecked item should have a one-line
 explanation of why it doesn't apply.
 
 ### Always
+- [ ] `./scripts/ci-fast.sh` passes (fmt + clippy `--locked` + doc; same flags as CI)
 - [ ] `cargo fmt --all --check` passes
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
+- [ ] `cargo clippy --workspace --all-targets --locked -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
 - [ ] `cargo deny check` passes
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
