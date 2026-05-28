@@ -8,7 +8,7 @@
 pub mod legacy_log;
 
 pub use accountant::replay::{
-    assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
-    verify_dual_replay, DbSnapshot,
+    DbSnapshot, assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
+    verify_dual_replay,
 };
 pub use legacy_log::{LegacyParseReport, LegacyParseStats};

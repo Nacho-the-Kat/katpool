@@ -134,12 +134,7 @@ async fn scaled_synthetic_stream_is_replay_deterministic() {
     let env_a = fresh_db().await;
     let env_b = fresh_db().await;
     verify_dual_replay(
-        &stream,
-        "scale-a",
-        "scale-b",
-        "mainnet",
-        &env_a.db,
-        &env_b.db,
+        &stream, "scale-a", "scale-b", "mainnet", &env_a.db, &env_b.db,
     )
     .await
     .expect("dual replay must be byte-equal");
@@ -159,12 +154,7 @@ async fn ndjson_roundtrip_fixture_is_replay_deterministic() {
     let env_a = fresh_db().await;
     let env_b = fresh_db().await;
     verify_dual_replay(
-        &loaded,
-        "ndjson-a",
-        "ndjson-b",
-        "mainnet",
-        &env_a.db,
-        &env_b.db,
+        &loaded, "ndjson-a", "ndjson-b", "mainnet", &env_a.db, &env_b.db,
     )
     .await
     .expect("ndjson dual replay");

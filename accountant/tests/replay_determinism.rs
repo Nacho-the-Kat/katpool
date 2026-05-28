@@ -19,9 +19,7 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
 use uuid::Uuid;
 
-use accountant::{
-    assert_snapshots_equal, replay_all, snapshot, ConsumerConfig, EventConsumer,
-};
+use accountant::{ConsumerConfig, EventConsumer, assert_snapshots_equal, replay_all, snapshot};
 
 const MINER_A: &str = "kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq";
 const MINER_B: &str = "kaspa:qzncghl8re9h35hp6n5wyxtslhevj6462qkrkqzlfkrs2mpkfkc5xe9s3tga7";

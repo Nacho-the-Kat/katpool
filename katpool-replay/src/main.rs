@@ -14,7 +14,7 @@ use std::time::Instant;
 use anyhow::Context;
 use clap::Parser;
 use katpool_db::{PoolConfig, build_pool, migrate};
-use katpool_replay::{load_ndjson_path, legacy_log, replay_all, snapshot};
+use katpool_replay::{legacy_log, load_ndjson_path, replay_all, snapshot};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -67,7 +67,8 @@ async fn main() -> anyhow::Result<()> {
     let (input_kind, mut events) = if let Some(path) = &args.events {
         (
             "ndjson",
-            load_ndjson_path(path).with_context(|| format!("loading NDJSON from {}", path.display()))?,
+            load_ndjson_path(path)
+                .with_context(|| format!("loading NDJSON from {}", path.display()))?,
         )
     } else if let Some(path) = &args.legacy_log {
         let report = legacy_log::parse_legacy_log_path(path)

@@ -9,9 +9,6 @@
 //! from the new `katpool` runtime (`KATPOOL_EVENT_RECORD_PATH`) or
 //! the `block_details` legacy DB table at cutover.
 
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
 use anyhow::Context;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use katpool_domain::{
@@ -19,6 +16,9 @@ use katpool_domain::{
     WorkerName,
 };
 use regex::{Captures, Regex};
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 use uuid::Uuid;
 
 /// Default pool difficulty on legacy stratum ports (`config.json`).
@@ -85,7 +85,15 @@ pub fn parse_legacy_log_reader<R: BufRead>(reader: R) -> anyhow::Result<LegacyPa
         };
 
         if let Some(caps) = share_added.captures(rest) {
-            parse_share_added(&caps, &mut worker_wallet, seq, ts, correlation_id, &mut events, &mut stats)?;
+            parse_share_added(
+                &caps,
+                &mut worker_wallet,
+                seq,
+                ts,
+                correlation_id,
+                &mut events,
+                &mut stats,
+            )?;
             continue;
         }
 
@@ -226,7 +234,9 @@ fn resolve_worker(
 
 /// `20-May-2026 18:45:22 INFO: ...` → UTC timestamp + message suffix.
 fn split_legacy_timestamp(line: &str) -> Option<(DateTime<Utc>, &str)> {
-    let (prefix, rest) = line.split_once(" INFO: ").or_else(|| line.split_once(" DEBUG: "))?;
+    let (prefix, rest) = line
+        .split_once(" INFO: ")
+        .or_else(|| line.split_once(" DEBUG: "))?;
     let ts = NaiveDateTime::parse_from_str(prefix.trim(), "%d-%b-%Y %H:%M:%S").ok()?;
     Some((DateTime::from_naive_utc_and_offset(ts, Utc), rest))
 }

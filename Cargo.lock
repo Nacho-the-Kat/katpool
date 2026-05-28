@@ -3506,7 +3506,6 @@ dependencies = [
  "katpool-domain",
  "regex",
  "serde_json",
- "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

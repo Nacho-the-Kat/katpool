@@ -60,11 +60,11 @@
 pub mod allocation;
 pub mod config;
 pub mod consumer;
-pub mod replay;
 pub mod error;
 pub mod kaspad_grpc;
 pub mod maturity;
 pub mod metrics;
+pub mod replay;
 pub mod tier;
 pub mod tier_kasplex;
 pub mod window;
@@ -75,16 +75,16 @@ pub use config::{
     STANDARD_REBATE_BPS, WalletTier,
 };
 pub use consumer::{ConsumerConfig, ConsumerConfigError, EventConsumer, VALID_NETWORKS};
-pub use replay::{
-    assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
-    verify_dual_replay, DbSnapshot,
-};
 pub use error::{AccountantError, EventError};
 pub use kaspad_grpc::{KaspadGrpcClient, extract_block_info};
 pub use maturity::{
     BlockInfo, DEFAULT_BATCH_SIZE, DEFAULT_MATURITY_DEPTH, DEFAULT_POLL_INTERVAL,
     DEFAULT_WINDOW_DAA_SPAN, KaspadClient, KaspadError, MaturityConfig, MaturityTracker,
     SweepStats, TrackerError,
+};
+pub use replay::{
+    DbSnapshot, assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
+    verify_dual_replay,
 };
 pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
 pub use tier_kasplex::{

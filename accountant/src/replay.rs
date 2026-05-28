@@ -171,9 +171,10 @@ mod tests {
 
     #[test]
     fn ndjson_roundtrip_and_skip_comments() {
-        let wallet =
-            WalletAddress::new("kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq")
-                .unwrap();
+        let wallet = WalletAddress::new(
+            "kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq",
+        )
+        .unwrap();
         let worker = WorkerName::new("rig-01").unwrap();
         let ts = Utc.with_ymd_and_hms(2026, 5, 26, 0, 0, 0).unwrap();
         let event = PoolEvent::ShareCredited {
@@ -193,14 +194,14 @@ mod tests {
 
     #[test]
     fn block_found_serializes_for_ndjson_fixture() {
-        let wallet =
-            WalletAddress::new("kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq")
-                .unwrap();
-        let worker = WorkerName::new("rig-01").unwrap();
-        let hash = BlockHash::from_hex(
-            "cc2b1da2c931f4164c03b2066cfb3178303567a161e8a393def62c91e824138a",
+        let wallet = WalletAddress::new(
+            "kaspa:qypczcz0lhyf3tfsuqj86e7qc8us7r8a53nhlr4u6x4kq38td0hsjycf7sya7zq",
         )
         .unwrap();
+        let worker = WorkerName::new("rig-01").unwrap();
+        let hash =
+            BlockHash::from_hex("cc2b1da2c931f4164c03b2066cfb3178303567a161e8a393def62c91e824138a")
+                .unwrap();
         let event = PoolEvent::BlockFound {
             wallet,
             worker,
