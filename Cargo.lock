@@ -3526,7 +3526,7 @@ dependencies = [
 name = "katpool-storagemass"
 version = "0.1.0"
 dependencies = [
- "katpool-domain",
+ "kaspa-consensus-core",
  "proptest",
  "thiserror 2.0.18",
 ]

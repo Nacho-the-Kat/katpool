@@ -12,6 +12,9 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.1 (M4.1): `katpool-storagemass` mass evaluator wrapping
+  `kaspa-consensus-core` (compute + KIP-9 storage + KIP-13 transient);
+  `docs/phase-4-acceptance.md` acceptance matrix.
 - Phase 3 milestone 4 (M4): production-log replay-determinism harness.
   - `accountant::replay` — NDJSON load, DB snapshot, dual-replay
     `verify_dual_replay`.
