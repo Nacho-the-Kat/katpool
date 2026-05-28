@@ -140,6 +140,31 @@ fn monolithic_fanout_exceeds_block_mass() {
 }
 
 #[test]
+fn single_utxo_funds_many_recipients_via_planned_change() {
+    let evaluator = MassEvaluator::mainnet();
+    let change = empty_script();
+    let utxos = vec![treasury_utxo(0, 500_000_000_000)];
+    let recipients: Vec<_> = (0..30)
+        .map(|i| recipient(&format!("m{i}"), 5_000_000_000))
+        .collect();
+
+    let result = plan_batches(&evaluator, utxos, recipients, &change);
+    assert!(result.batches.len() > 1);
+    let paid: usize = result.batches.iter().map(|b| b.payouts.len()).sum();
+    assert_eq!(paid, 30);
+    assert!(result.unpaid.is_empty());
+    assert!(
+        result
+            .batches
+            .iter()
+            .flat_map(|b| b.inputs.iter())
+            .any(|u| u.is_planning_virtual()),
+        "later batches should spend planned change"
+    );
+    assert_all_batches_mass_valid(&evaluator, &result);
+}
+
+#[test]
 fn multiple_treasury_utxos_yield_multiple_batches() {
     let evaluator = MassEvaluator::mainnet();
     let change = empty_script();

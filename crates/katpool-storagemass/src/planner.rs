@@ -1,12 +1,19 @@
 //! Greedy, mass-aware payout batch planner.
+//!
+//! Offline planning re-injects each batch's change as a virtual treasury UTXO
+//! so one on-chain coin can fund many mass-limited transactions in a single
+//! cycle plan. [`payout-kas`] must refresh the live UTXO set from kaspad
+//! before signing each batch and swap virtual outpoints for confirmed change.
 
-use kaspa_consensus_core::tx::ScriptPublicKey;
+use kaspa_consensus_core::tx::{
+    PopulatedTransaction, ScriptPublicKey, TransactionId, TransactionOutpoint, UtxoEntry,
+};
 
 use crate::evaluator::{MassEvaluator, TxMass};
-use kaspa_consensus_core::tx::PopulatedTransaction;
-
 use crate::tx_build::build_populated;
-use crate::types::{PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo};
+use crate::types::{
+    PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo, PLANNING_VIRTUAL_TXID_BYTES,
+};
 
 /// Heuristic from `docs/kips.md` §5.1: keep output count modest per input.
 const MAX_OUTPUTS_PER_INPUT: usize = 10;
@@ -30,6 +37,16 @@ pub fn plan_batches(
         };
         remove_consumed(&mut utxos, &batch.inputs);
         remove_paid(&mut payable, &batch.payouts);
+        if batch.change_amount_sompi > 0 {
+            if let Ok(batch_index) = u32::try_from(batches.len()) {
+                utxos.push(planning_change_utxo(
+                    batch_index,
+                    batch.change_amount_sompi,
+                    change_script,
+                ));
+                sort_utxos_desc(&mut utxos);
+            }
+        }
         batches.push(batch);
     }
 
@@ -188,12 +205,29 @@ fn evaluate_shape(
         .then_some(mass)
 }
 
+/// Synthetic change coin for the next planning iteration (not broadcastable).
+fn planning_change_utxo(
+    batch_index: u32,
+    amount_sompi: u64,
+    change_script: &ScriptPublicKey,
+) -> TreasuryUtxo {
+    let transaction_id = TransactionId::from_bytes(PLANNING_VIRTUAL_TXID_BYTES);
+    TreasuryUtxo {
+        outpoint: TransactionOutpoint {
+            transaction_id,
+            index: batch_index,
+        },
+        entry: UtxoEntry {
+            amount: amount_sompi,
+            script_public_key: change_script.clone(),
+            block_daa_score: 0,
+            is_coinbase: false,
+        },
+    }
+}
+
 fn remove_consumed(utxos: &mut Vec<TreasuryUtxo>, consumed: &[TreasuryUtxo]) {
-    utxos.retain(|u| {
-        !consumed
-            .iter()
-            .any(|c| c.outpoint == u.outpoint && c.entry.amount == u.entry.amount)
-    });
+    utxos.retain(|u| !consumed.iter().any(|c| c.outpoint == u.outpoint));
 }
 
 fn remove_paid(recipients: &mut Vec<PayoutRecipient>, paid: &[PayoutRecipient]) {

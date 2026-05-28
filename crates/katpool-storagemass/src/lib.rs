@@ -15,7 +15,10 @@ pub use evaluator::{
 };
 pub use planner::plan_batches;
 pub use tx_build::build_populated;
-pub use types::{PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo};
+pub use types::{
+    PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo, PLANNING_VIRTUAL_TXID_BYTES,
+    PLANNING_VIRTUAL_TXID_HEX,
+};
 
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
