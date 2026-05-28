@@ -39,7 +39,8 @@
 //!   `KasplexTierClassifier` + schema migration adding
 //!   `applied_topline_bps`, `applied_rebate_bps`, `applied_tier`
 //!   to `share_allocation`.
-//! - **M4**: 24h-production-log replay determinism harness.
+//! - **M4**: 24h-production-log replay determinism harness
+//!   (`accountant::replay`, `katpool-replay` binary).
 //!
 //! See [`docs/decisions/0012-fee-model-and-tier-classification.md`](../../docs/decisions/0012-fee-model-and-tier-classification.md)
 //! for the architectural decision record.
@@ -63,6 +64,7 @@ pub mod error;
 pub mod kaspad_grpc;
 pub mod maturity;
 pub mod metrics;
+pub mod replay;
 pub mod tier;
 pub mod tier_kasplex;
 pub mod window;
@@ -79,6 +81,10 @@ pub use maturity::{
     BlockInfo, DEFAULT_BATCH_SIZE, DEFAULT_MATURITY_DEPTH, DEFAULT_POLL_INTERVAL,
     DEFAULT_WINDOW_DAA_SPAN, KaspadClient, KaspadError, MaturityConfig, MaturityTracker,
     SweepStats, TrackerError,
+};
+pub use replay::{
+    DbSnapshot, assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
+    verify_dual_replay,
 };
 pub use tier::{ClassifierError, StaticTierClassifier, TierClassifier};
 pub use tier_kasplex::{

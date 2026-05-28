@@ -24,6 +24,8 @@ members = [
     # importer. Top-level rather than `crates/` because it's a
     # binary, not a library.
     "katpool-import-legacy",
+    # Phase 3 M4: production-log replay determinism harness.
+    "katpool-replay",
 ]
 # The cargo-fuzz harness under bridge/fuzz/ is intentionally a
 # separate, non-workspace crate. cargo-fuzz requires its own

@@ -22,10 +22,8 @@ kaspa-addresses = { workspace = true }
 kaspa-grpc-client = { workspace = true }
 kaspa-hashes = { workspace = true }
 kaspa-rpc-core = { workspace = true }
-# `katpool-metrics`, `katpool-idempotency`, `katpool-telemetry` will
-# be wired in M4 (replay-harness + production wiring) when their
-# public APIs settle; adding them now would be speculative and
-# trip cargo-machete.
+# `katpool-metrics`, `katpool-idempotency`, `katpool-telemetry` may
+# be wired when their public APIs settle for production metrics.
 tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "time", "signal"] }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
@@ -38,6 +36,7 @@ prometheus = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
+uuid = { workspace = true }
 anyhow = "1.0"
 
 [dev-dependencies]

@@ -43,6 +43,8 @@
 //! - `KATPOOL_MATURITY_DEPTH`        default 100
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
+//! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
+//!   for M4 replay-determinism rehearsal
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
@@ -58,6 +60,7 @@ use kaspa_stratum_bridge::{
 };
 use katpool_db::{PoolConfig, build_pool};
 use katpool_domain::PoolEvent;
+use tokio::io::AsyncWriteExt;
 use tokio::signal;
 use tokio::sync::{broadcast, watch};
 use tracing::{error, info, warn};
@@ -107,6 +110,11 @@ async fn main() -> Result<()> {
     // Capacity sized for ~3 minutes of sustained 20 shares/s
     // (default 4096); operator-tunable for higher-throughput runs.
     let (event_tx, _event_rx_template) = broadcast::channel::<PoolEvent>(cfg.broadcast_capacity);
+
+    if let Some(record_path) = &cfg.event_record_path {
+        info!(path = %record_path, "PoolEvent NDJSON recorder enabled");
+        spawn_event_recorder(event_tx.subscribe(), record_path.clone());
+    }
 
     // ---- kaspad clients (bridge + accountant share the URL,
     //      separate connections) ---------------------------------------
@@ -311,6 +319,8 @@ struct RuntimeConfig {
     /// (testnet-11 must be set explicitly because the bech32 prefix
     /// is shared with testnet-10).
     network: String,
+    /// When set, append one serde-json `PoolEvent` per line to this path.
+    event_record_path: Option<String>,
 }
 
 impl RuntimeConfig {
@@ -343,6 +353,7 @@ impl RuntimeConfig {
         let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
         let network = resolve_network(&pool_addresses)?;
+        let event_record_path = optional("KATPOOL_EVENT_RECORD_PATH");
         Ok(Self {
             kaspad_url,
             database_url,
@@ -355,6 +366,7 @@ impl RuntimeConfig {
             min_share_diff,
             broadcast_capacity,
             network,
+            event_record_path,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
                 maturity_depth,
@@ -433,6 +445,50 @@ fn optional_usize(var: &str) -> Result<Option<usize>> {
 /// [`accountant::consumer::VALID_NETWORKS`] (matching the DB CHECK
 /// constraint) so a misconfiguration fails fast on startup instead
 /// of being discovered at the first `wallet::ensure` call.
+/// Append-only NDJSON capture of every `PoolEvent` on the bus.
+fn spawn_event_recorder(mut rx: broadcast::Receiver<PoolEvent>, path: String) {
+    tokio::spawn(async move {
+        let mut file = match tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .await
+        {
+            Ok(f) => f,
+            Err(e) => {
+                error!(path = %path, error = %e, "event recorder: cannot open output file");
+                return;
+            }
+        };
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let line = match serde_json::to_string(&event) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(error = %e, "event recorder: serialize failed");
+                            continue;
+                        }
+                    };
+                    if file.write_all(line.as_bytes()).await.is_err()
+                        || file.write_all(b"\n").await.is_err()
+                    {
+                        error!(path = %path, "event recorder: write failed");
+                        break;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(
+                        skipped,
+                        "event recorder lagged behind broadcast; events dropped"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
 fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
     let resolved = if let Some(override_value) = optional("KATPOOL_NETWORK") {
         override_value

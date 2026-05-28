@@ -1,0 +1,14 @@
+//! Library surface for the `katpool-replay` binary.
+//!
+//! - [`legacy_log`] — best-effort adapter from legacy `katpool-app`
+//!   monitoring-log lines to [`katpool_domain::PoolEvent`]s.
+//! - Re-exports [`accountant::replay`] primitives used by tests and
+//!   the operator CLI.
+
+pub mod legacy_log;
+
+pub use accountant::replay::{
+    DbSnapshot, assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,
+    verify_dual_replay,
+};
+pub use legacy_log::{LegacyParseReport, LegacyParseStats};
