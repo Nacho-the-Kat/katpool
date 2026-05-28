@@ -12,8 +12,8 @@ in Phase 2.
 
 | # | Criterion | Verification | Status |
 |---|---|---|---|
-| 1 | `katpool-storagemass` computes compute, storage (KIP-9), and transient (KIP-13) masses matching `kaspa-consensus-core` for mainnet params. | Unit tests + `proptest` parity against `MassCalculator`; May-1 regression fixture when available. | PENDING — M4.1 |
-| 2 | Mass-aware batch planner: given treasury UTXOs + recipient list, every planned tx satisfies independent mass ≤ `max_block_mass` (500_000 g). | Property tests + hand-rolled cases from `docs/kips.md` §5. | PENDING — M4.2 |
+| 1 | `katpool-storagemass` computes compute, storage (KIP-9), and transient (KIP-13) masses matching `kaspa-consensus-core` for mainnet params. | Unit tests + `proptest` parity against `MassCalculator`; May-1 regression fixture when available. | GREEN — M4.1 |
+| 2 | Mass-aware batch planner: given treasury UTXOs + recipient list, every planned tx satisfies independent mass ≤ `max_block_mass` (500_000 g). | Property tests + hand-rolled cases from `docs/kips.md` §5. | GREEN — M4.2 |
 | 3 | Eligibility: wallets with `sum(net_payout_sompi) - sum(confirmed_kas_payouts) >= threshold` (default 5 KAS / 500_000_000 sompi). | Integration test against testcontainer Postgres. | PENDING — M4.3 |
 | 4 | Payout cycle orchestration: create `payout_cycle`, insert `payout` rows, advance status machine; idempotent on retry. | Uses existing `repo::payout` + new planner; integration tests. | PENDING — M4.3 |
 | 5 | Record idempotency **before** sign: no double-pay on mid-cycle restart. | `payout_cycle.idempotency_key` + per-recipient `UNIQUE (cycle_id, wallet_id)`; chaos test simulating crash after plan, before broadcast. | PENDING — M4.4 |
