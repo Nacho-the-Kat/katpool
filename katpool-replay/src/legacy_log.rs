@@ -1,4 +1,4 @@
-//! Adapter: legacy `katpool-app` monitoring logs → [`PoolEvent`] stream.
+//! Adapter: legacy `katpool-app` monitoring logs → [`katpool_domain::PoolEvent`] stream.
 //!
 //! The legacy stack logs share outcomes to stdout in a stable DEBUG
 //! format when `DEBUG=true` (production runs with this enabled).
@@ -27,7 +27,7 @@ const LEGACY_DEFAULT_DIFFICULTY: f64 = 2048.0;
 /// Outcome of parsing a legacy monitoring log.
 #[derive(Debug, Clone)]
 pub struct LegacyParseReport {
-    /// Deterministic [`PoolEvent`] stream in log order.
+    /// Deterministic [`katpool_domain::PoolEvent`] stream in log order.
     pub events: Vec<PoolEvent>,
     /// Parse counters for operator evidence.
     pub stats: LegacyParseStats,

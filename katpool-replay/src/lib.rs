@@ -1,7 +1,7 @@
 //! Library surface for the `katpool-replay` binary.
 //!
 //! - [`legacy_log`] — best-effort adapter from legacy `katpool-app`
-//!   monitoring-log lines to [`PoolEvent`]s.
+//!   monitoring-log lines to [`katpool_domain::PoolEvent`]s.
 //! - Re-exports [`accountant::replay`] primitives used by tests and
 //!   the operator CLI.
 
