@@ -701,6 +701,70 @@ async fn krc20_payout_unique_per_payout() {
 }
 
 #[tokio::test]
+async fn kas_eligible_wallets_subtracts_confirmed_kas_payouts() {
+    let (pool, _ctr) = fresh_pool().await;
+    let (block_id, wallet_id) = make_matured_block(&pool).await;
+
+    let row = share_allocation::NewAllocation {
+        wallet_id,
+        weight: 1.0,
+        window_total: 1.0,
+        gross_share_sompi: 1_000_000_000,
+        pool_fee_sompi: 5_000_000,
+        nacho_accrual_sompi: 2_000_000,
+        net_payout_sompi: 993_000_000,
+        applied_topline_bps: 75,
+        applied_rebate_bps: 3_300,
+        applied_tier: share_allocation::DbWalletTier::Standard,
+    };
+    share_allocation::insert_batch(&pool, block_id, &[row])
+        .await
+        .expect("alloc");
+
+    let eligible = payout::list_kas_eligible_wallets(&pool, 500_000_000)
+        .await
+        .expect("eligible");
+    assert_eq!(eligible.len(), 1);
+    assert_eq!(eligible[0].payable_sompi, 993_000_000);
+
+    let cycle = payout::create_cycle(&pool, PayoutKind::Kas, DaaScore::new(1), DaaScore::new(2))
+        .await
+        .expect("cycle");
+    let p = payout::insert_payout(&pool, cycle.id, wallet_id, 200_000_000)
+        .await
+        .expect("payout");
+    payout::mark_payout_submitted(&pool, p.id, BlockHash::from_bytes([1_u8; 32]))
+        .await
+        .expect("submit");
+    // Submitted but not confirmed — still fully payable.
+    let mid = payout::list_kas_eligible_wallets(&pool, 500_000_000)
+        .await
+        .expect("mid");
+    assert_eq!(mid[0].payable_sompi, 993_000_000);
+
+    payout::mark_payout_confirmed(&pool, p.id)
+        .await
+        .expect("confirm");
+    let after = payout::list_kas_eligible_wallets(&pool, 500_000_000)
+        .await
+        .expect("after");
+    assert_eq!(after[0].confirmed_paid_sompi, 200_000_000);
+    assert_eq!(after[0].payable_sompi, 793_000_000);
+
+    let cycle2 = payout::create_cycle(&pool, PayoutKind::Kas, DaaScore::new(10), DaaScore::new(11))
+        .await
+        .expect("cycle2");
+    let ensured = payout::ensure_payout(&pool, cycle2.id, wallet_id, 793_000_000)
+        .await
+        .expect("ensure");
+    let again = payout::ensure_payout(&pool, cycle2.id, wallet_id, 999_000_000)
+        .await
+        .expect("ensure again");
+    assert_eq!(ensured.id, again.id);
+    assert_eq!(again.amount_sompi, 793_000_000);
+}
+
+#[tokio::test]
 async fn idempotency_key_format_is_stable() {
     assert_eq!(
         payout::idempotency_key(PayoutKind::Kas, DaaScore::new(100), DaaScore::new(200)),

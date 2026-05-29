@@ -21,8 +21,6 @@ workspace = true
 ignored = [
     "async-trait",
     "chrono",
-    "katpool-db",
-    "katpool-domain",
     "katpool-idempotency",
     "katpool-metrics",
     "katpool-secrets",
@@ -30,7 +28,6 @@ ignored = [
     "katpool-telemetry",
     "secrecy",
     "serde",
-    "thiserror",
     "tokio",
     "tracing",
 ]
@@ -43,6 +40,7 @@ katpool-idempotency = { path = "../crates/katpool-idempotency" }
 katpool-secrets = { path = "../crates/katpool-secrets" }
 katpool-metrics = { path = "../crates/katpool-metrics" }
 katpool-telemetry = { path = "../crates/katpool-telemetry" }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
@@ -50,3 +48,7 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 secrecy = { workspace = true }
+
+[dev-dependencies]
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }

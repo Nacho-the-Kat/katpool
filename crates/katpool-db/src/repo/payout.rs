@@ -328,11 +328,71 @@ pub async fn set_cycle_totals<'e, E: PgExecutor<'e>>(
 
 // ---- payout ops -----------------------------------------------------
 
+/// Default minimum payable balance for a KAS payout (5 KAS).
+pub const DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI: i64 = 500_000_000;
+
+/// Wallet eligible for a KAS payout at the configured threshold.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct KasEligibleWallet {
+    /// FK to `wallet.id`.
+    pub wallet_id: WalletId,
+    /// Bech32 payout address.
+    pub address: String,
+    /// Network slug (`mainnet`, `testnet-10`, …).
+    pub network: String,
+    /// Lifetime `sum(net_payout_sompi)` from `share_allocation`.
+    pub allocated_sompi: i64,
+    /// Lifetime KAS payouts with `status = confirmed`.
+    pub confirmed_paid_sompi: i64,
+    /// `allocated_sompi - confirmed_paid_sompi`.
+    pub payable_sompi: i64,
+}
+
+/// Wallets whose payable KAS balance meets `threshold_sompi`.
+///
+/// Payable balance is `sum(share_allocation.net_payout_sompi)` minus
+/// `sum(payout.amount_sompi)` for confirmed rows in `kas` cycles only.
+/// In-flight (`planned` / `submitted`) payouts do not reduce payable
+/// balance — the planner records idempotent rows before broadcast (M4.4).
+pub async fn list_kas_eligible_wallets<'e, E: PgExecutor<'e>>(
+    executor: E,
+    threshold_sompi: i64,
+) -> Result<Vec<KasEligibleWallet>, DbError> {
+    sqlx::query_as::<_, KasEligibleWallet>(
+        "SELECT w.id AS wallet_id,
+                w.address,
+                w.network,
+                a.allocated_sompi,
+                COALESCE(p.confirmed_paid_sompi, 0) AS confirmed_paid_sompi,
+                a.allocated_sompi - COALESCE(p.confirmed_paid_sompi, 0) AS payable_sompi
+           FROM wallet w
+           INNER JOIN (
+               SELECT wallet_id, sum(net_payout_sompi)::bigint AS allocated_sompi
+                 FROM share_allocation
+                GROUP BY wallet_id
+           ) a ON a.wallet_id = w.id
+           LEFT JOIN (
+               SELECT po.wallet_id,
+                      sum(po.amount_sompi)::bigint AS confirmed_paid_sompi
+                 FROM payout po
+                 INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+                WHERE pc.kind = 'kas'
+                  AND po.status = 'confirmed'
+                GROUP BY po.wallet_id
+           ) p ON p.wallet_id = w.id
+          WHERE a.allocated_sompi - COALESCE(p.confirmed_paid_sompi, 0) >= $1
+          ORDER BY payable_sompi DESC, w.id ASC",
+    )
+    .bind(threshold_sompi)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// Insert a planned payout for a recipient under a cycle.
 ///
-/// Idempotent: the `UNIQUE (cycle_id, wallet_id)` guard rejects
-/// duplicates with SQLSTATE `23505`. Callers can either pre-filter
-/// or treat the constraint error as a no-op.
+/// Prefer [`ensure_payout`] when the cycle may be retried — this
+/// function surfaces `23505` on duplicate `(cycle_id, wallet_id)`.
 pub async fn insert_payout<'e, E>(
     executor: E,
     cycle_id: i64,
@@ -345,6 +405,36 @@ where
     sqlx::query_as::<_, Payout>(
         "INSERT INTO payout (cycle_id, wallet_id, amount_sompi)
          VALUES ($1, $2, $3)
+         RETURNING id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
+                   krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
+                   confirmed_at, failure_reason",
+    )
+    .bind(cycle_id)
+    .bind(wallet_id.0)
+    .bind(amount_sompi)
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// Insert or return the existing planned payout for `(cycle, wallet)`.
+///
+/// Idempotent across cycle replays: `ON CONFLICT` returns the row
+/// without changing `amount_sompi` when it already exists.
+pub async fn ensure_payout<'e, E>(
+    executor: E,
+    cycle_id: i64,
+    wallet_id: WalletId,
+    amount_sompi: i64,
+) -> Result<Payout, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, Payout>(
+        "INSERT INTO payout (cycle_id, wallet_id, amount_sompi)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (cycle_id, wallet_id) DO UPDATE
+            SET amount_sompi = payout.amount_sompi
          RETURNING id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                    krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
                    confirmed_at, failure_reason",
