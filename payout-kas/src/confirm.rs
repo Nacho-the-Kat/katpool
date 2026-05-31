@@ -1,0 +1,139 @@
+//! Pure confirmation + maturity policy (no I/O), so the rules are unit-tested
+//! independently of any node.
+
+/// DAA-score depth after which an accepted KAS payout is treated as settled.
+///
+/// Conservative relative to the ~10-block non-coinbase finality kaspad uses
+/// for spendability; tunable per network in M4.7.
+pub const KAS_PAYOUT_CONFIRMATION_DAA: u64 = 100;
+
+/// Confirmations a non-coinbase treasury coin needs before it is spendable.
+pub const NON_COINBASE_MATURITY_DAA: u64 = 10;
+
+/// Confirmations a coinbase treasury coin (mining reward) needs before it is
+/// spendable. Matches Kaspa mainnet `coinbase_maturity`.
+pub const COINBASE_MATURITY_DAA: u64 = 100;
+
+/// Derived state of a submitted payout transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmationState {
+    /// Still in the mempool, awaiting block inclusion.
+    Pending,
+    /// Included on chain (a change/output coin exists) but below the
+    /// confirmation depth.
+    Accepted,
+    /// Included and matured past [`KAS_PAYOUT_CONFIRMATION_DAA`].
+    Confirmed,
+    /// Neither in the mempool nor observably on chain. The executor makes **no**
+    /// state change for this — it is resolved by a later pass or operator
+    /// reconciliation (M4.8), never auto-failed, so funds can't be re-sent.
+    Unknown,
+}
+
+/// Reads gathered for one submitted transaction, fed to [`classify_confirmation`].
+#[derive(Debug, Clone, Copy)]
+pub struct ConfirmationInputs {
+    /// Current virtual DAA score.
+    pub virtual_daa_score: u64,
+    /// Whether the txid is still in the mempool.
+    pub in_mempool: bool,
+    /// `block_daa_score` of an on-chain coin produced by this tx (the treasury
+    /// change output), if one is observed; `None` otherwise.
+    pub change_block_daa_score: Option<u64>,
+}
+
+/// Fold raw chain reads into a [`ConfirmationState`].
+///
+/// A positive on-chain signal (`change_block_daa_score`) is authoritative:
+/// the tx is at least Accepted, and Confirmed once matured. Without it, mempool
+/// presence means Pending, and absence is deliberately Unknown (not Failed).
+#[must_use]
+pub const fn classify_confirmation(inputs: ConfirmationInputs) -> ConfirmationState {
+    match inputs.change_block_daa_score {
+        Some(daa) => {
+            if inputs.virtual_daa_score >= daa.saturating_add(KAS_PAYOUT_CONFIRMATION_DAA) {
+                ConfirmationState::Confirmed
+            } else {
+                ConfirmationState::Accepted
+            }
+        }
+        None if inputs.in_mempool => ConfirmationState::Pending,
+        None => ConfirmationState::Unknown,
+    }
+}
+
+/// Whether a treasury coin is spendable now, by coinbase status and maturity.
+#[must_use]
+pub const fn is_spendable(block_daa_score: u64, is_coinbase: bool, virtual_daa_score: u64) -> bool {
+    let needed = if is_coinbase {
+        COINBASE_MATURITY_DAA
+    } else {
+        NON_COINBASE_MATURITY_DAA
+    };
+    virtual_daa_score >= block_daa_score.saturating_add(needed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ConfirmationInputs, ConfirmationState, KAS_PAYOUT_CONFIRMATION_DAA, classify_confirmation,
+        is_spendable,
+    };
+
+    fn inputs(virtual_daa: u64, in_mempool: bool, change: Option<u64>) -> ConfirmationInputs {
+        ConfirmationInputs {
+            virtual_daa_score: virtual_daa,
+            in_mempool,
+            change_block_daa_score: change,
+        }
+    }
+
+    #[test]
+    fn in_mempool_without_chain_signal_is_pending() {
+        assert_eq!(
+            classify_confirmation(inputs(1_000, true, None)),
+            ConfirmationState::Pending
+        );
+    }
+
+    #[test]
+    fn absent_everywhere_is_unknown_not_failed() {
+        assert_eq!(
+            classify_confirmation(inputs(1_000, false, None)),
+            ConfirmationState::Unknown
+        );
+    }
+
+    #[test]
+    fn on_chain_below_depth_is_accepted() {
+        let v = 1_000;
+        let change = v - 1; // only 1 DAA deep
+        assert_eq!(
+            classify_confirmation(inputs(v, false, Some(change))),
+            ConfirmationState::Accepted
+        );
+    }
+
+    #[test]
+    fn on_chain_past_depth_is_confirmed() {
+        let change = 1_000;
+        let v = change + KAS_PAYOUT_CONFIRMATION_DAA;
+        assert_eq!(
+            classify_confirmation(inputs(v, false, Some(change))),
+            ConfirmationState::Confirmed
+        );
+        // Chain signal wins even if still in mempool views.
+        assert_eq!(
+            classify_confirmation(inputs(v, true, Some(change))),
+            ConfirmationState::Confirmed
+        );
+    }
+
+    #[test]
+    fn coinbase_needs_deeper_maturity_than_change() {
+        // 50 deep: change (non-coinbase, needs 10) spendable; coinbase (100) not.
+        assert!(is_spendable(0, false, 50));
+        assert!(!is_spendable(0, true, 50));
+        assert!(is_spendable(0, true, 100));
+    }
+}

@@ -56,6 +56,7 @@ kaspa-hashes         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = 
 kaspa-math           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-pow            = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-addresses      = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
+kaspa-txscript       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-rpc-core       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-rpc-service    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
 kaspa-grpc-client    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0" }
@@ -115,6 +116,9 @@ secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 # Random + crypto primitives
 rand = "0.9"
+# secp256k1 — pinned to the exact version rusty-kaspa v1.1.0 uses so the
+# `Keypair`/`SecretKey` types unify with `kaspa_consensus_core::sign`.
+secp256k1 = "0.29"
 # Low-level OS (mlock/munlock for treasury custody)
 libc = "0.2"
 # Testing
