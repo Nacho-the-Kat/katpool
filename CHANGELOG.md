@@ -12,6 +12,16 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.4 (M4.4): restart-safe KAS payout cycle state machine
+  (`payout_kas::cycle`). `resume_or_plan_kas_cycle` is an idempotent entry
+  point that resumes an existing cycle without recomputing eligibility;
+  `CycleState::pending` exposes only `planned` recipients (never re-pays an
+  in-flight or settled row); the pure `derive_cycle_status` folds recipient
+  statuses into the cycle status, persisted by `reconcile_cycle_status` with
+  `audit_log` hooks. Adds `repo::payout::mark_payout_accepted`. Chaos test
+  proves no double-pay on crash-after-plan-before-broadcast. Idempotency
+  rests on natural DB keys (`payout_cycle.idempotency_key` +
+  `payout UNIQUE (cycle_id, wallet_id)`), not a side table.
 - Phase 4 milestone 4.3 (M4.3): KAS payout eligibility query
   (`repo::payout::list_kas_eligible_wallets`), idempotent `ensure_payout`,
   and `payout_kas::plan_kas_cycle` (DB-only cycle planning).

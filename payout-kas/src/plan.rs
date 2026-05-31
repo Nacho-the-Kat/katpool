@@ -5,7 +5,7 @@ use katpool_db::repo::payout::{self, Payout, PayoutCycle, PayoutKind};
 use katpool_domain::DaaScore;
 use sqlx::PgPool;
 
-use crate::error::PlanKasCycleError;
+use crate::error::PayoutKasError;
 
 /// Parameters for [`plan_kas_cycle`].
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +38,7 @@ pub struct PlanKasCycleResult {
 pub async fn plan_kas_cycle(
     pool: &PgPool,
     params: PlanKasCycleParams,
-) -> Result<PlanKasCycleResult, PlanKasCycleError> {
+) -> Result<PlanKasCycleResult, PayoutKasError> {
     let mut tx = pool.begin().await.map_err(DbError::from)?;
 
     let cycle =

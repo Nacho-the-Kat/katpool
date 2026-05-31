@@ -1,4 +1,5 @@
-//! Integration tests for KAS cycle planning (M4.3).
+//! Integration tests for KAS cycle planning (M4.3) and the restart-safe
+//! cycle state machine (M4.4).
 
 #![allow(
     clippy::expect_used,
@@ -10,11 +11,14 @@
 
 use std::time::Duration;
 
-use katpool_db::repo::payout::{self, PayoutKind, PayoutStatus};
-use katpool_db::repo::{block, share_allocation, wallet, worker};
+use katpool_db::repo::payout::{self, PayoutCycleStatus, PayoutKind, PayoutStatus};
+use katpool_db::repo::{audit, block, share_allocation, wallet, worker};
 use katpool_db::{PoolConfig, build_pool, migrate};
 use katpool_domain::{BlockHash, CorrelationId, DaaScore, WalletAddress, WorkerName};
-use payout_kas::{DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, PlanKasCycleParams, plan_kas_cycle};
+use payout_kas::{
+    DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, PlanKasCycleParams, plan_kas_cycle, reconcile_cycle_status,
+    resume_or_plan_kas_cycle,
+};
 use testcontainers::ContainerAsync;
 use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::postgres::Postgres;
@@ -226,4 +230,135 @@ async fn plan_kas_cycle_excludes_wallet_below_threshold() {
     assert_eq!(result.cycle.total_recipients, 1);
     assert_eq!(result.payouts.len(), 1);
     assert_eq!(result.payouts[0].wallet_id, w1);
+}
+
+// ---- M4.4: restart-safe cycle state machine -------------------------
+
+#[tokio::test]
+async fn resume_after_crash_before_broadcast_never_double_pays() {
+    let (pool, _ctr) = fresh_pool().await;
+    let (_block_id, _w1, _w2) = seed_two_wallet_allocations(&pool).await;
+
+    let params = PlanKasCycleParams {
+        daa_start: DaaScore::new(5_000),
+        daa_end: DaaScore::new(6_000),
+        threshold_sompi: DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI,
+    };
+
+    // First pass plans the cycle and records idempotent rows BEFORE any sign.
+    let planned = resume_or_plan_kas_cycle(&pool, params)
+        .await
+        .expect("plan pass");
+    assert_eq!(planned.cycle.status, PayoutCycleStatus::Planned);
+    assert_eq!(planned.payouts.len(), 2);
+    assert_eq!(planned.pending().len(), 2, "all recipients are signable");
+    assert_eq!(planned.derived_status(), PayoutCycleStatus::Planned);
+    let original_ids: Vec<i64> = planned.payouts.iter().map(|p| p.id).collect();
+
+    // Simulate a crash after plan, before broadcast: the process restarts and
+    // re-enters through the same idempotent entry point.
+    let resumed = resume_or_plan_kas_cycle(&pool, params)
+        .await
+        .expect("resume pass");
+    assert_eq!(
+        resumed.cycle.id, planned.cycle.id,
+        "same cycle, not a new one"
+    );
+    assert_eq!(resumed.cycle.total_sompi, planned.cycle.total_sompi);
+    assert_eq!(resumed.payouts.len(), 2, "no duplicate recipient rows");
+    let resumed_ids: Vec<i64> = resumed.payouts.iter().map(|p| p.id).collect();
+    assert_eq!(resumed_ids, original_ids, "identical payout rows on resume");
+    assert_eq!(
+        resumed.pending().len(),
+        2,
+        "nothing was paid, all still signable"
+    );
+
+    // Reconcile on an untouched cycle keeps it Planned and writes an audit row.
+    let derived = reconcile_cycle_status(&pool, resumed.cycle.id)
+        .await
+        .expect("reconcile");
+    assert_eq!(derived, PayoutCycleStatus::Planned);
+    let reloaded = payout::get_cycle(&pool, resumed.cycle.id)
+        .await
+        .expect("reload cycle");
+    assert_eq!(reloaded.status, PayoutCycleStatus::Planned);
+    assert!(reloaded.broadcast_at.is_none());
+
+    let trail = audit::list_for_subject(&pool, "payout_cycle", resumed.cycle.id, 50)
+        .await
+        .expect("audit trail");
+    let actions: Vec<&str> = trail.iter().map(|e| e.action.as_str()).collect();
+    assert!(actions.contains(&"cycle.plan"), "plan audited: {actions:?}");
+    assert!(
+        actions.contains(&"cycle.resume"),
+        "resume audited: {actions:?}"
+    );
+    assert!(
+        actions.contains(&"cycle.reconcile"),
+        "reconcile audited: {actions:?}"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_folds_partial_then_full_settlement() {
+    let (pool, _ctr) = fresh_pool().await;
+    let (_block_id, _w1, _w2) = seed_two_wallet_allocations(&pool).await;
+
+    let params = PlanKasCycleParams {
+        daa_start: DaaScore::new(7_000),
+        daa_end: DaaScore::new(8_000),
+        threshold_sompi: DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI,
+    };
+    let state = resume_or_plan_kas_cycle(&pool, params).await.expect("plan");
+    let first = state.payouts[0].id;
+    let second = state.payouts[1].id;
+
+    // Confirm only the first recipient.
+    payout::mark_payout_submitted(&pool, first, BlockHash::from_bytes([21_u8; 32]))
+        .await
+        .expect("submit first");
+    payout::mark_payout_confirmed(&pool, first)
+        .await
+        .expect("confirm first");
+
+    let derived = reconcile_cycle_status(&pool, state.cycle.id)
+        .await
+        .expect("reconcile partial");
+    assert_eq!(derived, PayoutCycleStatus::PartiallySettled);
+    let mid = payout::get_cycle(&pool, state.cycle.id)
+        .await
+        .expect("reload mid");
+    assert_eq!(mid.status, PayoutCycleStatus::PartiallySettled);
+    assert!(mid.broadcast_at.is_some(), "broadcast timestamp stamped");
+
+    // The remaining recipient is still the only signable one.
+    let mid_state = resume_or_plan_kas_cycle(&pool, params)
+        .await
+        .expect("resume mid");
+    let pending: Vec<i64> = mid_state.pending().iter().map(|p| p.id).collect();
+    assert_eq!(pending, vec![second]);
+
+    // Confirm the second recipient; cycle settles.
+    payout::mark_payout_submitted(&pool, second, BlockHash::from_bytes([22_u8; 32]))
+        .await
+        .expect("submit second");
+    payout::mark_payout_confirmed(&pool, second)
+        .await
+        .expect("confirm second");
+
+    let derived = reconcile_cycle_status(&pool, state.cycle.id)
+        .await
+        .expect("reconcile full");
+    assert_eq!(derived, PayoutCycleStatus::Settled);
+    let settled = payout::get_cycle(&pool, state.cycle.id)
+        .await
+        .expect("reload settled");
+    assert_eq!(settled.status, PayoutCycleStatus::Settled);
+    assert!(settled.settled_at.is_some());
+
+    let final_state = resume_or_plan_kas_cycle(&pool, params)
+        .await
+        .expect("resume settled");
+    assert!(final_state.pending().is_empty(), "nothing left to sign");
 }
