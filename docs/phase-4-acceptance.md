@@ -18,7 +18,7 @@ in Phase 2.
 | 4 | Payout cycle orchestration: create `payout_cycle`, insert `payout` rows, advance status machine; idempotent on retry. | Uses existing `repo::payout` + new planner; integration tests. | GREEN — M4.3 |
 | 5 | Record idempotency **before** sign: no double-pay on mid-cycle restart. | `payout_cycle.idempotency_key` + per-recipient `UNIQUE (cycle_id, wallet_id)`; chaos test simulating crash after plan, before broadcast. | GREEN — M4.4 |
 | 6 | `katpool-secrets`: load treasury key via age/sops contract; `Secret` type has no `Debug`; page `mlock` + `zeroize` on drop. | Unit tests + documented systemd `LoadCredentialEncrypted` path. | GREEN — M4.5 |
-| 7 | Sign + submit KAS txs via kaspad gRPC; confirm and mark `payout` rows `confirmed`. | Testcontainer or tn10 with funded treasury; dry-run mode for rehearsal. | PENDING — M4.6 |
+| 7 | Sign + submit KAS txs via kaspad gRPC; confirm and mark `payout` rows `confirmed`. | Deterministic: txscript-engine signature verification + mock-kaspad orchestration on testcontainer Postgres (sign → submit → accept → confirm → settle, idempotent re-run, dry-run). Live broadcast against tn10 funded treasury exercised in M4.8. | GREEN — M4.6 |
 | 8 | `payout-kas` wired into `katpool` runtime (cron / loop + distributed lock); `KATPOOL_PAYOUT_DRY_RUN` for rehearsal. | Live dry-run on testnet-10; no mainnet funds moved until operator flips flag. | PENDING — M4.7 |
 | 9 | Operator rehearsal: one full dry-run cycle produces reconcile JSON + audit log + manifest (mirrors Phase 2 importer pattern). | `scripts/kas-payout-rehearsal.sh` + runbook. | PENDING — M4.8 |
 | 10 | `cargo deny check` clean on the locked `Cargo.lock`. | CI step. | GREEN — inherited from Phase 3 |

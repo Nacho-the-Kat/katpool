@@ -12,6 +12,25 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.6 (M4.6): kaspad sign/submit/confirm adapter
+  (`payout_kas::{signer, client, confirm, execute}`). `signer::sign_batch`
+  assembles a native-subnetwork transaction from a `PlannedBatch`, signs every
+  input with the `TreasurySecret` (Schnorr, `SIG_HASH_ALL`), and re-verifies it
+  through the txscript engine before it can leave the process; `batch_txid`
+  yields the deterministic txid (Kaspa hashes exclude signature scripts) so the
+  executor records `payout.tx_hash` *before* broadcast. `client::KaspadClient`
+  is a narrow async trait (live UTXOs, virtual DAA score, submit, mempool
+  probe) with a `GrpcKaspadClient` binding; `confirm` holds the pure
+  maturity/confirmation policy. `execute::broadcast_cycle` plans against live
+  treasury UTXOs, signs, records intent atomically, then broadcasts (only
+  `planned` rows, so a resumed cycle never re-pays); `execute::confirm_cycle`
+  advances `submitted → accepted → confirmed` on a positive on-chain signal and
+  never auto-fails. `ExecutionMode::DryRun` signs/verifies without recording or
+  broadcasting (M4.8 rehearsal). Deterministic coverage: 5 signing tests
+  (txid stability, virtual-input rejection, wrong-key + tamper detection),
+  confirmation-policy units, and a full mock-kaspad lifecycle + idempotent
+  re-run + dry-run over testcontainer Postgres. Adds workspace deps
+  `kaspa-txscript` and `secp256k1` (pinned to rusty-kaspa v1.1.0's 0.29).
 - Phase 4 milestone 4.5 (M4.5): `katpool-secrets` treasury key custody.
   `TreasurySecret` wraps `secrecy::SecretBox<[u8; 32]>` (zeroized on drop,
   no `Debug`/`Display`/`Clone`/`Serialize`) and `mlock(2)`s the backing page

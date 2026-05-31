@@ -12,23 +12,18 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Scaffold crate — every dep below is reserved for Phase 4
-# (KAS payout engine). cargo-machete reports them as unused
-# because the src/ stub hasn't grown into them yet. We keep the
-# list explicit so Phase 4 starts with the right dep surface
-# already in workspace lockstep.
+# Remaining reserved deps land with later milestones (M4.7 runtime wiring
+# pulls in metrics/telemetry; M4.5 secrets is used at the signing boundary
+# in M4.6 via katpool-secrets directly). cargo-machete ignores the
+# not-yet-wired ones to keep the dep surface in workspace lockstep.
 [package.metadata.cargo-machete]
 ignored = [
-    "async-trait",
     "chrono",
     "katpool-idempotency",
     "katpool-metrics",
-    "katpool-secrets",
-    "katpool-storagemass",
     "katpool-telemetry",
     "secrecy",
     "serde",
-    "tokio",
     "tracing",
 ]
 
@@ -40,6 +35,12 @@ katpool-idempotency = { path = "../crates/katpool-idempotency" }
 katpool-secrets = { path = "../crates/katpool-secrets" }
 katpool-metrics = { path = "../crates/katpool-metrics" }
 katpool-telemetry = { path = "../crates/katpool-telemetry" }
+kaspa-consensus-core = { workspace = true }
+kaspa-addresses = { workspace = true }
+kaspa-txscript = { workspace = true }
+kaspa-rpc-core = { workspace = true }
+kaspa-grpc-client = { workspace = true }
+secp256k1 = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
