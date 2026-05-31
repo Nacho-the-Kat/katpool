@@ -51,12 +51,18 @@ flowchart LR
   alongside the binary.
 - The age private key is **never** stored on the VPS. It lives only
   on the operator's workstation (and offline backups).
-- For first-boot key delivery: systemd's
-  `LoadCredentialEncrypted=` reads the encrypted file at unit
-  start, decrypts it using a credential-encryption key derived from
-  the host's TPM (where available) or a host-bound key file.
-  Decrypted bytes live only in the credentials tmpfs that systemd
-  exposes to the process.
+- For first-boot key delivery: systemd's `LoadCredentialEncrypted=`
+  consumes a **`systemd-creds encrypt`** blob (a different layer from
+  sops/age). The operator bridges the two once per deploy — `sops
+  --decrypt` the key, `systemd-creds encrypt` it to
+  `/etc/katpool/treasury-key.cred`, then `shred` the plaintext — per
+  [`runbooks/11-key-rotation.md`](runbooks/11-key-rotation.md). At unit
+  start systemd decrypts the `.cred` using a credential-encryption key
+  bound to the host's TPM2 (where available) or the system credentials
+  secret, and places the plaintext at `$CREDENTIALS_DIRECTORY/treasury-key`,
+  in a tmpfs readable only by this service. `katpool-secrets`
+  (`load_from_systemd_credential`) reads it there; the plaintext never
+  hits disk or an env var.
 
 ### 3.3 In memory
 
@@ -124,9 +130,14 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged ~@resources ~@obsolete ~@cpu-emulation
 SystemCallErrorNumber=EPERM
 
-# Credentials
-LoadCredentialEncrypted=treasury-key:/etc/katpool/secrets.sops.yaml
+# Credentials (systemd-creds blob, produced from the sops plaintext)
+LoadCredentialEncrypted=treasury-key:/etc/katpool/treasury-key.cred
 ```
+
+The full, installable fragment lives at
+[`ops/systemd/katpool-hardening.conf`](../ops/systemd/katpool-hardening.conf)
+and `katpool-secrets::load_from_systemd_credential` reads the decrypted
+key from `$CREDENTIALS_DIRECTORY/treasury-key`.
 
 These directives are tested by the chaos suite in Phase 9 — we
 attempt operations from inside the process that should be blocked and

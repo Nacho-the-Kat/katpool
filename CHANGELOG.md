@@ -12,6 +12,17 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.5 (M4.5): `katpool-secrets` treasury key custody.
+  `TreasurySecret` wraps `secrecy::SecretBox<[u8; 32]>` (zeroized on drop,
+  no `Debug`/`Display`/`Clone`/`Serialize`) and `mlock(2)`s the backing page
+  so the key never reaches swap. `load_from_systemd_credential` reads the
+  decrypted key from `$CREDENTIALS_DIRECTORY/treasury-key` (the systemd
+  `LoadCredentialEncrypted=` tmpfs), with `load_from_path`/`from_hex` helpers;
+  all-zero and malformed keys are rejected without leaking material into
+  errors. Adds the installable `ops/systemd/katpool-hardening.conf` drop-in
+  (sops/age -> `systemd-creds` bridge, full OS isolation) and corrects the
+  custody docs' credential-delivery description. This is the workspace's one
+  sanctioned home for `unsafe` (FFI `mlock`/`munlock`), per ADR-0008.
 - Phase 4 milestone 4.4 (M4.4): restart-safe KAS payout cycle state machine
   (`payout_kas::cycle`). `resume_or_plan_kas_cycle` is an idempotent entry
   point that resumes an existing cycle without recomputing eligibility;

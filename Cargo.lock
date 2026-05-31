@@ -3516,7 +3516,10 @@ dependencies = [
 name = "katpool-secrets"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "libc",
  "secrecy",
+ "tempfile",
  "thiserror 2.0.18",
  "tracing",
  "zeroize",
