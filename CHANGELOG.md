@@ -12,6 +12,29 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.7 (M4.7): payout engine + `katpool` runtime wiring.
+  `katpool-idempotency` gains a real, leak-safe Postgres session advisory lock
+  (`AdvisoryLock`): it acquires on a connection *detached* from the pool, so the
+  lock is released even on a panic (dropping the owned connection closes the
+  backend session), and `advisory_key` maps a namespace string to the `bigint`
+  key. `payout_kas::window::cycle_window` buckets the chain's virtual DAA score
+  into a stable `[start, end)` window, so every tick inside one bucket resumes
+  the *same* cycle (idempotency key `kas-{start}-{end}`) and a bucket rollover
+  opens the next — a deterministic, wall-clock-free cadence. `payout_kas::engine`
+  adds `PayoutEngine`: each tick takes the advisory leader lock (non-leaders skip
+  cleanly), derives the window, then runs resume → broadcast → confirm →
+  reconcile; construction rejects a `cycle_span_daa` that is not strictly greater
+  than the confirmation depth so a cycle always confirms before its window rolls
+  over. `run_loop` is the `tokio::time::interval` + `watch` shutdown pattern used
+  by the maturity tracker. The `katpool` binary spawns the engine alongside the
+  existing subsystems — opt-in and dry-run by default: moving funds requires both
+  `KATPOOL_PAYOUT_ENABLED=true` and `KATPOOL_PAYOUT_DRY_RUN=false`. New env knobs
+  cover poll interval, cycle span, threshold, and the treasury key source
+  (`KATPOOL_TREASURY_KEY_PATH` raw-hex file for rehearsal, else
+  `KATPOOL_TREASURY_CREDENTIAL` systemd credential). Deterministic coverage:
+  advisory-lock mutual-exclusion/release test, `cycle_window` unit tests, and a
+  full engine multi-tick settlement + non-leader-skip + `run_loop` shutdown over
+  testcontainer Postgres and a mock kaspad.
 - Phase 4 milestone 4.6 (M4.6): kaspad sign/submit/confirm adapter
   (`payout_kas::{signer, client, confirm, execute}`). `signer::sign_batch`
   assembles a native-subnetwork transaction from a `PlannedBatch`, signs every
