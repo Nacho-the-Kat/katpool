@@ -115,8 +115,11 @@ secrecy = { version = "0.10", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 # Random + crypto primitives
 rand = "0.9"
+# Low-level OS (mlock/munlock for treasury custody)
+libc = "0.2"
 # Testing
 proptest = "1"
+tempfile = "3"
 testcontainers = "0.24"
 testcontainers-modules = { version = "0.12", features = ["postgres"] }
 mockito = "1"
