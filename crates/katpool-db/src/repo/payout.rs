@@ -527,6 +527,25 @@ pub async fn mark_payout_submitted<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
+/// Mark a payout accepted (first network confirmation). Idempotent and
+/// monotonic: only advances from `submitted`/`accepted`, never regresses
+/// a `confirmed` row.
+pub async fn mark_payout_accepted<'e, E: PgExecutor<'e>>(
+    executor: E,
+    payout_id: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE payout
+            SET status = 'accepted'
+          WHERE id = $1
+            AND status IN ('submitted', 'accepted')",
+    )
+    .bind(payout_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// Mark a payout confirmed past maturity window.
 pub async fn mark_payout_confirmed<'e, E: PgExecutor<'e>>(
     executor: E,

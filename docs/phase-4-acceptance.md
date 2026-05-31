@@ -16,7 +16,7 @@ in Phase 2.
 | 2 | Mass-aware batch planner: given treasury UTXOs + recipient list, every planned tx satisfies independent mass ≤ `max_block_mass` (500_000 g). | Property tests + hand-rolled cases from `docs/kips.md` §5. | GREEN — M4.2 |
 | 3 | Eligibility: wallets with `sum(net_payout_sompi) - sum(confirmed_kas_payouts) >= threshold` (default 5 KAS / 500_000_000 sompi). | Integration test against testcontainer Postgres. | GREEN — M4.3 |
 | 4 | Payout cycle orchestration: create `payout_cycle`, insert `payout` rows, advance status machine; idempotent on retry. | Uses existing `repo::payout` + new planner; integration tests. | GREEN — M4.3 |
-| 5 | Record idempotency **before** sign: no double-pay on mid-cycle restart. | `payout_cycle.idempotency_key` + per-recipient `UNIQUE (cycle_id, wallet_id)`; chaos test simulating crash after plan, before broadcast. | PENDING — M4.4 |
+| 5 | Record idempotency **before** sign: no double-pay on mid-cycle restart. | `payout_cycle.idempotency_key` + per-recipient `UNIQUE (cycle_id, wallet_id)`; chaos test simulating crash after plan, before broadcast. | GREEN — M4.4 |
 | 6 | `katpool-secrets`: load treasury key via age/sops contract; `Secret` type has no `Debug`; page `mlock` + `zeroize` on drop. | Unit tests + documented systemd `LoadCredentialEncrypted` path. | PENDING — M4.5 |
 | 7 | Sign + submit KAS txs via kaspad gRPC; confirm and mark `payout` rows `confirmed`. | Testcontainer or tn10 with funded treasury; dry-run mode for rehearsal. | PENDING — M4.6 |
 | 8 | `payout-kas` wired into `katpool` runtime (cron / loop + distributed lock); `KATPOOL_PAYOUT_DRY_RUN` for rehearsal. | Live dry-run on testnet-10; no mainnet funds moved until operator flips flag. | PENDING — M4.7 |

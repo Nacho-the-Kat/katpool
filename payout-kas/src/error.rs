@@ -2,9 +2,9 @@
 
 use katpool_db::DbError;
 
-/// Errors from [`crate::plan_kas_cycle`].
+/// Errors from the KAS payout cycle lifecycle (plan, resume, reconcile).
 #[derive(Debug, thiserror::Error)]
-pub enum PlanKasCycleError {
+pub enum PayoutKasError {
     /// Database failure.
     #[error(transparent)]
     Db(#[from] DbError),
