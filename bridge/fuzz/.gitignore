@@ -1,5 +1,5 @@
 # cargo-fuzz build/run artifacts
 /target
-/corpus
+/corpus/
 /artifacts
 /coverage
