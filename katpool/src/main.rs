@@ -45,9 +45,24 @@
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
 //!   for M4 replay-determinism rehearsal
+//!
+//! KAS payout engine (M4.7 — opt-in, dry-run by default):
+//! - `KATPOOL_PAYOUT_ENABLED`        default `false` (engine off)
+//! - `KATPOOL_PAYOUT_DRY_RUN`        default `true` (sign+verify only;
+//!   set `false` to broadcast real transactions)
+//! - `KATPOOL_PAYOUT_POLL_SECS`      default 60
+//! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (~daily cadence;
+//!   must exceed the confirmation depth)
+//! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 5 KAS
+//! - Treasury key source (one of, in precedence order):
+//!   `KATPOOL_TREASURY_KEY_PATH` (raw 32-byte hex file, testnet
+//!   rehearsal) else `KATPOOL_TREASURY_CREDENTIAL` (systemd
+//!   `LoadCredentialEncrypted` name, default `treasury-key`).
+//!   The treasury address is the first `KATPOOL_POOL_ADDRESS`.
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -60,6 +75,11 @@ use kaspa_stratum_bridge::{
 };
 use katpool_db::{PoolConfig, build_pool};
 use katpool_domain::PoolEvent;
+use katpool_secrets::{load_from_path, load_from_systemd_credential};
+use payout_kas::{
+    DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, ExecutionMode, GrpcKaspadClient, PayoutEngine,
+    PayoutEngineConfig,
+};
 use tokio::io::AsyncWriteExt;
 use tokio::signal;
 use tokio::sync::{broadcast, watch};
@@ -139,7 +159,7 @@ async fn main() -> Result<()> {
         cfg.kaspad_url.clone(),
         Duration::from_millis(500),
         None,
-        Some(coinbase_override),
+        Some(coinbase_override.clone()),
     )
     .await
     .map_err(|e| anyhow::anyhow!("KaspaApi: {e}"))?;
@@ -210,6 +230,55 @@ async fn main() -> Result<()> {
         async move { tracker.run_loop(rx).await }
     });
 
+    // ---- KAS payout engine (M4.7, opt-in) ---------------------------
+    // Single-leader periodic loop: a Postgres advisory lock elects one
+    // instance per tick, so running multiple `katpool` replicas is safe.
+    // Disabled and dry-run by default — moving funds requires both
+    // `KATPOOL_PAYOUT_ENABLED=true` and `KATPOOL_PAYOUT_DRY_RUN=false`.
+    let payout_handle = if cfg.payout_enabled {
+        let secret = match &cfg.payout.key_source {
+            KeySource::File(path) => load_from_path(path)
+                .with_context(|| format!("loading treasury key from {}", path.display()))?,
+            KeySource::SystemdCredential(name) => load_from_systemd_credential(name)
+                .with_context(|| format!("loading treasury credential `{name}`"))?,
+        };
+        let payout_client = GrpcKaspadClient::connect(cfg.kaspad_url.clone())
+            .await
+            .context("payout-kas kaspad gRPC connect")?;
+        let mode = if cfg.payout.dry_run {
+            ExecutionMode::DryRun
+        } else {
+            ExecutionMode::Live
+        };
+        let engine = PayoutEngine::new(
+            db.clone(),
+            payout_client,
+            secret,
+            coinbase_override.clone(),
+            PayoutEngineConfig {
+                instance_id: cfg.instance_id.clone(),
+                poll_interval: cfg.payout.poll_interval,
+                cycle_span_daa: cfg.payout.cycle_span_daa,
+                threshold_sompi: cfg.payout.threshold_sompi,
+                mode,
+                lock_namespace: "payout-kas:kas-leader".to_owned(),
+            },
+        )
+        .context("building payout engine")?;
+        info!(
+            dry_run = cfg.payout.dry_run,
+            poll_secs = cfg.payout.poll_interval.as_secs(),
+            cycle_span_daa = cfg.payout.cycle_span_daa,
+            treasury = %coinbase_override,
+            "payout-kas engine enabled"
+        );
+        let rx = shutdown_rx.clone();
+        Some(tokio::spawn(async move { engine.run_loop(rx).await }))
+    } else {
+        info!("payout-kas engine disabled (set KATPOOL_PAYOUT_ENABLED=true to enable)");
+        None
+    };
+
     // Bridge is the long-running stratum listener. Its
     // `listen_and_serve_with_events` doesn't currently respect a
     // shutdown channel (upstream limitation); we drive its lifetime
@@ -273,6 +342,14 @@ async fn main() -> Result<()> {
     if let Err(e) = tracker_handle.await? {
         error!(error = %e, "tracker exited with error");
     }
+    // The payout engine honors the shutdown channel; await it cleanly.
+    if let Some(handle) = payout_handle {
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => error!(error = %e, "payout engine exited with error"),
+            Err(e) => error!(error = %e, "payout engine task join error"),
+        }
+    }
     bridge_handle.abort();
     consumer_handle.abort();
     let _ = bridge_handle.await;
@@ -321,6 +398,30 @@ struct RuntimeConfig {
     network: String,
     /// When set, append one serde-json `PoolEvent` per line to this path.
     event_record_path: Option<String>,
+    /// Whether the KAS payout engine runs in this process.
+    payout_enabled: bool,
+    /// Payout engine knobs (parsed unconditionally; only consumed when
+    /// `payout_enabled`).
+    payout: PayoutConfig,
+}
+
+/// Where the treasury signing key is loaded from at startup.
+#[derive(Debug)]
+enum KeySource {
+    /// systemd `LoadCredentialEncrypted` credential name (production).
+    SystemdCredential(String),
+    /// Raw 32-byte hex key file (testnet rehearsal / M4.8).
+    File(PathBuf),
+}
+
+/// Parsed KAS payout engine configuration.
+#[derive(Debug)]
+struct PayoutConfig {
+    dry_run: bool,
+    poll_interval: Duration,
+    cycle_span_daa: u64,
+    threshold_sompi: i64,
+    key_source: KeySource,
 }
 
 impl RuntimeConfig {
@@ -354,6 +455,31 @@ impl RuntimeConfig {
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
         let network = resolve_network(&pool_addresses)?;
         let event_record_path = optional("KATPOOL_EVENT_RECORD_PATH");
+
+        let payout_enabled = optional_bool("KATPOOL_PAYOUT_ENABLED")?.unwrap_or(false);
+        let payout_dry_run = optional_bool("KATPOOL_PAYOUT_DRY_RUN")?.unwrap_or(true);
+        let payout_poll_secs = optional_u64("KATPOOL_PAYOUT_POLL_SECS")?.unwrap_or(60);
+        let payout_cycle_span_daa =
+            optional_u64("KATPOOL_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400);
+        let payout_threshold_sompi = optional_i64("KATPOOL_PAYOUT_THRESHOLD_SOMPI")?
+            .unwrap_or(DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI);
+        let key_source = optional("KATPOOL_TREASURY_KEY_PATH").map_or_else(
+            || {
+                KeySource::SystemdCredential(
+                    optional("KATPOOL_TREASURY_CREDENTIAL")
+                        .unwrap_or_else(|| "treasury-key".to_owned()),
+                )
+            },
+            |path| KeySource::File(PathBuf::from(path)),
+        );
+        let payout = PayoutConfig {
+            dry_run: payout_dry_run,
+            poll_interval: Duration::from_secs(payout_poll_secs),
+            cycle_span_daa: payout_cycle_span_daa,
+            threshold_sompi: payout_threshold_sompi,
+            key_source,
+        };
+
         Ok(Self {
             kaspad_url,
             database_url,
@@ -373,6 +499,8 @@ impl RuntimeConfig {
                 window_daa_span,
                 batch_size,
             },
+            payout_enabled,
+            payout,
         })
     }
 }
@@ -417,6 +545,18 @@ fn optional_i64(var: &str) -> Result<Option<i64>> {
         .map(|s| {
             s.parse::<i64>()
                 .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_bool(var: &str) -> Result<Option<bool>> {
+    optional(var)
+        .map(|s| match s.to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" | "on" => Ok(true),
+            "false" | "0" | "no" | "off" => Ok(false),
+            other => Err(anyhow::anyhow!(
+                "{var}=`{other}`: expected a boolean (true/false/1/0/yes/no/on/off)"
+            )),
         })
         .transpose()
 }

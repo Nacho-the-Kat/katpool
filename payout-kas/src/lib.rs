@@ -26,17 +26,19 @@
 //!   ([`resume_or_plan_kas_cycle`], [`reconcile_cycle_status`]).
 //! - **M4.5** — treasury key custody ([`katpool_secrets`]).
 //! - **M4.6** — kaspad sign/submit/confirm ([`signer`], [`client`], [`execute`]).
-//! - **M4.7+** — runtime wiring.
+//! - **M4.7** — periodic single-leader [`engine`] + DAA [`window`]ing.
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
 pub mod client;
 pub mod confirm;
 mod cycle;
+pub mod engine;
 mod error;
 pub mod execute;
 mod plan;
 pub mod signer;
+pub mod window;
 
 pub use client::{GrpcKaspadClient, KaspadClient, KaspadError, TreasuryUtxoSnapshot};
 pub use confirm::{
@@ -47,6 +49,7 @@ pub use cycle::{
     CycleState, PayoutStatusCounts, derive_cycle_status, reconcile_cycle_status,
     resume_or_plan_kas_cycle,
 };
+pub use engine::{EngineError, PayoutEngine, PayoutEngineConfig, TickOutcome, TickReport};
 pub use error::PayoutKasError;
 pub use execute::{
     ConfirmReport, ExecuteError, ExecutionMode, ExecutionReport, broadcast_cycle, confirm_cycle,
@@ -54,6 +57,7 @@ pub use execute::{
 pub use katpool_db::repo::payout::DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI;
 pub use plan::{PlanKasCycleParams, PlanKasCycleResult, plan_kas_cycle};
 pub use signer::{SignError, SignedBatch, batch_txid, sign_batch, verify_signed};
+pub use window::cycle_window;
 
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

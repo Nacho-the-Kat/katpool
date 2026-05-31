@@ -26,21 +26,17 @@ workspace = true
 # the corresponding dep below.
 [package.metadata.cargo-machete]
 ignored = [
-    # Phase 4/5/6 scaffold deps — listed here so Phase N's PR
+    # Phase 5/6 scaffold deps — listed here so Phase N's PR
     # can drop the entry it activates without touching the
     # rest.
-    "payout-kas",
     "payout-krc20",
     "api",
-    # Phase 7 telemetry/secrets/metrics — currently no direct
+    # Phase 7 telemetry/metrics/config — currently no direct
     # use; wired in Phase 7's main composition.
     "katpool-config",
     "katpool-metrics",
     "katpool-telemetry",
-    "katpool-secrets",
-    # Workspace deps the M3d binary doesn't yet use; Phase 7
-    # will.
-    "serde",
+    # Workspace deps the binary doesn't yet use; Phase 7 will.
     "thiserror",
 ]
 
@@ -74,5 +70,4 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
