@@ -6,7 +6,54 @@
 - Emergency rollback during or just after a problematic deploy
 - Manual recovery if the deploy workflow itself misbehaves
 
-## Deploy procedure (normal)
+## Current deploy (binary + systemd, per network)
+
+Until the signed-image pipeline below is wired to the VPS, deploys are
+binary swaps driven by [`scripts/deploy.sh`](../../scripts/deploy.sh).
+The unified `katpool` binary is **network-agnostic** — the network is
+selected at runtime by the kaspad endpoint and the `kaspatest:`/`kaspa:`
+address prefix — so the script takes a *deploy-target* flag and routes
+the one build to the correct per-network location (symmetric layout):
+
+| Network | Directory | Service | Env file |
+|---|---|---|---|
+| testnet-10 | `/root/katpool-tn10` | `katpool-tn10.service` | `/etc/katpool/tn10.env` |
+| mainnet | `/root/katpool-mainnet` | `katpool-mainnet.service` | `/etc/katpool/mainnet.env` |
+
+Each deploy reads a **host-local** `ops/env/<network>.env`. Only the
+`*.env.example` templates are tracked; the real env files (endpoints, DB
+creds) are gitignored and never hold the treasury key. On a fresh host,
+seed it once: `cp ops/env/<network>.env.example ops/env/<network>.env`
+and fill it in.
+
+```bash
+# testnet-10 (builds --profile dist, installs unit + env, restarts):
+sudo scripts/deploy.sh --network tn10
+
+# mainnet:
+sudo scripts/deploy.sh --network mainnet
+
+# deploy a prebuilt/signed artifact instead of building:
+sudo scripts/deploy.sh --network mainnet --binary /path/to/katpool
+```
+
+The script renders the tracked unit template
+[`ops/systemd/katpool.service.in`](../../ops/systemd/katpool.service.in)
+to `/etc/systemd/system/katpool-<network>.service`, installs the host-local
+`ops/env/<network>.env` to `/etc/katpool/<network>.env`, **backs up** the
+existing binary
+(`katpool.bak-<timestamp>`, keeping the last 5), installs the new binary,
+`daemon-reload`s, restarts, and fails loudly (retaining the backup) if the
+service does not come back active.
+
+**Rollback (binary):**
+
+```bash
+cp /root/katpool-<network>/katpool.bak-<timestamp> /root/katpool-<network>/katpool
+sudo systemctl restart katpool-<network>
+```
+
+## Deploy procedure (target state — signed image pipeline, Phase 7)
 
 Triggered automatically by a merge to `main` after CI passes
 ([`release.yml`](../../.github/workflows/release.yml)). The

@@ -16,6 +16,12 @@ Cargo.lock.bak
 .env.*
 !.env.example
 
+# Per-network deploy env: only the *.env.example templates are tracked.
+# The real, host-local env files (DB creds, endpoints) are never committed;
+# the treasury key is always provisioned out of band, never in these files.
+ops/env/mainnet.env
+ops/env/tn10.env
+
 # Secrets - never commit any decrypted form
 *.age
 *.key
