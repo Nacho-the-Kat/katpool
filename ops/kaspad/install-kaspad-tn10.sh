@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install kaspad-tn10 — Toccata-aware rusty-kaspa for testnet-10.
 #
-# Idempotent. Downloads the upstream `tn10-toc2` release zip, verifies
+# Idempotent. Downloads the pinned upstream `tn10-toc{N}` release zip, verifies
 # its SHA-256 against the pinned digest below, extracts the kaspad
 # binary, and installs the systemd unit. Reuses an existing checkout
 # and skips download steps that have already completed successfully.
@@ -18,12 +18,15 @@
 set -euo pipefail
 
 # ---------- Pinned upstream release ----------------------------------
-# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/tn10-toc2
-# This release scheduled the Toccata hardfork at testnet-10 DAA score
-# 467,579,632 (activated 2026-05-18 16:00 UTC). Bumping these two
-# constants is the only change required to track a future tn10-toc{N}.
-TN10_RELEASE_TAG=tn10-toc2
-TN10_LINUX_SHA256=b1664d7336b7b536f98a7383ada6bffec71df7fc0d017f54fd4ec2434d7c5f44
+# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/tn10-toc3
+# This release scheduled the Toccata ZK hardening hardfork at testnet-10
+# DAA score 476,232,000 (activated 2026-05-28 ~16:00 UTC). It changes the
+# SMT/seqcommit computation, so a tn10-toc2 node cannot complete IBD
+# against the post-activation network (peers reject its pruning-point SMT
+# with `seq_commit mismatch`). Bumping these two constants is the only
+# change required to track a future tn10-toc{N}.
+TN10_RELEASE_TAG=tn10-toc3
+TN10_LINUX_SHA256=3804314f478e5f8c853e86745c8324f644d906f6d719360648641574bf9dc391
 TN10_LINUX_ZIP=rusty-kaspa-${TN10_RELEASE_TAG}-linux-amd64.zip
 TN10_DOWNLOAD_URL=https://github.com/kaspanet/rusty-kaspa/releases/download/${TN10_RELEASE_TAG}/${TN10_LINUX_ZIP}
 
