@@ -28,6 +28,7 @@ this page is complete.
 | Date (UTC) | Commit | Boot time | Shares (60 s) | Blocks (60 s) | Run by | Notes |
 |---|---|---|---|---|---|---|
 | 2026-05-26 02:42 | phase-1-tn10-infra @ tip | **503 ms** | _miner pending_ | _miner pending_ | argonmining | External kaspad-tn10 at `X.X.X.X:16210` (operator-owned, `v1.2.0-toc.2`). Confirms gRPC API works across the Toccata fork from our `v1.1.0` client. Local `katpool-kaspad-tn10` syncing in parallel — at 75% header IBD when this row was written. Full evidence: see "Boot evidence" block below. |
+| 2026-06-01 15:30 | phase5-tn10-kaspad-toc3 | — | — | — | argonmining | **kaspad upgrade incident (Runbook 13).** Pinned `tn10-toc2` node could not complete IBD against testnet-10: after header sync it failed pruning-point SMT verification against 20+ peers (`seq_commit mismatch`, ~2.9k failures). Root cause: upstream shipped `tn10-toc3` (2026-05-27) — the "Toccata ZK hardening" hardfork (activation DAA 476,232,000, ~2026-05-28 16:00 UTC) changed the SMT/seqcommit computation, leaving the toc2 build forked off. Recovered by bumping `ops/kaspad/install-kaspad-tn10.sh` to `tn10-toc3` (kaspad `1.2.1-toc.3`, zip sha256 `3804314f…bf9dc391`), wiping the incompatible data dir, and re-IBD. |
 
 Append a row every time you re-run the smoke. Negative results (missed
 acceptance) require an issue + PR; positive results unblock the next
