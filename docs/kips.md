@@ -116,6 +116,24 @@ Approach:
 - Use the same mass-aware planner — the answer is usually "one tx per
   recipient" but the planner returns a precise verdict.
 
+The KRC-20 planner lives in `payout-krc20::plan` (`plan_commit_reveal`).
+Unlike the KAS planner — which evaluates *unsigned* shapes because KAS
+payouts are storage-mass-dominated — the KRC-20 planner sizes the
+**signature scripts to their signed length** before evaluating, because the
+reveal's `transient_storage_mass` is driven by the redeem-script-and-data
+push that only appears once the input is "signed". A standard Schnorr push
+is 66 bytes (rusty-kaspa `wallet::tx::mass::SIGNATURE_SIZE`); the reveal
+additionally carries the canonical push of the full redeem script. The
+planner builds the commit (treasury inputs → P2SH commit output + change)
+and the minimal 1-input/1-output reveal, then asserts every mass fits
+`max_block_mass` independently.
+
+Note the planner also surfaces KIP-9 anti-dust: a commit *change* output
+that clears the economic floor can still exceed storage mass when funded
+by a much larger input. The planner reports this as a mass failure rather
+than emitting an unminable transaction; choosing mass-appropriate funding
+UTXOs is the execute/maintain layers' job (§5.3–§5.4), not the planner's.
+
 ### 5.4 Plan vs execute (treasury UTXO lifecycle)
 
 Two layers — do not conflate them:

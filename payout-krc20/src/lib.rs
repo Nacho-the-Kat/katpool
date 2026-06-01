@@ -13,24 +13,32 @@
 //!   ([`build_transfer_inscription`], [`commit_address`],
 //!   [`reveal_signature_script`]) — byte-for-byte compatible with the live
 //!   production transfer and the kasplex indexer (see ADR-0015).
-//! - **M5.2 (this milestone)**: KAS→NACHO payout conversion ([`nacho_base_units`]
+//! - **M5.2**: KAS→NACHO payout conversion ([`nacho_base_units`]
 //!   over an exact fixed-point [`FloorPrice`], no payout-time multiplier —
 //!   the tier rebate is already in `accrued_sompi`) and the floor-price
 //!   quote source ([`FloorPriceSource`] + [`KaspaComFloorPrice`]) guarded by
 //!   a fail-closed [`CircuitBreaker`] (see ADR-0016).
-//! - Later milestones add the mass-aware commit/reveal planner and the
-//!   restart-safe payout engine that reuses the Phase 4 cycle/lock/engine
-//!   scaffolding.
+//! - **M5.3 (this milestone)**: the mass-aware commit/reveal planner
+//!   ([`plan_commit_reveal`]) — sizes signature scripts to their signed
+//!   length so the reveal's `transient_storage_mass` (driven by the
+//!   redeem-script push) is evaluated accurately against `max_block_mass`.
+//! - Later milestones add the restart-safe payout engine that reuses the
+//!   Phase 4 cycle/lock/engine scaffolding.
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
 pub mod inscription;
+pub mod plan;
 pub mod quote;
 pub mod rebate;
 
 pub use inscription::{
     InscriptionError, KASPLEX_TAG, KRC20_PROTOCOL, Krc20Transfer, build_transfer_inscription,
     commit_address, commit_script_public_key, reveal_signature_script,
+};
+pub use plan::{
+    CommitRevealConfig, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_FEE_SOMPI, PlanError,
+    PlannedCommitReveal, STANDARD_SIGNATURE_SCRIPT_LEN, plan_commit_reveal,
 };
 pub use quote::{
     BreakeredSource, CircuitBreaker, CircuitState, FloorPriceSource, KaspaComFloorPrice,
