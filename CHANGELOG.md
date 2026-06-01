@@ -12,6 +12,30 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.3 (M5.3): mass-aware KRC-20 commit/reveal planner
+  (acceptance row 3). `payout-krc20` gains a `plan` module
+  (`plan_commit_reveal`) that ties the M5.1 inscription primitives to the
+  Phase 4 `katpool-storagemass` evaluator. It funds the commit (greedy
+  largest-first treasury UTXO selection → P2SH commit output + change,
+  folding sub-floor change into the fee), builds the minimal
+  1-input/1-output reveal that spends the commit P2SH output, and asserts
+  every KIP-9/KIP-13 mass fits `max_block_mass` independently. Unlike the
+  KAS planner (which evaluates *unsigned* shapes because KAS payouts are
+  storage-mass-dominated), this planner sizes signature scripts to their
+  **signed** length first, since the reveal's `transient_storage_mass` is
+  driven by the redeem-script-and-data push that only appears once the
+  input is signed — a standard Schnorr push is 66 bytes (rusty-kaspa
+  `wallet::tx::mass::SIGNATURE_SIZE`), and the reveal additionally carries
+  the canonical push of the full redeem script. The planner also surfaces
+  KIP-9 anti-dust: a commit change output that clears the economic floor
+  can still exceed storage mass when funded by a much larger input, which
+  is reported as a mass failure rather than emitted as an unminable tx
+  (UTXO hygiene to avoid it is the execute/maintain layers' job per
+  `docs/kips.md` §5.3–§5.4). Verified by deterministic, chain-free tests:
+  both txs fit independently, the reveal's transient mass exceeds 4× the
+  redeem-script length (proof the inscription is counted), and the
+  funding/dust/sub-floor/storage-mass verdict paths. Phase 5 acceptance
+  row 3 GREEN.
 - Phase 5 milestone 5.2 (M5.2): NACHO eligibility, floor-price quote, and
   KAS→NACHO payout conversion (acceptance row 2). `payout-krc20` gains two
   pure/wireable modules. `rebate`: an exact fixed-point `FloorPrice`
