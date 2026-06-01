@@ -12,6 +12,30 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.6 (M5.6): KRC-20 NACHO **payout dry-run rehearsal**
+  tool + runbook (closes acceptance row 6, mirroring the Phase 4 KAS
+  rehearsal in M4.8). New `katpool-krc20-rehearsal` crate drives exactly one
+  **dry-run** NACHO cycle through the production engine (`Krc20PayoutEngine`
+  in `ExecutionMode::DryRun`): it acquires the `payout-krc20:nacho-leader`
+  advisory lock, derives the DAA window, quotes the floor price
+  (`BreakeredSource<KaspaComFloorPrice>`, fail-closed), plans the eligible
+  rebates into commit/reveal transfers, and for every pending transfer
+  mass-plans + signs + verifies the commit against the **live** treasury UTXO
+  set — recording no txid, broadcasting nothing, and crediting no
+  `nacho_rebate`.
+  - `src/lib.rs` holds the pure, unit-tested reconcile-envelope serializer
+    (`schema: katpool-krc20-rehearsal.reconcile/v1`): eligible-wallet
+    snapshot, planned cycle, `krc20_pending_transfer` rows, parent `payout`
+    rows, dry-run settle + (empty) credit reports, reconciled status, and the
+    cycle audit trail (the `krc20_cycle.plan` entry carries the quoted floor
+    price). The u128 NACHO dust gate serializes as a string to stay lossless.
+  - `src/main.rs` is the one-shot binary (stdout = JSON envelope, stderr =
+    tracing), with exit codes `0` clean / `2` `settle.errors` non-empty
+    (underfunded/mass/sign) / `3` not leader / other hard failure.
+  - `scripts/krc20-payout-rehearsal.sh` captures the JSON, tracing log, cycle
+    audit trail, and a manifest (git rev + binary sha256 + exit code) into a
+    timestamped `payout-evidence/` directory; `docs/runbooks/19-krc20-payout-rehearsal.md`
+    is the operator procedure.
 - Phase 5 milestone 5.5b (M5.5b): KRC-20 **payout engine** + `katpool`
   runtime wiring (closes acceptance row 5). `payout-krc20` gains an `engine`
   module (`Krc20PayoutEngine`) — a single-leader periodic loop mirroring the

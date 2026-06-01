@@ -24,6 +24,7 @@ stop when the corresponding alert fires.
 | [16](16-testnet10-full-pipeline-live.md) | Phase 3 M3d — full mine-and-allocate pipeline live exercise on testnet-10 | — (acceptance procedure with ASIC) |
 | [17](17-replay-determinism.md) | Phase 3 M4 — replay-determinism harness | — (acceptance procedure) |
 | [18](18-kas-payout-rehearsal.md) | Phase 4 M4.8 — KAS payout dry-run rehearsal on testnet-10 | — (acceptance procedure) |
+| [19](19-krc20-payout-rehearsal.md) | Phase 5 M5.6 — KRC-20 NACHO payout dry-run rehearsal on testnet-10 | — (acceptance procedure) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

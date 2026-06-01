@@ -42,7 +42,8 @@
 //!   plan → settle → credit → reconcile, guarded by a Postgres advisory lock
 //!   (reusing the Phase 4 KAS engine shape + DAA windowing) and safe-by-default
 //!   (dry-run records and broadcasts nothing).
-//! - The rehearsal tool + acceptance evidence land in M5.6.
+//! - **M5.6**: the dry-run rehearsal tool + acceptance evidence live in the
+//!   `katpool-krc20-rehearsal` crate (mirroring the Phase 4 KAS rehearsal).
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
