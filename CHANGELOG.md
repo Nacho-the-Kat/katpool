@@ -12,6 +12,32 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.5b (M5.5b): KRC-20 **payout engine** + `katpool`
+  runtime wiring (closes acceptance row 5). `payout-krc20` gains an `engine`
+  module (`Krc20PayoutEngine`) — a single-leader periodic loop mirroring the
+  Phase 4 KAS engine that drives one NACHO rebate cycle per DAA window through
+  **plan → settle → credit → reconcile**:
+  - A Postgres session advisory lock (`katpool-idempotency`) under a distinct
+    namespace (`payout-krc20:nacho-leader`) elects one leader per tick; a
+    non-leader skips without work, so running multiple `katpool` replicas is
+    safe and the KRC-20 and KAS engines never contend.
+  - The cycle window comes from `payout_kas::cycle_window`, so ticks in one DAA
+    bucket resume the same cycle (frozen amounts). Construction rejects a
+    `cycle_span_daa` not exceeding `KAS_PAYOUT_CONFIRMATION_DAA` (the depth the
+    executor confirms against), so a cycle settles before its window rolls.
+  - **Safe-by-default**: `ExecutionMode::DryRun` settles without recording or
+    broadcasting (M5.4b) and never credits; only a live tick moves funds or
+    mutates `nacho_rebate.paid_sompi`.
+  The `katpool` binary wires it opt-in (disabled + dry-run by default) behind
+  `KATPOOL_KRC20_PAYOUT_*` env vars, sharing the treasury key/address and
+  kaspad node (separate gRPC connection) with the KAS engine, and using a
+  `BreakeredSource<KaspaComFloorPrice>` for fail-closed floor-price quotes.
+  Verified by engine integration tests over testcontainer Postgres, an
+  address-keyed mock kaspad, and a fixed floor-price source: a full multi-tick
+  settlement (plan → commit → reveal → complete → credit → settled, no
+  re-broadcast once confirmed, wallet drops out once paid), leader-lock mutual
+  exclusion (a non-leader tick plans and broadcasts nothing), and clean
+  `run_loop` shutdown.
 - Phase 5 milestone 5.5a (M5.5a): KRC-20 **cycle state machine** (partial
   acceptance row 5). `payout-krc20` gains a `cycle` module that mirrors the
   Phase 4 KAS cycle (`resume_or_plan_krc20_cycle` / `reconcile_cycle_status`),

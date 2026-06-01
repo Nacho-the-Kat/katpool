@@ -59,6 +59,24 @@
 //!   rehearsal) else `KATPOOL_TREASURY_CREDENTIAL` (systemd
 //!   `LoadCredentialEncrypted` name, default `treasury-key`).
 //!   The treasury address is the first `KATPOOL_POOL_ADDRESS`.
+//!
+//! KRC-20 NACHO payout engine (M5.5b — opt-in, dry-run by default; shares
+//! the treasury key/address and kaspad node, separate advisory-lock leader):
+//! - `KATPOOL_KRC20_PAYOUT_ENABLED`        default `false` (engine off)
+//! - `KATPOOL_KRC20_PAYOUT_DRY_RUN`        default `true` (settle records +
+//!   broadcasts nothing; never credits)
+//! - `KATPOOL_KRC20_PAYOUT_POLL_SECS`      default 60
+//! - `KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (must exceed the
+//!   confirmation depth)
+//! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 1 KAS (coarse pre-filter)
+//! - `KATPOOL_KRC20_MIN_NACHO_BASE_UNITS`  default 1 NACHO (dust gate)
+//! - `KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI`   default 0.2 KAS (commit P2SH lock)
+//! - `KATPOOL_KRC20_COMMIT_FEE_SOMPI` / `..._REVEAL_FEE_SOMPI` default 0.01 KAS
+//! - `KATPOOL_KRC20_BATCH_LIMIT`           default 1000 recipients/tick
+//! - `KATPOOL_KRC20_TICKER`                default `NACHO`
+//! - `KATPOOL_KRC20_QUOTE_BASE`            default `https://api.kaspa.com`
+//! - `KATPOOL_KRC20_QUOTE_BREAKER_THRESHOLD` default 3 consecutive failures
+//! - `KATPOOL_KRC20_QUOTE_BREAKER_COOLDOWN_SECS` default 60
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
@@ -79,6 +97,12 @@ use katpool_secrets::{load_from_path, load_from_systemd_credential};
 use payout_kas::{
     DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, ExecutionMode, GrpcKaspadClient, PayoutEngine,
     PayoutEngineConfig,
+};
+use payout_krc20::{
+    BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
+    DEFAULT_FEE_SOMPI, DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS,
+    DEFAULT_MIN_PENDING_SOMPI, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice,
+    Krc20FeeConfig, Krc20PayoutEngine, Krc20PayoutEngineConfig,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::signal;
@@ -279,6 +303,73 @@ async fn main() -> Result<()> {
         None
     };
 
+    // ---- KRC-20 NACHO payout engine (M5.5b, opt-in) -----------------
+    // Same single-leader discipline as the KAS engine, but a distinct
+    // advisory-lock namespace so the two never contend. Shares the treasury
+    // key/address and kaspad node (separate gRPC connection). Disabled and
+    // dry-run by default.
+    let krc20_payout_handle = if cfg.krc20_payout_enabled {
+        let secret = match &cfg.krc20_payout.key_source {
+            KeySource::File(path) => load_from_path(path)
+                .with_context(|| format!("loading treasury key from {}", path.display()))?,
+            KeySource::SystemdCredential(name) => load_from_systemd_credential(name)
+                .with_context(|| format!("loading treasury credential `{name}`"))?,
+        };
+        let krc20_client = GrpcKaspadClient::connect(cfg.kaspad_url.clone())
+            .await
+            .context("payout-krc20 kaspad gRPC connect")?;
+        let mode = if cfg.krc20_payout.dry_run {
+            ExecutionMode::DryRun
+        } else {
+            ExecutionMode::Live
+        };
+        let quote = BreakeredSource::new(
+            KaspaComFloorPrice::new(cfg.krc20_payout.quote_base.clone(), DEFAULT_HTTP_TIMEOUT)
+                .context("building NACHO floor-price client")?,
+            CircuitBreaker::new(
+                cfg.krc20_payout.breaker_threshold,
+                cfg.krc20_payout.breaker_cooldown,
+            ),
+        );
+        let engine = Krc20PayoutEngine::new(
+            db.clone(),
+            krc20_client,
+            secret,
+            coinbase_override.clone(),
+            quote,
+            Krc20PayoutEngineConfig {
+                instance_id: cfg.instance_id.clone(),
+                poll_interval: cfg.krc20_payout.poll_interval,
+                cycle_span_daa: cfg.krc20_payout.cycle_span_daa,
+                mode,
+                lock_namespace: "payout-krc20:nacho-leader".to_owned(),
+                fees: Krc20FeeConfig {
+                    commit_fee_sompi: cfg.krc20_payout.commit_fee_sompi,
+                    reveal_fee_sompi: cfg.krc20_payout.reveal_fee_sompi,
+                },
+                min_pending_sompi: cfg.krc20_payout.min_pending_sompi,
+                min_nacho_base_units: cfg.krc20_payout.min_nacho_base_units,
+                ticker: cfg.krc20_payout.ticker.clone(),
+                commit_amount_sompi: cfg.krc20_payout.commit_amount_sompi,
+                batch_limit: cfg.krc20_payout.batch_limit,
+            },
+        )
+        .context("building krc20 payout engine")?;
+        info!(
+            dry_run = cfg.krc20_payout.dry_run,
+            poll_secs = cfg.krc20_payout.poll_interval.as_secs(),
+            cycle_span_daa = cfg.krc20_payout.cycle_span_daa,
+            ticker = %cfg.krc20_payout.ticker,
+            treasury = %coinbase_override,
+            "payout-krc20 engine enabled"
+        );
+        let rx = shutdown_rx.clone();
+        Some(tokio::spawn(async move { engine.run_loop(rx).await }))
+    } else {
+        info!("payout-krc20 engine disabled (set KATPOOL_KRC20_PAYOUT_ENABLED=true to enable)");
+        None
+    };
+
     // Bridge is the long-running stratum listener. Its
     // `listen_and_serve_with_events` doesn't currently respect a
     // shutdown channel (upstream limitation); we drive its lifetime
@@ -342,12 +433,19 @@ async fn main() -> Result<()> {
     if let Err(e) = tracker_handle.await? {
         error!(error = %e, "tracker exited with error");
     }
-    // The payout engine honors the shutdown channel; await it cleanly.
+    // The payout engines honor the shutdown channel; await them cleanly.
     if let Some(handle) = payout_handle {
         match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => error!(error = %e, "payout engine exited with error"),
             Err(e) => error!(error = %e, "payout engine task join error"),
+        }
+    }
+    if let Some(handle) = krc20_payout_handle {
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => error!(error = %e, "krc20 payout engine exited with error"),
+            Err(e) => error!(error = %e, "krc20 payout engine task join error"),
         }
     }
     bridge_handle.abort();
@@ -403,10 +501,15 @@ struct RuntimeConfig {
     /// Payout engine knobs (parsed unconditionally; only consumed when
     /// `payout_enabled`).
     payout: PayoutConfig,
+    /// Whether the KRC-20 NACHO payout engine runs in this process.
+    krc20_payout_enabled: bool,
+    /// KRC-20 engine knobs (parsed unconditionally; only consumed when
+    /// `krc20_payout_enabled`).
+    krc20_payout: Krc20RuntimeConfig,
 }
 
 /// Where the treasury signing key is loaded from at startup.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum KeySource {
     /// systemd `LoadCredentialEncrypted` credential name (production).
     SystemdCredential(String),
@@ -422,6 +525,57 @@ struct PayoutConfig {
     cycle_span_daa: u64,
     threshold_sompi: i64,
     key_source: KeySource,
+}
+
+/// Parsed KRC-20 NACHO payout engine configuration.
+#[derive(Debug)]
+struct Krc20RuntimeConfig {
+    dry_run: bool,
+    poll_interval: Duration,
+    cycle_span_daa: u64,
+    min_pending_sompi: i64,
+    min_nacho_base_units: u128,
+    commit_amount_sompi: u64,
+    commit_fee_sompi: u64,
+    reveal_fee_sompi: u64,
+    batch_limit: i64,
+    ticker: String,
+    quote_base: String,
+    breaker_threshold: u32,
+    breaker_cooldown: Duration,
+    key_source: KeySource,
+}
+
+impl Krc20RuntimeConfig {
+    fn from_env(key_source: KeySource) -> Result<Self> {
+        Ok(Self {
+            dry_run: optional_bool("KATPOOL_KRC20_PAYOUT_DRY_RUN")?.unwrap_or(true),
+            poll_interval: Duration::from_secs(
+                optional_u64("KATPOOL_KRC20_PAYOUT_POLL_SECS")?.unwrap_or(60),
+            ),
+            cycle_span_daa: optional_u64("KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400),
+            min_pending_sompi: optional_i64("KATPOOL_KRC20_MIN_PENDING_SOMPI")?
+                .unwrap_or(DEFAULT_MIN_PENDING_SOMPI),
+            min_nacho_base_units: optional_u128("KATPOOL_KRC20_MIN_NACHO_BASE_UNITS")?
+                .unwrap_or(DEFAULT_MIN_NACHO_BASE_UNITS),
+            commit_amount_sompi: optional_u64("KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI")?
+                .unwrap_or(DEFAULT_COMMIT_AMOUNT_SOMPI),
+            commit_fee_sompi: optional_u64("KATPOOL_KRC20_COMMIT_FEE_SOMPI")?
+                .unwrap_or(DEFAULT_FEE_SOMPI),
+            reveal_fee_sompi: optional_u64("KATPOOL_KRC20_REVEAL_FEE_SOMPI")?
+                .unwrap_or(DEFAULT_FEE_SOMPI),
+            batch_limit: optional_i64("KATPOOL_KRC20_BATCH_LIMIT")?.unwrap_or(DEFAULT_CYCLE_LIMIT),
+            ticker: optional("KATPOOL_KRC20_TICKER")
+                .unwrap_or_else(|| DEFAULT_QUOTE_TICKER.to_owned()),
+            quote_base: optional("KATPOOL_KRC20_QUOTE_BASE")
+                .unwrap_or_else(|| DEFAULT_QUOTE_BASE.to_owned()),
+            breaker_threshold: optional_u32("KATPOOL_KRC20_QUOTE_BREAKER_THRESHOLD")?.unwrap_or(3),
+            breaker_cooldown: Duration::from_secs(
+                optional_u64("KATPOOL_KRC20_QUOTE_BREAKER_COOLDOWN_SECS")?.unwrap_or(60),
+            ),
+            key_source,
+        })
+    }
 }
 
 impl RuntimeConfig {
@@ -477,8 +631,12 @@ impl RuntimeConfig {
             poll_interval: Duration::from_secs(payout_poll_secs),
             cycle_span_daa: payout_cycle_span_daa,
             threshold_sompi: payout_threshold_sompi,
-            key_source,
+            key_source: key_source.clone(),
         };
+
+        // KRC-20 NACHO payout engine (shares the treasury key source).
+        let krc20_payout_enabled = optional_bool("KATPOOL_KRC20_PAYOUT_ENABLED")?.unwrap_or(false);
+        let krc20_payout = Krc20RuntimeConfig::from_env(key_source)?;
 
         Ok(Self {
             kaspad_url,
@@ -501,6 +659,8 @@ impl RuntimeConfig {
             },
             payout_enabled,
             payout,
+            krc20_payout_enabled,
+            krc20_payout,
         })
     }
 }
@@ -544,6 +704,15 @@ fn optional_i64(var: &str) -> Result<Option<i64>> {
     optional(var)
         .map(|s| {
             s.parse::<i64>()
+                .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
+        })
+        .transpose()
+}
+
+fn optional_u128(var: &str) -> Result<Option<u128>> {
+    optional(var)
+        .map(|s| {
+            s.parse::<u128>()
                 .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
         })
         .transpose()
