@@ -12,6 +12,29 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.2 (M5.2): NACHO eligibility, floor-price quote, and
+  KAS→NACHO payout conversion (acceptance row 2). `payout-krc20` gains two
+  pure/wireable modules. `rebate`: an exact fixed-point `FloorPrice`
+  (`mantissa / 10^scale`, parsed from the API's decimal string — never via
+  `f64`) and `nacho_base_units(pending_sompi, price)` =
+  `floor(pending_sompi × 10^scale / mantissa)` in `u128`, exploiting the fact
+  that KAS-sompi and NACHO base units share 8 decimals so the scales cancel;
+  plus a dust gate (`is_payable`). `quote`: a `FloorPriceSource` trait, a
+  strict decimal `parse_floor_price_response`, the `KaspaComFloorPrice` HTTP
+  client (direct HTTPS to `api.kaspa.com/api/floor-price` — no headless
+  browser, mirroring `accountant::tier_kasplex` reqwest conventions), and a
+  pure, time-injected `CircuitBreaker` (`Closed→Open→HalfOpen`) wrapped by
+  `BreakeredSource` that fails **closed** — a degraded price API skips the
+  NACHO cycle rather than guessing an amount. Crucially, **no payout-time
+  multiplier** is applied: the tier rebate (standard 33% / elite 100%) is
+  already baked into `nacho_rebate_accrual.accrued_sompi` at allocation time
+  (ADR-0012), so re-multiplying at payout would double-pay elite wallets;
+  the legacy `×3` and architecture.md §4.4 are superseded by ADR-0016, which
+  this milestone introduces (the KAS→NACHO conversion ADR-0012 deferred).
+  Eligibility reuses the existing `nacho_rebate::list_pending`. Verified by
+  unit + property tests (conversion exact-floor, parser accept/reject
+  vectors), deterministic circuit-breaker transition tests, and wiremock
+  HTTP tests (parse, non-200, malformed). Phase 5 acceptance row 2 GREEN.
 - Phase 5 milestone 5.1 (M5.1): KRC-20 kasplex inscription primitives
   (acceptance row 1). `payout-krc20` gains a pure, chain-free `inscription`
   module: `Krc20Transfer` serialises to the canonical compact kasplex JSON

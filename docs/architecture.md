@@ -177,9 +177,14 @@ numbers.
 3. For each eligible recipient: build KRC-20 envelope, plan
    commit-and-reveal pair, run through `katpool-storagemass` batcher.
 4. Same idempotency discipline as KAS payouts.
-5. Full-rebate logic (3× multiplier) applies when the recipient holds
-   ≥ 100M NACHO **or** owns a KATCLAIM L3 NFT (token ID 736..=843).
-   Fixes the truthiness bug from the legacy `checkFullFeeRebate`.
+5. *Legacy-descriptive (superseded by [ADR-0016]).* The legacy pool
+   applied a 3× "full rebate" multiplier at payout time. The new pool
+   applies the tier rebate (standard 33% / elite 100%) **at allocation
+   time** per matured block (ADR-0012), stored in
+   `nacho_rebate_accrual.accrued_sompi`; payout converts that pending
+   sompi to NACHO at the floor price with **no** further multiplier.
+
+[ADR-0016]: decisions/0016-krc20-payout-conversion-and-floor-price.md
 
 ## 5. Observability
 

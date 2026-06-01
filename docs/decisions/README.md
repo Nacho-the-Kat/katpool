@@ -19,6 +19,7 @@ ADR pointing back.
 | [0008](0008-hot-only-treasury-with-os-isolation.md) | Hot-only treasury with OS isolation | accepted |
 | [0009](0009-automated-weekly-dr-validation.md) | Automated weekly DR validation | accepted |
 | [0015](0015-krc20-inscription-envelope.md) | KRC-20 inscription envelope byte-compatible with production | accepted |
+| [0016](0016-krc20-payout-conversion-and-floor-price.md) | KAS→NACHO payout conversion, floor price, no payout-time multiplier | accepted |
 
 ## When to write a new ADR
 

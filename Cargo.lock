@@ -4384,6 +4384,7 @@ dependencies = [
  "katpool-secrets",
  "katpool-storagemass",
  "katpool-telemetry",
+ "proptest",
  "reqwest",
  "secrecy",
  "serde",
@@ -4391,6 +4392,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
