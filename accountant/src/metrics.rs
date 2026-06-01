@@ -5,6 +5,13 @@
 //! instances during the Phase 7 shadow-run window. Counters never
 //! reset within a process lifetime; reset semantics are managed
 //! by the `up` metric the metrics crate already exports.
+//!
+//! Metric registration can only fail on a duplicate or malformed metric
+//! name — a startup-time programming error, never a recoverable runtime
+//! condition — so the `OnceLock` initializers `expect`. This mirrors the
+//! bridge's `prom.rs` convention under the workspace `expect_used = "deny"`
+//! policy; the blanket allow is scoped to this registration-only module.
+#![allow(clippy::expect_used)]
 
 use prometheus::{IntCounterVec, register_int_counter_vec};
 use std::sync::OnceLock;

@@ -56,6 +56,7 @@ fn funding_utxo(amount: u64, script: &ScriptPublicKey) -> TreasuryUtxo {
             script_public_key: script.clone(),
             block_daa_score: 100,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

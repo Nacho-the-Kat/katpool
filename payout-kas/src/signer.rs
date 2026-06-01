@@ -20,8 +20,9 @@ use kaspa_consensus_core::tx::{
     PopulatedTransaction, ScriptPublicKey, SignableTransaction, Transaction, TransactionId,
     TransactionInput, TransactionOutput, UtxoEntry, VerifiableTransaction,
 };
-use kaspa_txscript::TxScriptEngine;
 use kaspa_txscript::caches::Cache;
+use kaspa_txscript::engine_context::EngineContext;
+use kaspa_txscript::{EngineFlags, TxScriptEngine};
 use katpool_secrets::TreasurySecret;
 use katpool_storagemass::PlannedBatch;
 use secp256k1::Keypair;
@@ -94,28 +95,20 @@ fn build_unsigned(
     let inputs: Vec<TransactionInput> = batch
         .inputs
         .iter()
-        .map(|u| TransactionInput {
-            previous_outpoint: u.outpoint,
-            signature_script: vec![],
-            sequence: 0,
-            sig_op_count: 1,
-        })
+        .map(|u| TransactionInput::new(u.outpoint, vec![], 0, 1))
         .collect();
 
     let mut outputs: Vec<TransactionOutput> = batch
         .payouts
         .iter()
-        .map(|p| TransactionOutput {
-            value: p.amount_sompi,
-            script_public_key: p.script_public_key.clone(),
-        })
+        .map(|p| TransactionOutput::new(p.amount_sompi, p.script_public_key.clone()))
         .collect();
 
     if batch.change_amount_sompi > 0 {
-        outputs.push(TransactionOutput {
-            value: batch.change_amount_sompi,
-            script_public_key: treasury_script.clone(),
-        });
+        outputs.push(TransactionOutput::new(
+            batch.change_amount_sompi,
+            treasury_script.clone(),
+        ));
     }
 
     let entries: Vec<UtxoEntry> = batch.inputs.iter().map(|u| u.entry.clone()).collect();
@@ -174,9 +167,20 @@ pub fn sign_batch(
 pub fn verify_signed(signed: &SignedBatch) -> Result<(), SignError> {
     let verifiable = PopulatedTransaction::new(&signed.tx, signed.entries.clone());
     let reused = SigHashReusedValuesUnsync::new();
-    let cache: Cache<_, bool> = Cache::new(signed.entries.len() as u64);
+    let sig_cache: Cache<_, bool> = Cache::new(signed.entries.len() as u64);
+    // Mirror the post-Toccata consensus engine: covenants and ZK hardening are
+    // active on every network we target (tn10-toc3 / post-Crescendo mainnet), so
+    // the self-check validates under the exact rules kaspad will apply. Standard
+    // P2PK spends carry no covenant binding, hence the default (empty) covenant
+    // context from `EngineContext::new` is sufficient.
+    let ctx = EngineContext::new(&sig_cache).with_reused(&reused);
+    let flags = EngineFlags {
+        covenants_enabled: true,
+        zk_hardening_enabled: true,
+        ..Default::default()
+    };
     for (idx, (input, entry)) in verifiable.populated_inputs().enumerate() {
-        TxScriptEngine::from_transaction_input(&verifiable, input, idx, entry, &reused, &cache)
+        TxScriptEngine::from_transaction_input(&verifiable, input, idx, entry, ctx, flags)
             .execute()
             .map_err(|e| SignError::Verify {
                 input: idx,

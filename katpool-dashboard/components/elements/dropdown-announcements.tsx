@@ -48,7 +48,7 @@ export default function DropdownAnnouncements({ align }: {
                       🚀 <span className="font-medium text-gray-800 dark:text-gray-100">NACHO Rebates Now Live!</span> Starting 
                       February 17th, our standard 0.75% pool fee is now active, along with our NACHO token rebate system. Qualify for 
                       100% fee rebates by holding either 100M+ NACHO tokens or at least 1 NACHO NFT. All other miners receive 33% 
-                      rebates. Rebates are paid in $NACHO tokens within an hour of each payout. Payout mininum is 5 KAS or equivalent.
+                      rebates. Rebates are paid in $NACHO tokens within an hour of each payout. Payout minimum is 5 KAS or equivalent.
                     </span>
                     <span className="block text-xs font-medium text-gray-400 dark:text-gray-500">Feb 17, 2024</span>
                   </div>

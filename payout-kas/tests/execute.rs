@@ -218,6 +218,7 @@ fn funding(
             script_public_key: script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }
@@ -237,6 +238,7 @@ fn change_for(
             script_public_key: script.clone(),
             block_daa_score: daa,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

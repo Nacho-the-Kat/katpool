@@ -232,6 +232,7 @@ fn funding(amount: u64, script: &ScriptPublicKey) -> TreasuryUtxoSnapshot {
             script_public_key: script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }
@@ -247,6 +248,7 @@ fn change_for(txid_bytes: [u8; 32], daa: u64, script: &ScriptPublicKey) -> Treas
             script_public_key: script.clone(),
             block_daa_score: daa,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

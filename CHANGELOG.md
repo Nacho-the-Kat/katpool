@@ -329,6 +329,28 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Kaspa dependency migration to `tn10-toc3` (testnet-10 Toccata
+  hardfork).** Bumped all `kaspa-*`/`kaspad` git tags from `v1.1.0` to
+  `tn10-toc3` (`1.2.1-toc.3`, commit `1015a62`) and the Rust toolchain to
+  `1.91.0` (`rust-toolchain.toml`, `Cargo.toml` `rust-version`,
+  `clippy.toml` `msrv`, all six CI `toolchain:` pins, and the standalone
+  `bridge/fuzz` crate). This resolves `RuleError::BadMerkleRoot` on every
+  block the pool found: the `v1.1.0` crates dropped the new consensus
+  transaction fields during the RPC round-trip while the live node ran
+  toc3. Adapted to the Toccata consensus API across `katpool-storagemass`,
+  `payout-kas`, `payout-krc20`, and `accountant`: `TransactionInput`/
+  `TransactionOutput`/`RpcTransactionOutput` construction, the new
+  `UtxoEntry.covenant_id` field, the per-dimension `BlockMassLimits`
+  model, and the revised `TxScriptEngine::from_transaction_input`
+  signature (now wired with `EngineContext` + `EngineFlags`
+  `{ covenants_enabled, zk_hardening_enabled }` to mirror the post-fork
+  node engine). Removed the now-unused `serde_nested_with`
+  `[patch.crates-io]`. Reconciled `deny.toml` for the new subgraph (allow
+  `0BSD`; allow the `workflow-perf-monitor-rs` git source; pruned 13
+  advisory ignores and stale license entries no longer present).
+  Added `scripts/set-kaspa-version.sh` to automate the high-fan-out crate
+  pin, governed by [ADR-0017](docs/decisions/0017-kaspa-version-pinning.md)
+  and [Runbook 20](docs/runbooks/20-kaspa-version-bump.md).
 - CI: coverage job runs on `main` pushes only (informational; was ~23 min per PR).
 
 ### Fixed

@@ -3,7 +3,7 @@
 
 # MSRV must match rust-toolchain.toml. Clippy uses this to avoid
 # suggesting features unavailable on our pinned Rust.
-msrv = "1.88.0"
+msrv = "1.91.0"
 
 # Cognitive complexity threshold. Default is 25; we keep the default to
 # avoid forcing premature refactors but rely on review to catch genuinely

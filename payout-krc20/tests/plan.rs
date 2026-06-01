@@ -33,6 +33,7 @@ fn utxo(index: u32, amount: u64) -> TreasuryUtxo {
             script_public_key: treasury_script(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

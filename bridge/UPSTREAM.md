@@ -37,21 +37,37 @@ by our repo-root equivalents.
 
 ## Dependency model
 
-Only `bridge/` is in our git history. The 11 internal `kaspa-*` crates
+Only `bridge/` is in our git history. The internal `kaspa-*` crates
 the bridge depends on (`kaspa-consensus-core`, `kaspa-grpc-client`,
 `kaspa-pow`, `kaspa-hashes`, `kaspa-rpc-core`, `kaspa-rpc-service`,
 `kaspa-addresses`, `kaspa-notify`, `kaspa-core`, `kaspa-utils`,
-`kaspad`) are pulled as **cargo git dependencies** pinned to the same
-`v1.1.0` tag, declared in the workspace root [`Cargo.toml`](../Cargo.toml)
-under `[workspace.dependencies]`.
+`kaspad`) are pulled as **cargo git dependencies** declared in the
+workspace root [`Cargo.toml`](../Cargo.toml) under
+`[workspace.dependencies]`.
 
-Why not crates.io: as of 2026-05-25 none of the 11 kaspa-* crates are
-published to crates.io. The kaspa core team's release model is the
-rusty-kaspa monorepo tag.
+Why not crates.io: none of the kaspa-* crates are published to
+crates.io. The kaspa core team's release model is the rusty-kaspa
+monorepo tag.
 
-This means our `deny.toml` `[sources]` table includes
-`https://github.com/kaspanet/rusty-kaspa` under `allow-git`. Any other
-git dependency requires a fresh ADR + PR.
+> **Dependency tag ≠ source snapshot.** The vendored `bridge/` source in
+> this directory is the **`v1.1.0`** snapshot (see top of file), but the
+> `kaspa-*`/`kaspad` dependency tag has since advanced to **`tn10-toc3`**
+> (`1.2.1-toc.3`, commit `1015a62`) to match the testnet-10 Toccata
+> hardfork the live node runs. The v1.1.0 bridge source compiles and
+> submits blocks correctly against the toc3 crates because transaction
+> serialization, hashing, and SMT/merkle computation live in the crates,
+> not the bridge source; pinning the crates at v1.1.0 against a toc3 node
+> caused `RuleError::BadMerkleRoot` on every found block. Bumping the
+> dependency tag is governed by
+> [ADR-0017](../docs/decisions/0017-kaspa-version-pinning.md) and
+> [Runbook 20](../docs/runbooks/20-kaspa-version-bump.md); re-vendoring
+> the bridge source from a newer tag remains future work.
+
+This means our `deny.toml` `[sources] allow-git` table includes
+`https://github.com/kaspanet/rusty-kaspa` and
+`https://github.com/kaspanet/workflow-perf-monitor-rs` (a transitive the
+toc3 tree pins to a git tag). Any other git dependency requires a fresh
+ADR + PR.
 
 ## Local divergence from upstream
 
@@ -83,17 +99,18 @@ picture.
 
 ### `/Cargo.toml`
 
-- Added 11 `kaspa-*` crates and `kaspad` as `[workspace.dependencies]`
-  with `git = "https://github.com/kaspanet/rusty-kaspa", tag = "v1.1.0"`.
-  These are not on crates.io as of 2026-05-25; the rusty-kaspa monorepo
-  tag is the kaspa core team's release vehicle.
+- Added the `kaspa-*` crates and `kaspad` as `[workspace.dependencies]`
+  with `git = "https://github.com/kaspanet/rusty-kaspa", tag = "..."`.
+  These are not on crates.io; the rusty-kaspa monorepo tag is the kaspa
+  core team's release vehicle. The tag is bumped via
+  `scripts/set-kaspa-version.sh` (currently `tn10-toc3`; see ADR-0017).
 - Added 8 transitive non-kaspa workspace deps the bridge needs
   (`dirs`, `num-traits`, `once_cell`, `futures-util`, `parking_lot`,
   `regex`, `uuid`, `clap`).
-- Added a `[patch.crates-io]` entry routing `serde_nested_with` to its
-  GitHub source at tag `0.2.6`. Upstream crates.io has yanked every
-  published version of `serde_nested_with`, but `kaspa-rpc-core` still
-  requires it transitively. The GitHub source compiles cleanly.
+- The `[patch.crates-io]` entry routing `serde_nested_with` to its
+  GitHub source (needed under v1.1.0) was **removed** at the `tn10-toc3`
+  bump: the toc3 `kaspa-rpc-core` no longer depends on it, and `cargo`
+  flagged the patch as unused.
 
 ### `/Cargo.lock`
 

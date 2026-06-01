@@ -250,7 +250,7 @@ export default function AnalyticsCard02() {
                       <ul className="list-disc pl-4 mb-3 space-y-1.5">
                         <li>After each payout period, we automatically convert pool fees from KAS to NACHO</li>
                         <li>These NACHO tokens are distributed proportionally to all qualifying miners</li>
-                        <li>Rebates are processed and paid seperately and after your KAS rewards</li>
+                        <li>Rebates are processed and paid separately and after your KAS rewards</li>
                       </ul>
                       <p className="mb-2">
                         Your pending rebate estimate shown above is calculated based on:

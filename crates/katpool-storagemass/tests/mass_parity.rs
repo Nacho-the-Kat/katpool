@@ -26,21 +26,22 @@ fn sample_tx_from_amounts(ins: &[u64], outs: &[u64]) -> (Transaction, Vec<UtxoEn
     let tx = Transaction::new(
         0,
         (0..ins.len())
-            .map(|i| TransactionInput {
-                previous_outpoint: TransactionOutpoint {
-                    transaction_id: prev_tx_id,
-                    index: i as u32,
-                },
-                signature_script: vec![],
-                sequence: 0,
-                sig_op_count: 0,
+            .map(|i| {
+                TransactionInput::new(
+                    TransactionOutpoint {
+                        transaction_id: prev_tx_id,
+                        index: i as u32,
+                    },
+                    vec![],
+                    0,
+                    0,
+                )
             })
             .collect(),
         outs.iter()
             .copied()
-            .map(|value| TransactionOutput {
-                value,
-                script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
+            .map(|value| {
+                TransactionOutput::new(value, ScriptPublicKey::new(0, script_pub_key.clone()))
             })
             .collect(),
         1_615_462_089_000,
@@ -56,6 +57,7 @@ fn sample_tx_from_amounts(ins: &[u64], outs: &[u64]) -> (Transaction, Vec<UtxoEn
             script_public_key: ScriptPublicKey::new(0, script_pub_key.clone()),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         })
         .collect();
     (tx, entries)
