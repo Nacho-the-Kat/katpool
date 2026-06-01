@@ -85,6 +85,8 @@ pub struct PlannedCommitReveal {
     pub redeem_script: Vec<u8>,
     /// The P2SH script public key the commit pays to.
     pub commit_script_public_key: ScriptPublicKey,
+    /// Amount locked into the commit P2SH output (the reveal spends it in full).
+    pub commit_amount_sompi: u64,
     /// Treasury inputs the commit consumes.
     pub commit_inputs: Vec<TreasuryUtxo>,
     /// Change returned to the treasury by the commit (0 when folded to fee).
@@ -257,6 +259,7 @@ pub fn plan_commit_reveal(
     Ok(PlannedCommitReveal {
         redeem_script,
         commit_script_public_key: commit_spk,
+        commit_amount_sompi: cfg.commit_amount_sompi,
         commit_inputs,
         commit_change_sompi,
         commit_mass,

@@ -23,7 +23,6 @@ ignored = [
     "katpool-domain",
     "katpool-idempotency",
     "katpool-metrics",
-    "katpool-secrets",
     "katpool-telemetry",
     "secrecy",
     "tracing",
@@ -40,6 +39,7 @@ katpool-telemetry = { path = "../crates/katpool-telemetry" }
 kaspa-consensus-core = { workspace = true }
 kaspa-addresses = { workspace = true }
 kaspa-txscript = { workspace = true }
+secp256k1 = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
