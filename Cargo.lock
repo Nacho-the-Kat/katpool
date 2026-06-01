@@ -3496,6 +3496,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "katpool-payout-rehearsal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap 4.5.51",
+ "kaspa-addresses",
+ "katpool-db",
+ "katpool-secrets",
+ "payout-kas",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid 1.18.1",
+]
+
+[[package]]
 name = "katpool-replay"
 version = "0.1.0"
 dependencies = [

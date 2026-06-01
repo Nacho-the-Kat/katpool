@@ -22,6 +22,8 @@ stop when the corresponding alert fires.
 | [14](14-legacy-importer.md) | Legacy-database importer (cutover) | — (one-shot cutover procedure) |
 | [15](15-testnet10-tracker-live.md) | Phase 3 M3c — maturity-tracker live exercise on testnet-10 | — (acceptance procedure) |
 | [16](16-testnet10-full-pipeline-live.md) | Phase 3 M3d — full mine-and-allocate pipeline live exercise on testnet-10 | — (acceptance procedure with ASIC) |
+| [17](17-replay-determinism.md) | Phase 3 M4 — replay-determinism harness | — (acceptance procedure) |
+| [18](18-kas-payout-rehearsal.md) | Phase 4 M4.8 — KAS payout dry-run rehearsal on testnet-10 | — (acceptance procedure) |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this
