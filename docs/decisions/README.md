@@ -18,6 +18,7 @@ ADR pointing back.
 | [0007](0007-pgbackrest-wal-archiving.md) | pgBackRest WAL streaming to Backblaze B2 | accepted |
 | [0008](0008-hot-only-treasury-with-os-isolation.md) | Hot-only treasury with OS isolation | accepted |
 | [0009](0009-automated-weekly-dr-validation.md) | Automated weekly DR validation | accepted |
+| [0015](0015-krc20-inscription-envelope.md) | KRC-20 inscription envelope byte-compatible with production | accepted |
 
 ## When to write a new ADR
 

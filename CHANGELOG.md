@@ -12,6 +12,25 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.1 (M5.1): KRC-20 kasplex inscription primitives
+  (acceptance row 1). `payout-krc20` gains a pure, chain-free `inscription`
+  module: `Krc20Transfer` serialises to the canonical compact kasplex JSON
+  payload (`{"p":"krc-20","op":"transfer","tick":..,"amt":..,"to":..}` in
+  that exact field order); `build_transfer_inscription` assembles the commit
+  redeem script (the `<x-only pubkey> OP_CHECKSIG OP_FALSE OP_IF "kasplex"
+  OP_0 <json> OP_ENDIF` envelope) via rusty-kaspa's `ScriptBuilder`;
+  `commit_script_public_key` / `commit_address` derive the P2SH output and
+  address; and `reveal_signature_script` builds the `<sig><pushed redeem>`
+  spend that exposes the inscription on the reveal tx. The envelope is
+  byte-for-byte identical to the live production transfer
+  (`katpool-payment`) the kasplex indexer is proven to credit — Schnorr
+  `OP_CHECKSIG` with a 32-byte x-only key and a single `OP_0`, *not* the
+  `OP_CHECKSIG_ECDSA` / `OP_1 OP_0 OP_0` layout some prose specs describe;
+  the decision and its on-chain evidence are recorded in ADR-0015.
+  Deterministic tests pin the exact envelope bytes (reconstructed from first
+  principles), the compact JSON, testnet-10 P2SH derivation, the
+  hash-binds-the-payload property, and the reveal signature script. New
+  `docs/phase-5-acceptance.md` tracks the Phase 5 milestone map.
 - Phase 4 milestone 4.8 (M4.8): KAS payout dry-run rehearsal tool +
   runbook (acceptance row 9). New top-level binary crate
   `katpool-payout-rehearsal` drives exactly one dry-run payout cycle through
