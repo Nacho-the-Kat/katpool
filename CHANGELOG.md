@@ -12,6 +12,41 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.5a (M5.5a): KRC-20 **cycle state machine** (partial
+  acceptance row 5). `payout-krc20` gains a `cycle` module that mirrors the
+  Phase 4 KAS cycle (`resume_or_plan_krc20_cycle` / `reconcile_cycle_status`),
+  adapted to the NACHO rebate model and reusing the shared, pure
+  `payout_kas::derive_cycle_status` fold:
+  - **Plan** (`plan_krc20_cycle`): quotes the floor price once via the M5.2
+    `FloorPriceSource` (fail-closed circuit breaker), selects eligible wallets,
+    converts each pending KAS-sompi balance to NACHO base units at that price
+    (ADR-0016, **no** payout-time multiplier), applies the dust gate, and
+    writes one `payout` + `krc20_pending_transfer` per payable recipient with
+    the P2SH commit address bound to the treasury key and the recipient
+    inscription (M5.1) — all in one idempotent transaction.
+  - **Resume** (`resume_or_plan_krc20_cycle`): loads an existing cycle for a
+    DAA window without recomputing, so amounts/recipients never shift under an
+    in-flight commit/reveal.
+  - **Credit** (`credit_completed_transfers`): turns a confirmed reveal into a
+    rebate payment — confirms the payout and increments
+    `nacho_rebate.paid_sompi` atomically, **exactly once** (the
+    `confirm_krc20_payout_once` row transition is the latch).
+  - **Refund** (`fail_krc20_transfer`): marks a stuck transfer and its payout
+    terminal-failed, releasing the balance back to a future cycle.
+  - **Reconcile** (`reconcile_krc20_cycle_status`): folds transfer statuses
+    into the cycle status.
+  `katpool-db` gains `list_krc20_eligible_wallets` (pending = accrued − paid −
+  sompi in non-terminal KRC-20 payouts, so an in-flight or credited balance is
+  never double-selected and a failed one is refunded), `ensure_krc20_pending`
+  (idempotent one-to-one open), `list_krc20_for_cycle`, and
+  `confirm_krc20_payout_once` (stamps `submitted_at`/`confirmed_at` together to
+  satisfy `payout_lifecycle_order` since KRC-20 payouts skip the `submitted`
+  state). Verified by DB-only tests over testcontainer Postgres with a fixed
+  mock floor-price source: dust-gating, resume-freezing, exactly-once credit
+  (no double-credit on re-run), in-flight un-selectability + failure refund,
+  and the planned→partially-settled→settled status fold. Scope: this is the
+  DB substrate; the periodic single-leader engine loop + `katpool` wiring +
+  dry-run land in M5.5b.
 - Phase 5 milestone 5.4b (M5.4b): restart-safe KRC-20 **executor state
   machine** (closes acceptance row 4). `payout-krc20` gains an `execute`
   module (`advance_transfer` / `settle_pending`) that drives one
