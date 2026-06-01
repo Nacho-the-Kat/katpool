@@ -18,12 +18,16 @@
 //!   the tier rebate is already in `accrued_sompi`) and the floor-price
 //!   quote source ([`FloorPriceSource`] + [`KaspaComFloorPrice`]) guarded by
 //!   a fail-closed [`CircuitBreaker`] (see ADR-0016).
-//! - **M5.3 (this milestone)**: the mass-aware commit/reveal planner
+//! - **M5.3**: the mass-aware commit/reveal planner
 //!   ([`plan_commit_reveal`]) — sizes signature scripts to their signed
 //!   length so the reveal's `transient_storage_mass` (driven by the
 //!   redeem-script push) is evaluated accurately against `max_block_mass`.
-//! - Later milestones add the restart-safe payout engine that reuses the
-//!   Phase 4 cycle/lock/engine scaffolding.
+//! - **M5.4a (this milestone)**: the commit/reveal [`sign`]er — standard
+//!   signing for the commit, manual P2SH-redeem-path Schnorr signing for the
+//!   reveal, each fully re-verified through the txscript engine, with
+//!   deterministic txids for record-before-broadcast.
+//! - Later milestones add the executor state machine (M5.4b) and the
+//!   restart-safe payout engine that reuses the Phase 4 scaffolding.
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
@@ -31,6 +35,7 @@ pub mod inscription;
 pub mod plan;
 pub mod quote;
 pub mod rebate;
+pub mod sign;
 
 pub use inscription::{
     InscriptionError, KASPLEX_TAG, KRC20_PROTOCOL, Krc20Transfer, build_transfer_inscription,
@@ -47,6 +52,10 @@ pub use quote::{
 pub use rebate::{
     DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI, FloorPrice, RebateError, is_payable,
     nacho_base_units,
+};
+pub use sign::{
+    COMMIT_P2SH_OUTPUT_INDEX, SignError, SignedCommit, SignedReveal, commit_txid, reveal_txid,
+    sign_commit, sign_reveal,
 };
 
 /// Crate version constant.

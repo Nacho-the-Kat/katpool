@@ -4386,6 +4386,7 @@ dependencies = [
  "katpool-telemetry",
  "proptest",
  "reqwest",
+ "secp256k1",
  "secrecy",
  "serde",
  "serde_json",

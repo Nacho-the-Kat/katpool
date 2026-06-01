@@ -12,6 +12,29 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.4a (M5.4a): KRC-20 commit/reveal **signer** (part of
+  acceptance row 4). `payout-krc20` gains a `sign` module that turns a
+  mass-validated `PlannedCommitReveal` (M5.3) into the two signed,
+  consensus-native transactions kaspad submits. The **commit** spends
+  standard treasury P2PK inputs and is signed via the same
+  `kaspa_consensus_core::sign::sign` path as the KAS engine. The **reveal**
+  spends the commit's P2SH output, so it is signed manually: the Schnorr
+  signature is computed over the spent output's `script_public_key` —
+  exactly what the script engine recomputes in `OP_CHECKSIG`
+  (`calc_schnorr_signature_hash` hashes `entry.script_public_key`), verified
+  against rusty-kaspa source — then wrapped as `<OP_DATA_65 sig> <pushed
+  redeem script>` via `pay_to_script_hash_signature_script`. Both signers
+  re-run the **full txscript engine** over every input before returning, so
+  a bad signature — or a treasury key that does not match the pubkey bound
+  into the inscription — is a hard error, never a broadcast. `commit_txid` /
+  `reveal_txid` expose the deterministic on-chain id (sig scripts excluded)
+  for the record-before-broadcast ordering the M5.4b executor will use.
+  `PlannedCommitReveal` now also carries `commit_amount_sompi`. Verified by
+  deterministic, chain-free tests: commit and reveal both verify through the
+  engine, the reveal signature script is `<sig><pushed redeem>`, txids are
+  stable pre/post-sign, a mismatched key is rejected by verification, and
+  empty / planning-virtual inputs are refused. (M5.4b adds the executor
+  state machine + mock-kaspad orchestration + crash-before-broadcast test.)
 - Phase 5 milestone 5.3 (M5.3): mass-aware KRC-20 commit/reveal planner
   (acceptance row 3). `payout-krc20` gains a `plan` module
   (`plan_commit_reveal`) that ties the M5.1 inscription primitives to the
