@@ -99,6 +99,56 @@ pub struct PlannedCommitReveal {
     pub reveal_mass: TxMass,
 }
 
+impl PlannedCommitReveal {
+    /// Reconstruct only the reveal-relevant fields (redeem script, P2SH spk,
+    /// commit amount, reveal return) for **resuming** a transfer whose commit
+    /// is already on chain.
+    ///
+    /// No treasury UTXOs are consulted and no mass is recomputed — the commit
+    /// funding and mass were validated when the transfer was first planned
+    /// (M5.3); resume only needs to re-sign the reveal of the existing commit
+    /// output. `commit_inputs`/`commit_change_sompi` are therefore empty/zero
+    /// and the mass fields are zeroed; do **not** use a `reveal_only` plan for
+    /// commit signing or mass decisions.
+    ///
+    /// # Errors
+    ///
+    /// [`PlanError::Inscription`] if the envelope cannot be built, or
+    /// [`PlanError::RevealBelowFloor`] if `commit_amount − reveal_fee` is
+    /// below the dust floor.
+    pub fn reveal_only(
+        xonly_pubkey: &[u8; 32],
+        transfer: &Krc20Transfer,
+        commit_amount_sompi: u64,
+        reveal_fee_sompi: u64,
+    ) -> Result<Self, PlanError> {
+        let reveal_return_sompi = commit_amount_sompi
+            .checked_sub(reveal_fee_sompi)
+            .filter(|r| *r >= MIN_PAYOUT_OUTPUT_SOMPI)
+            .ok_or_else(|| PlanError::RevealBelowFloor {
+                return_sompi: commit_amount_sompi.saturating_sub(reveal_fee_sompi),
+                floor_sompi: MIN_PAYOUT_OUTPUT_SOMPI,
+            })?;
+        let redeem_script = build_transfer_inscription(xonly_pubkey, transfer)?;
+        let commit_script_public_key = commit_script_public_key(&redeem_script);
+        let zero_mass = TxMass {
+            compute_mass: 0,
+            storage_mass: 0,
+            transient_mass: 0,
+        };
+        Ok(Self {
+            redeem_script,
+            commit_script_public_key,
+            commit_amount_sompi,
+            commit_inputs: Vec::new(),
+            commit_change_sompi: 0,
+            commit_mass: zero_mass,
+            reveal_return_sompi,
+            reveal_mass: zero_mass,
+        })
+    }
+}
+
 /// Reasons a commit/reveal pair cannot be planned.
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {

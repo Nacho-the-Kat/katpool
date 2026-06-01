@@ -12,6 +12,35 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 5 milestone 5.4b (M5.4b): restart-safe KRC-20 **executor state
+  machine** (closes acceptance row 4). `payout-krc20` gains an `execute`
+  module (`advance_transfer` / `settle_pending`) that drives one
+  `krc20_pending_transfer` across `pending → commit_submitted →
+  reveal_submitted → completed`, reusing the Phase 4 KAS scaffolding for
+  everything chain-facing: the `payout_kas::KaspadClient` RPC trait, the
+  maturity gate (`is_spendable`), and the confirmation policy
+  (`classify_confirmation`, same `KAS_PAYOUT_CONFIRMATION_DAA` depth). Every
+  broadcast is preceded by an atomic **record-before-broadcast** step — the
+  deterministic txid (M5.4a) is written to the parent payout row *and* the
+  transfer advanced one state in a single Postgres transaction *before* the
+  tx hits the wire — so a crash anywhere after the record re-derives the
+  identical txid from the same inputs on resume and re-broadcast is a no-op
+  for kaspad, never a double-pay. The resume path is defensive about UTXO
+  drift: a recorded commit that is neither on chain (its P2SH output) nor
+  reproducible from the *current* treasury UTXO set yields a hard
+  `CommitDrift` error for an operator rather than a second, distinct spend.
+  `katpool-db` gains `record_krc20_commit_hash` / `record_krc20_reveal_hash`
+  setters (the `payout.krc20_commit_hash` / `krc20_reveal_hash` columns
+  landed in Phase 2; no migration), and `PlannedCommitReveal::reveal_only`
+  reconstructs the reveal-relevant fields for resume without re-funding a
+  commit. Verified by deterministic mock-kaspad orchestration over
+  testcontainer Postgres: full `pending → completed` lifecycle with
+  idempotent re-runs at each state, a crash-before-broadcast chaos test
+  (intent recorded, broadcast fails, resume re-broadcasts the *same* commit
+  txid and never a second), UTXO-drift refusal, and a dry-run that records
+  and broadcasts nothing. Scope: the `krc20_pending_transfer` row is the
+  source of truth here; wiring `payout.status`/cycle reconciliation and the
+  end-to-end engine is M5.5. Phase 5 acceptance row 4 is now GREEN.
 - Phase 5 milestone 5.4a (M5.4a): KRC-20 commit/reveal **signer** (part of
   acceptance row 4). `payout-krc20` gains a `sign` module that turns a
   mass-validated `PlannedCommitReveal` (M5.3) into the two signed,

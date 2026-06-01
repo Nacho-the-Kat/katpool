@@ -615,6 +615,51 @@ where
     .map_err(DbError::from)
 }
 
+/// Record the KRC-20 **commit** tx hash on the parent payout row.
+///
+/// Written *before* broadcast (paired with [`mark_krc20_commit_submitted`]
+/// in one transaction) so a crash mid-broadcast is recoverable: the
+/// deterministic txid (sig scripts excluded) re-derives identically from the
+/// same inputs on resume.
+pub async fn record_krc20_commit_hash<'e, E: PgExecutor<'e>>(
+    executor: E,
+    payout_id: i64,
+    commit_hash: BlockHash,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE payout
+            SET krc20_commit_hash = $2
+          WHERE id = $1",
+    )
+    .bind(payout_id)
+    .bind(commit_hash.as_bytes().to_vec())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Record the KRC-20 **reveal** tx hash on the parent payout row.
+///
+/// Written *before* broadcast (paired with [`mark_krc20_reveal_submitted`]
+/// in one transaction), same crash-safe rationale as
+/// [`record_krc20_commit_hash`].
+pub async fn record_krc20_reveal_hash<'e, E: PgExecutor<'e>>(
+    executor: E,
+    payout_id: i64,
+    reveal_hash: BlockHash,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE payout
+            SET krc20_reveal_hash = $2
+          WHERE id = $1",
+    )
+    .bind(payout_id)
+    .bind(reveal_hash.as_bytes().to_vec())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 /// Advance a transfer to `commit_submitted`.
 pub async fn mark_krc20_commit_submitted<'e, E: PgExecutor<'e>>(
     executor: E,

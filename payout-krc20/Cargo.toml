@@ -19,8 +19,6 @@ workspace = true
 ignored = [
     "chrono",
     "hex",
-    "katpool-db",
-    "katpool-domain",
     "katpool-idempotency",
     "katpool-metrics",
     "katpool-telemetry",
@@ -36,10 +34,12 @@ katpool-idempotency = { path = "../crates/katpool-idempotency" }
 katpool-secrets = { path = "../crates/katpool-secrets" }
 katpool-metrics = { path = "../crates/katpool-metrics" }
 katpool-telemetry = { path = "../crates/katpool-telemetry" }
+payout-kas = { path = "../payout-kas" }
 kaspa-consensus-core = { workspace = true }
 kaspa-addresses = { workspace = true }
 kaspa-txscript = { workspace = true }
 secp256k1 = { workspace = true }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -54,3 +54,5 @@ hex = { workspace = true }
 [dev-dependencies]
 wiremock = { workspace = true }
 proptest = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }

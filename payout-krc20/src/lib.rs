@@ -22,21 +22,30 @@
 //!   ([`plan_commit_reveal`]) — sizes signature scripts to their signed
 //!   length so the reveal's `transient_storage_mass` (driven by the
 //!   redeem-script push) is evaluated accurately against `max_block_mass`.
-//! - **M5.4a (this milestone)**: the commit/reveal [`sign`]er — standard
-//!   signing for the commit, manual P2SH-redeem-path Schnorr signing for the
-//!   reveal, each fully re-verified through the txscript engine, with
-//!   deterministic txids for record-before-broadcast.
-//! - Later milestones add the executor state machine (M5.4b) and the
-//!   restart-safe payout engine that reuses the Phase 4 scaffolding.
+//! - **M5.4a**: the commit/reveal [`sign`]er — standard signing for the
+//!   commit, manual P2SH-redeem-path Schnorr signing for the reveal, each
+//!   fully re-verified through the txscript engine, with deterministic txids
+//!   for record-before-broadcast.
+//! - **M5.4b (this milestone)**: the restart-safe [`execute`]or state machine
+//!   (`pending → commit_submitted → reveal_submitted → completed`) — reusing
+//!   the Phase 4 KAS [`KaspadClient`](payout_kas::KaspadClient) + confirmation
+//!   policy, recording each txid before broadcast and refusing to broadcast a
+//!   divergent commit on UTXO drift.
+//! - Later milestones add the payout engine + `katpool` wiring (M5.5) and the
+//!   rehearsal tool + acceptance evidence (M5.6).
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
+pub mod execute;
 pub mod inscription;
 pub mod plan;
 pub mod quote;
 pub mod rebate;
 pub mod sign;
 
+pub use execute::{
+    Krc20ExecuteError, Krc20FeeConfig, SettleReport, TransferStep, advance_transfer, settle_pending,
+};
 pub use inscription::{
     InscriptionError, KASPLEX_TAG, KRC20_PROTOCOL, Krc20Transfer, build_transfer_inscription,
     commit_address, commit_script_public_key, reveal_signature_script,
