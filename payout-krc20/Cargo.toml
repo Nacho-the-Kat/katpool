@@ -12,8 +12,9 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Scaffold crate — every dep below is reserved for Phase 5
-# (KRC-20 NACHO payout engine).
+# Deps not yet wired by the current milestone stay reserved here so the
+# workspace dep surface and lockfile move in lockstep; cargo-machete
+# ignores them until the milestone that consumes them lands.
 [package.metadata.cargo-machete]
 ignored = [
     "async-trait",
@@ -28,9 +29,6 @@ ignored = [
     "katpool-telemetry",
     "reqwest",
     "secrecy",
-    "serde",
-    "serde_json",
-    "thiserror",
     "tokio",
     "tracing",
 ]
@@ -43,6 +41,9 @@ katpool-idempotency = { path = "../crates/katpool-idempotency" }
 katpool-secrets = { path = "../crates/katpool-secrets" }
 katpool-metrics = { path = "../crates/katpool-metrics" }
 katpool-telemetry = { path = "../crates/katpool-telemetry" }
+kaspa-consensus-core = { workspace = true }
+kaspa-addresses = { workspace = true }
+kaspa-txscript = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
