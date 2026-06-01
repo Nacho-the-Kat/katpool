@@ -12,6 +12,29 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- Phase 4 milestone 4.8 (M4.8): KAS payout dry-run rehearsal tool +
+  runbook (acceptance row 9). New top-level binary crate
+  `katpool-payout-rehearsal` drives exactly one dry-run payout cycle through
+  the production engine (`payout_kas::PayoutEngine` in
+  `ExecutionMode::DryRun`): it takes the single-leader advisory lock, derives
+  the DAA cycle window, plans against the live treasury UTXO set, signs and
+  verifies every batch through the txscript engine, and reconciles — without
+  broadcasting and without marking any `payout` row submitted. It emits one
+  JSON envelope on stdout (`schema: katpool-payout-rehearsal.reconcile/v1`)
+  with the eligible-wallet snapshot, planned cycle, planned payout rows, the
+  dry-run broadcast/confirm reports, and the cycle's `cycle.plan` /
+  `cycle.reconcile` audit trail; structured tracing goes to stderr. Exit
+  codes encode go/no-go (`0` clean, `2` underfunded/sign-error, `3`
+  not-leader). The reconcile-envelope builder lives in the crate's library
+  and is unit-tested for the exact JSON contract (schema, dry-run invariant,
+  cycle/payout fields, lowercase-hex `tx_hash`, audit actions) with no DB or
+  node. `scripts/kas-payout-rehearsal.sh` wraps it (mirroring the Phase 2
+  importer rehearsal): it captures `reconcile.json`, `reconcile.log`,
+  `audit-log.txt` (extracted from the envelope — no `psql` dependency), and a
+  `manifest.json` (git rev + binary sha256 + timestamps + exit code +
+  cycle id + reconciled status + unpaid count) into a timestamped
+  `payout-evidence/` directory. Runbook 18 documents the testnet-10
+  operator procedure and the four sign-off artefacts.
 - Phase 4 milestone 4.7 (M4.7): payout engine + `katpool` runtime wiring.
   `katpool-idempotency` gains a real, leak-safe Postgres session advisory lock
   (`AdvisoryLock`): it acquires on a connection *detached* from the pool, so the
