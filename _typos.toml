@@ -26,6 +26,12 @@ RTO = "RTO"
 # Product name: HashiCorp.
 Hashi = "Hashi"
 
+# Ordinal-date suffix ("2nd") in the dashboard's date formatter; the bare
+# 'nd' string literal is intentional English, not a typo for "and".
+nd = "nd"
+st = "st"
+th = "th"
+
 [files]
 # Don't lint generated lockfiles, the vendor tree, or test
 # fixtures that intentionally contain malformed data.

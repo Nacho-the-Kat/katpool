@@ -6,7 +6,16 @@ use kaspa_consensus_core::{
 
 /// Mainnet block mass limit (grams). Each of compute, storage, and
 /// transient masses must be ≤ this value independently.
-pub const MAINNET_MAX_BLOCK_MASS: u64 = MAINNET_PARAMS.max_block_mass;
+///
+/// Post-Toccata, `BlockMassLimits` is per-dimension: compute and storage stay
+/// at `500_000` while the transient limit rises to `1_000_000`. We enforce the
+/// compute/storage limit uniformly across all three dimensions — it is the
+/// binding constraint for payout transactions (storage mass dominates a
+/// many-output payout; transient mass for our `P2PK`/`P2SH` shapes is orders of
+/// magnitude below `500_000`), so treating transient conservatively at the same
+/// bound never rejects a transaction we would actually build. Sourced from
+/// consensus params (not hardcoded) so it tracks any future upstream change.
+pub const MAINNET_MAX_BLOCK_MASS: u64 = MAINNET_PARAMS.prior_block_mass_limits.compute;
 
 /// Minimum payout output per `docs/kips.md` §3 (~0.019 KAS).
 pub const MIN_PAYOUT_OUTPUT_SOMPI: u64 = 1_900_000;
@@ -69,7 +78,7 @@ impl MassEvaluator {
     pub fn mainnet() -> Self {
         Self {
             calculator: MassCalculator::new_with_consensus_params(&MAINNET_PARAMS),
-            block_mass_limit: MAINNET_PARAMS.max_block_mass,
+            block_mass_limit: MAINNET_MAX_BLOCK_MASS,
         }
     }
 

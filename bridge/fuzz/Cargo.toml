@@ -8,7 +8,7 @@
 name = "kaspa-stratum-bridge-fuzz"
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.88.0"
+rust-version = "1.91.0"
 publish = false
 authors = ["Argon Mining <argonmining@example.invalid>"]
 license = "MIT OR Apache-2.0"

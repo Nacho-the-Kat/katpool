@@ -127,8 +127,20 @@ to upstream so future upstream improvements merge cleanly.
 - Bad: two protocol generations behind
 - Rejected.
 
+## Amendment (2026-06-01)
+
+The vendored `bridge/` source remains the `v1.1.0` snapshot, but the
+linked `kaspa-*`/`kaspad` **dependency** tag has advanced to `tn10-toc3`
+to track the testnet-10 Toccata hardfork (a `v1.1.0` crate pin against a
+toc3 node rejected every found block with `BadMerkleRoot`). Coupling and
+the bump procedure for the node/crate/toolchain pins are now governed by
+[ADR-0017](0017-kaspa-version-pinning.md) and
+[Runbook 20](../runbooks/20-kaspa-version-bump.md). Details:
+[`bridge/UPSTREAM.md`](../../bridge/UPSTREAM.md).
+
 ## More Information
 
 - Upstream PR introducing the bridge: kaspanet/rusty-kaspa#793
 - Bridge docs: `bridge/docs/README.md` in upstream
 - Companion ADR: [0001 (Rust-first)](0001-rust-first.md)
+- Version coupling: [ADR-0017](0017-kaspa-version-pinning.md)

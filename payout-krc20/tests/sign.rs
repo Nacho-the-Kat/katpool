@@ -53,6 +53,7 @@ fn utxo(script: &ScriptPublicKey, index: u32, amount: u64) -> TreasuryUtxo {
             script_public_key: script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }
@@ -169,6 +170,7 @@ fn planning_virtual_input_is_rejected() {
             script_public_key: script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }];
 

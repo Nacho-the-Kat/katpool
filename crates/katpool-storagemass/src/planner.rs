@@ -2,7 +2,7 @@
 //!
 //! Offline planning re-injects each batch's change as a virtual treasury UTXO
 //! so one on-chain coin can fund many mass-limited transactions in a single
-//! cycle plan. [`payout-kas`] must refresh the live UTXO set from kaspad
+//! cycle plan. `payout-kas` must refresh the live UTXO set from kaspad
 //! before signing each batch and swap virtual outpoints for confirmed change.
 
 use kaspa_consensus_core::tx::{
@@ -37,15 +37,15 @@ pub fn plan_batches(
         };
         remove_consumed(&mut utxos, &batch.inputs);
         remove_paid(&mut payable, &batch.payouts);
-        if batch.change_amount_sompi > 0 {
-            if let Ok(batch_index) = u32::try_from(batches.len()) {
-                utxos.push(planning_change_utxo(
-                    batch_index,
-                    batch.change_amount_sompi,
-                    change_script,
-                ));
-                sort_utxos_desc(&mut utxos);
-            }
+        if batch.change_amount_sompi > 0
+            && let Ok(batch_index) = u32::try_from(batches.len())
+        {
+            utxos.push(planning_change_utxo(
+                batch_index,
+                batch.change_amount_sompi,
+                change_script,
+            ));
+            sort_utxos_desc(&mut utxos);
         }
         batches.push(batch);
     }
@@ -222,6 +222,7 @@ fn planning_change_utxo(
             script_public_key: change_script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

@@ -259,6 +259,7 @@ mod tests {
                 script_public_key_type: RpcScriptClass::PubKey,
                 script_public_key_address: a,
             }),
+            covenant: None,
         }
     }
 

@@ -246,6 +246,7 @@ fn funding(amount: u64, script: &ScriptPublicKey) -> TreasuryUtxoSnapshot {
             script_public_key: script.clone(),
             block_daa_score: 0,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }
@@ -266,6 +267,7 @@ fn coin_for(
             script_public_key: script.clone(),
             block_daa_score: daa,
             is_coinbase: false,
+            covenant_id: None,
         },
     }
 }

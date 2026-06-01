@@ -247,15 +247,15 @@ pub fn plan_commit_reveal(
         0
     };
 
-    let mut commit_outputs = vec![TransactionOutput {
-        value: cfg.commit_amount_sompi,
-        script_public_key: commit_spk.clone(),
-    }];
+    let mut commit_outputs = vec![TransactionOutput::new(
+        cfg.commit_amount_sompi,
+        commit_spk.clone(),
+    )];
     if commit_change_sompi > 0 {
-        commit_outputs.push(TransactionOutput {
-            value: commit_change_sompi,
-            script_public_key: treasury_script.clone(),
-        });
+        commit_outputs.push(TransactionOutput::new(
+            commit_change_sompi,
+            treasury_script.clone(),
+        ));
     }
     let commit_tx = build_tx(
         commit_inputs
@@ -287,16 +287,17 @@ pub fn plan_commit_reveal(
     )?;
     let reveal_tx = build_tx(
         vec![(commit_p2sh_outpoint, reveal_sig_script)],
-        vec![TransactionOutput {
-            value: reveal_return_sompi,
-            script_public_key: treasury_script.clone(),
-        }],
+        vec![TransactionOutput::new(
+            reveal_return_sompi,
+            treasury_script.clone(),
+        )],
     );
     let reveal_entry = UtxoEntry {
         amount: cfg.commit_amount_sompi,
         script_public_key: commit_spk.clone(),
         block_daa_score: 0,
         is_coinbase: false,
+        covenant_id: None,
     };
     let reveal_mass = evaluate(evaluator, &reveal_tx, vec![reveal_entry])?;
     if !reveal_mass.fits_independently(evaluator.block_mass_limit()) {
@@ -353,11 +354,13 @@ fn build_tx(
 ) -> Transaction {
     let tx_inputs: Vec<TransactionInput> = inputs
         .into_iter()
-        .map(|(previous_outpoint, signature_script)| TransactionInput {
-            previous_outpoint,
-            signature_script,
-            sequence: 0,
-            sig_op_count: SIG_OP_COUNT_PER_INPUT,
+        .map(|(previous_outpoint, signature_script)| {
+            TransactionInput::new(
+                previous_outpoint,
+                signature_script,
+                0,
+                SIG_OP_COUNT_PER_INPUT,
+            )
         })
         .collect();
     Transaction::new(0, tx_inputs, outputs, 0, SUBNETWORK_ID_NATIVE, 0, vec![])
