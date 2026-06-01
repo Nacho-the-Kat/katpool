@@ -389,6 +389,61 @@ pub async fn list_kas_eligible_wallets<'e, E: PgExecutor<'e>>(
     .map_err(DbError::from)
 }
 
+/// A wallet eligible for a KRC-20 NACHO rebate payout, with the KAS-sompi
+/// balance available to convert this cycle.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct Krc20EligibleWallet {
+    /// FK to `wallet.id`.
+    pub wallet_id: WalletId,
+    /// Bech32 payout address (also the inscription `to`).
+    pub address: String,
+    /// Network slug (`mainnet`, `testnet-10`, …).
+    pub network: String,
+    /// Pending rebate available this cycle, in KAS-sompi: accrued − paid −
+    /// sompi already committed to non-terminal KRC-20 payouts.
+    pub pending_sompi: i64,
+}
+
+/// List wallets eligible for a KRC-20 NACHO payout, descending by amount.
+///
+/// Pending balance is `nacho_rebate_accrual.accrued − paid` **minus** the
+/// sompi already committed to KRC-20 payouts that are neither `confirmed`
+/// (already reflected in `paid` after crediting) nor `failed` (refunded for
+/// a future cycle). This netting makes a wallet with an in-flight transfer
+/// un-selectable until it settles, so no cycle can double-select a balance.
+pub async fn list_krc20_eligible_wallets<'e, E: PgExecutor<'e>>(
+    executor: E,
+    min_pending_sompi: i64,
+    limit: i64,
+) -> Result<Vec<Krc20EligibleWallet>, DbError> {
+    sqlx::query_as::<_, Krc20EligibleWallet>(
+        "SELECT r.wallet_id AS wallet_id,
+                w.address AS address,
+                w.network AS network,
+                (r.accrued_sompi - r.paid_sompi - COALESCE(open.open_sompi, 0))::bigint
+                    AS pending_sompi
+           FROM nacho_rebate_accrual r
+           INNER JOIN wallet w ON w.id = r.wallet_id
+           LEFT JOIN (
+               SELECT po.wallet_id,
+                      sum(po.amount_sompi)::bigint AS open_sompi
+                 FROM payout po
+                 INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+                WHERE pc.kind = 'krc20_nacho'
+                  AND po.status NOT IN ('failed', 'confirmed')
+                GROUP BY po.wallet_id
+           ) open ON open.wallet_id = r.wallet_id
+          WHERE (r.accrued_sompi - r.paid_sompi - COALESCE(open.open_sompi, 0)) >= $1
+          ORDER BY pending_sompi DESC, r.wallet_id ASC
+          LIMIT $2",
+    )
+    .bind(min_pending_sompi)
+    .bind(limit)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// Insert a planned payout for a recipient under a cycle.
 ///
 /// Prefer [`ensure_payout`] when the cycle may be retried — this
@@ -564,6 +619,37 @@ pub async fn mark_payout_confirmed<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
+/// Confirm a KRC-20 payout exactly once, returning whether *this* call
+/// performed the transition.
+///
+/// KRC-20 payout rows stay `planned` while their commit/reveal progresses in
+/// `krc20_pending_transfer` (the executor never touches `payout.status`), so
+/// crediting transitions `planned → confirmed` directly. The boolean return
+/// (`true` only when a row actually changed) is the exactly-once guard the
+/// caller uses to credit `nacho_rebate.paid_sompi` in the same transaction —
+/// a re-run finds the row already `confirmed`, returns `false`, and skips the
+/// (additive) credit.
+pub async fn confirm_krc20_payout_once<'e, E: PgExecutor<'e>>(
+    executor: E,
+    payout_id: i64,
+) -> Result<bool, DbError> {
+    // KRC-20 payouts go planned → confirmed (the commit/reveal lifecycle lives
+    // in krc20_pending_transfer), so stamp submitted_at alongside confirmed_at
+    // to satisfy the payout_lifecycle_order CHECK.
+    let result = sqlx::query(
+        "UPDATE payout
+            SET status = 'confirmed',
+                submitted_at = COALESCE(submitted_at, now()),
+                confirmed_at = COALESCE(confirmed_at, now())
+          WHERE id = $1
+            AND status <> 'confirmed'",
+    )
+    .bind(payout_id)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// Mark a payout failed with a reason. Failed payouts can be retried
 /// by re-planning the recipient in a fresh cycle.
 pub async fn mark_payout_failed<'e, E: PgExecutor<'e>>(
@@ -603,6 +689,43 @@ where
         "INSERT INTO krc20_pending_transfer
             (payout_id, sompi_to_miner, nacho_amount, p2sh_address)
          VALUES ($1, $2, $3, $4)
+         RETURNING id, payout_id, sompi_to_miner, nacho_amount, p2sh_address,
+                   status, created_at, updated_at",
+    )
+    .bind(payout_id)
+    .bind(sompi_to_miner)
+    .bind(nacho_amount)
+    .bind(p2sh_address)
+    .fetch_one(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// Idempotently open a pending KRC-20 transfer for a payout row.
+///
+/// Unlike [`insert_krc20_pending`], a re-run for the same `payout_id`
+/// refreshes the planned amounts/address (deterministic for identical
+/// inputs) instead of violating the one-to-one UNIQUE constraint — so
+/// re-planning a cycle is safe.
+pub async fn ensure_krc20_pending<'e, E>(
+    executor: E,
+    payout_id: i64,
+    sompi_to_miner: i64,
+    nacho_amount: i64,
+    p2sh_address: &str,
+) -> Result<Krc20PendingTransfer, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    sqlx::query_as::<_, Krc20PendingTransfer>(
+        "INSERT INTO krc20_pending_transfer
+            (payout_id, sompi_to_miner, nacho_amount, p2sh_address)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (payout_id) DO UPDATE
+            SET sompi_to_miner = EXCLUDED.sompi_to_miner,
+                nacho_amount = EXCLUDED.nacho_amount,
+                p2sh_address = EXCLUDED.p2sh_address,
+                updated_at = now()
          RETURNING id, payout_id, sompi_to_miner, nacho_amount, p2sh_address,
                    status, created_at, updated_at",
     )
@@ -748,6 +871,25 @@ pub async fn list_krc20_by_status<'e, E: PgExecutor<'e>>(
     )
     .bind(statuses)
     .bind(limit)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// All KRC-20 transfers belonging to a payout cycle, oldest first.
+pub async fn list_krc20_for_cycle<'e, E: PgExecutor<'e>>(
+    executor: E,
+    cycle_id: i64,
+) -> Result<Vec<Krc20PendingTransfer>, DbError> {
+    sqlx::query_as::<_, Krc20PendingTransfer>(
+        "SELECT k.id, k.payout_id, k.sompi_to_miner, k.nacho_amount, k.p2sh_address,
+                k.status, k.created_at, k.updated_at
+           FROM krc20_pending_transfer k
+           INNER JOIN payout p ON p.id = k.payout_id
+          WHERE p.cycle_id = $1
+          ORDER BY k.created_at ASC, k.id ASC",
+    )
+    .bind(cycle_id)
     .fetch_all(executor)
     .await
     .map_err(DbError::from)
