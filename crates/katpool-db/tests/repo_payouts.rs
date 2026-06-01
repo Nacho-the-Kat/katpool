@@ -662,6 +662,62 @@ async fn krc20_lifecycle_transitions() {
 }
 
 #[tokio::test]
+async fn krc20_commit_reveal_hashes_persist_on_the_payout_row() {
+    let (pool, _ctr) = fresh_pool().await;
+    let w = wallet::ensure(&pool, &sample_wallet_addr(), "mainnet")
+        .await
+        .expect("wallet");
+    let c = payout::create_cycle(
+        &pool,
+        PayoutKind::Krc20Nacho,
+        DaaScore::new(10),
+        DaaScore::new(20),
+    )
+    .await
+    .expect("cycle");
+    let p = payout::insert_payout(&pool, c.id, w.id, 1_000)
+        .await
+        .expect("payout");
+
+    assert!(
+        payout::get_payout(&pool, p.id)
+            .await
+            .expect("get")
+            .krc20_commit_hash
+            .is_none()
+    );
+
+    let commit = BlockHash::from_bytes([0xAB; 32]);
+    let reveal = BlockHash::from_bytes([0xCD; 32]);
+    payout::record_krc20_commit_hash(&pool, p.id, commit)
+        .await
+        .expect("record commit");
+    payout::record_krc20_reveal_hash(&pool, p.id, reveal)
+        .await
+        .expect("record reveal");
+
+    let row = payout::get_payout(&pool, p.id).await.expect("reload");
+    assert_eq!(
+        row.krc20_commit_hash.as_deref(),
+        Some(commit.as_bytes().as_slice())
+    );
+    assert_eq!(
+        row.krc20_reveal_hash.as_deref(),
+        Some(reveal.as_bytes().as_slice())
+    );
+
+    // Idempotent re-record with the same deterministic hash is a no-op overwrite.
+    payout::record_krc20_commit_hash(&pool, p.id, commit)
+        .await
+        .expect("re-record commit");
+    let row = payout::get_payout(&pool, p.id).await.expect("reload 2");
+    assert_eq!(
+        row.krc20_commit_hash.as_deref(),
+        Some(commit.as_bytes().as_slice())
+    );
+}
+
+#[tokio::test]
 async fn krc20_payout_unique_per_payout() {
     let (pool, _ctr) = fresh_pool().await;
     let w = wallet::ensure(&pool, &sample_wallet_addr(), "mainnet")
