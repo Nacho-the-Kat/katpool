@@ -31,18 +31,23 @@
 //!   the Phase 4 KAS [`KaspadClient`](payout_kas::KaspadClient) + confirmation
 //!   policy, recording each txid before broadcast and refusing to broadcast a
 //!   divergent commit on UTXO drift.
-//! - **M5.5a (this milestone)**: the KRC-20 [`cycle`] state machine
+//! - **M5.5a**: the KRC-20 [`cycle`] state machine
 //!   ([`plan_krc20_cycle`] / [`resume_or_plan_krc20_cycle`] /
 //!   [`credit_completed_transfers`] / [`reconcile_krc20_cycle_status`]) —
 //!   selects + converts eligible NACHO rebates into commit/reveal transfers,
 //!   credits a confirmed reveal back to `nacho_rebate.paid_sompi` exactly
 //!   once, and folds transfer statuses into the cycle status.
-//! - Later milestones add the engine loop + `katpool` runtime wiring (M5.5b)
-//!   and the rehearsal tool + acceptance evidence (M5.6).
+//! - **M5.5b (this milestone)**: the single-leader periodic [`engine`]
+//!   ([`Krc20PayoutEngine`]) that drives one cycle per DAA window through
+//!   plan → settle → credit → reconcile, guarded by a Postgres advisory lock
+//!   (reusing the Phase 4 KAS engine shape + DAA windowing) and safe-by-default
+//!   (dry-run records and broadcasts nothing).
+//! - The rehearsal tool + acceptance evidence land in M5.6.
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
 pub mod cycle;
+pub mod engine;
 pub mod execute;
 pub mod inscription;
 pub mod plan;
@@ -54,6 +59,9 @@ pub use cycle::{
     CreditReport, DEFAULT_CYCLE_LIMIT, Krc20CycleError, Krc20CycleParams, Krc20CycleState,
     credit_completed_transfers, fail_krc20_transfer, plan_krc20_cycle,
     reconcile_krc20_cycle_status, resume_or_plan_krc20_cycle,
+};
+pub use engine::{
+    Krc20EngineError, Krc20PayoutEngine, Krc20PayoutEngineConfig, Krc20TickOutcome, Krc20TickReport,
 };
 pub use execute::{
     Krc20ExecuteError, Krc20FeeConfig, SettleReport, TransferStep, advance_transfer, settle_pending,
@@ -67,8 +75,9 @@ pub use plan::{
     PlannedCommitReveal, STANDARD_SIGNATURE_SCRIPT_LEN, plan_commit_reveal,
 };
 pub use quote::{
-    BreakeredSource, CircuitBreaker, CircuitState, FloorPriceSource, KaspaComFloorPrice,
-    QuoteError, parse_floor_price_response,
+    BreakeredSource, CircuitBreaker, CircuitState, DEFAULT_HTTP_TIMEOUT, DEFAULT_QUOTE_BASE,
+    DEFAULT_QUOTE_TICKER, FloorPriceSource, KaspaComFloorPrice, QuoteError,
+    parse_floor_price_response,
 };
 pub use rebate::{
     DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI, FloorPrice, RebateError, is_payable,
