@@ -47,6 +47,30 @@ Phase 5 closes when:
 1. Every row in the matrix is GREEN.
 2. A testnet-10 dry-run NACHO cycle completes (planned commit/reveal pairs +
    mass plan, no broadcast).
-3. A live testnet-10 reveal credits the recipient's KRC-20 balance via the
-   kasplex API (the empirical confirmation of ADR-0015).
+3. A live testnet-10 commit/reveal pair is accepted by Kaspa L1 with
+   deterministic, golden-pinned envelope/script shape. Per
+   [ADR-0019](decisions/0019-krc20-adaptive-fee-and-fee-persistence.md) §3,
+   Kasplex crediting **cannot** be confirmed on testnet-10 — NACHO does not
+   exist there, so the indexer always reports `insufficient balance`. The
+   Kasplex-credit empirical confirmation of ADR-0015 is therefore deferred to
+   the **mainnet cutover** (`docs/cutover-plan.md`, T+1h first live NACHO
+   cycle), where it must verify with no exceptions.
 4. Operator has archived rehearsal evidence under `payout-evidence/`.
+
+## Live testnet-10 go-live (2026-06-02)
+
+KRC-20 payouts were taken out of dry-run on `tn10-phase5`. Commit + reveal
+pairs were accepted by the tn10 mempool with byte-exact envelope/script shape
+(verified via `api-tn10.kaspa.org`), satisfying the ADR-0019 §3 success
+criterion. Go-live drove out two defects that were fixed before sign-off:
+
+- **Adaptive fees + per-transfer fee freeze** — the original flat `0.0001 KAS`
+  commit/reveal fee was ~18–20× below the relay minimum and would have been
+  rejected on first broadcast. Resolved in
+  [ADR-0019](decisions/0019-krc20-adaptive-fee-and-fee-persistence.md).
+- **Sweep-coherent UTXO chaining** — sibling commits in one settle sweep
+  selected the same confirmed treasury UTXO and double-spent each other.
+  Resolved in
+  [ADR-0020](decisions/0020-krc20-sweep-coherent-utxo-chaining.md).
+
+Evidence archived under `payout-evidence/2026-06-02T07-12-20Z-tn10-krc20-golive`.

@@ -107,6 +107,18 @@ backward-incompatible ways at every minor bump.
 
 ### Fixed
 
+- **Unified runtime ignored `KATPOOL_PROM_PORT`, so no Prometheus metrics were
+  exported and the anti-abuse counters never recorded.** `BridgeServerConfig`
+  carried `prom_port`, but only the standalone bridge binary spawned
+  `prom::start_prom_server`; the `katpool` runtime did not. Because
+  `start_prom_server` is also what calls `init_metrics()` (the
+  `OnceLock`-guarded registration the `record_*` helpers check before
+  incrementing), every metric in the runtime was silently a no-op. `katpool`
+  now spawns the exporter when `KATPOOL_PROM_PORT` is set and logs that it is
+  disabled otherwise. tn10 sets `KATPOOL_PROM_PORT=:9302` (`ops/env/tn10.env`).
+  Verified live: feeding a malformed stratum frame increments
+  `ks_anti_abuse_malformed_frame_total` on `GET /metrics` (Phase 1 acceptance
+  rows 6 & 7).
 - **KRC-20 commits in one settle sweep double-spent each other when the
   treasury held too few coins.** `get_utxos_by_addresses` returns only the
   *confirmed* UTXO set, so a commit just broadcast (still in the mempool) does
