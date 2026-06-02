@@ -48,6 +48,26 @@ backward-incompatible ways at every minor bump.
 
 ### Fixed
 
+- **Maturity tracker logged a spurious `ERROR` and counted a sweep
+  error for every freshly-submitted block.** `get_current_block_color`
+  returns `RpcError::MergerNotFound` for a block not yet merged into the
+  sink's past, which the tracker is designed to treat as
+  `BlockColor::NotYetMerged` (wait, then age out). But the kaspa gRPC
+  client erases typed error variants over the wire — every server error
+  is rebuilt as `RpcError::General(message)` (rusty-kaspa
+  `rpc/grpc/core/src/convert/error.rs` → `RpcError::from(String)`), so
+  the `accountant`'s `get_block_color` match on `RpcError::MergerNotFound`
+  never fired and the condition leaked through as `KaspadError::Transport`
+  — `tracker per-block error; continuing sweep ... doesn't have any merger
+  block` on the live tn10 soak. Reward allocation was unaffected (the
+  block sweep is telemetry only), but the noise masked real errors and
+  inflated the `errors` sweep counter. `accountant/src/kaspad_grpc.rs`
+  now classifies the condition via `is_merger_not_found`, matching both
+  the typed variant (in-process) and the `General(message)` form (over
+  gRPC), with a test pinning the message fragment to kaspad's actual
+  `MergerNotFound` Display so an upstream reword fails CI rather than
+  silently regressing.
+
 - **Treasury coinbase-coin maturity gate corrected from 100 → 1000 DAA**
   (`payout-kas` `COINBASE_MATURITY_DAA`). Consensus `coinbase_maturity`
   is 1000 DAA on mainnet and tn10; the old value let `is_spendable`
