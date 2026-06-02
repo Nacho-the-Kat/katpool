@@ -420,6 +420,32 @@ backward-incompatible ways at every minor bump.
 
 ### Fixed
 
+- Stratum reject-rate regression on the tn10 soak (Goldshell + BzMiner
+  v14.0.2 reported ~80% rejected): the unified `katpool` runtime was
+  pinning every connection at `min_share_diff` with the bridge's
+  variable-difficulty retarget loop disabled (`var_diff: false`,
+  `shares_per_min: 0`), and `KATPOOL_MIN_SHARE_DIFF` defaulted to 1.
+  An ASIC told to mine at difficulty 1 floods low-difficulty shares
+  that go stale against the Toccata 10 BPS template rotation — visible
+  in the bridge logs as a steady stream of `Timestamp is old: 80–142s`
+  warnings and stale-share counts. `katpool/src/main.rs` now surfaces
+  the bridge's vardiff knobs as `KATPOOL_VAR_DIFF` (default `true`)
+  and `KATPOOL_SHARES_PER_MIN` (default `20`), raises the
+  `KATPOOL_MIN_SHARE_DIFF` default from `1` to `4096` (ASIC-class
+  floor), and threads all three through `BridgeServerConfig` so the
+  bridge's existing `start_vardiff_thread` retarget loop
+  (`bridge/src/share_handler.rs`) converges each miner toward 20
+  shares/min instead of pinning at the floor. The repo env templates
+  (`ops/env/tn10.env.example`, `ops/env/mainnet.env.example`) document
+  the new vars. Verified on the live tn10 soak: stale-share +
+  "Timestamp is old" warnings collapsed from ~30/min to 0, observed
+  orphan rate dropped from ~50% (recent 100%) to 0% over the first
+  3.5 min post-deploy (51/51 blocks confirmed BLUE, 45 coinbase rewards
+  allocated end-to-end). Picking up the post-v1.1.0 upstream stratum
+  fixes (e.g. rusty-kaspa #877, #1033, #1014, #1016, #1023) by
+  re-vendoring `bridge/` from current upstream master is tracked as
+  a separate ADR + runbook.
+
 - Phase 3 milestone 3f: three production-grade defects uncovered by
   the Goldshell live exercise on 2026-05-27 (see
   `docs/phase-3-acceptance.md` §M3f). All three fixes ship together
