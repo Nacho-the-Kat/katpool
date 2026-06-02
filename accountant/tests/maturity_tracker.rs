@@ -1,10 +1,14 @@
 //! Tests for `accountant::MaturityTracker` against an in-memory
 //! `KaspadClient` fake.
 //!
-//! The tracker's state machine is the bulk of the code under
-//! test. The kaspad client is a trait, so we drive the tracker
-//! by manipulating a `FakeKaspad` from the outside — entirely
-//! deterministic, no network.
+//! The tracker drives two independent concerns each sweep:
+//!   * block-lifecycle telemetry — resolve `submitted_to_node` blocks to
+//!     `confirmed_blue` / `orphaned` by GHOSTDAG colour; and
+//!   * coinbase-reward allocation — record matured coinbase UTXOs and
+//!     hand them to the allocation engine.
+//!
+//! The kaspad client is a trait, so we drive the tracker by manipulating
+//! a `FakeKaspad` from the outside — entirely deterministic, no network.
 
 #![allow(
     clippy::expect_used,
@@ -26,15 +30,15 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use katpool_db::repo::block::{self, BlockStatus};
-use katpool_db::repo::{share, wallet, worker};
+use katpool_db::repo::{coinbase_reward, share, wallet, worker};
 use katpool_domain::{
     BlockHash, CorrelationId, DaaScore, ShareDifficulty, WalletAddress, WorkerName,
 };
 use tokio::sync::{Mutex, watch};
 
 use accountant::{
-    AllocationEngine, BlockInfo, FeeConfig, KaspadClient, KaspadError, MaturityConfig,
-    MaturityTracker, StaticTierClassifier,
+    AllocationEngine, BlockColor, CoinbaseUtxo, FeeConfig, KaspadClient, KaspadError,
+    MaturityConfig, MaturityTracker, StaticTierClassifier,
 };
 
 mod common;
@@ -51,10 +55,14 @@ struct FakeKaspad {
 
 #[derive(Debug, Default)]
 struct FakeState {
-    virtual_blue_score: u64,
-    blocks: HashMap<BlockHash, BlockInfo>,
-    fail_next_get_block: bool,
-    fail_next_virtual_blue: bool,
+    virtual_daa_score: u64,
+    /// Hashes kaspad knows the colour of. A missing hash models
+    /// `MergerNotFound` → `BlockColor::NotYetMerged`.
+    colors: HashMap<BlockHash, BlockColor>,
+    /// Coinbase UTXOs credited to the pool address.
+    utxos: Vec<CoinbaseUtxo>,
+    fail_next_color: bool,
+    fail_next_virtual: bool,
 }
 
 impl FakeKaspad {
@@ -62,33 +70,44 @@ impl FakeKaspad {
         Arc::new(Self::default())
     }
 
-    async fn set_virtual_blue_score(&self, v: u64) {
-        self.state.lock().await.virtual_blue_score = v;
+    async fn set_virtual_daa_score(&self, v: u64) {
+        self.state.lock().await.virtual_daa_score = v;
     }
 
-    async fn add_block(&self, info: BlockInfo) {
-        self.state.lock().await.blocks.insert(info.hash, info);
+    async fn set_color(&self, hash: BlockHash, color: BlockColor) {
+        self.state.lock().await.colors.insert(hash, color);
+    }
+
+    async fn add_utxo(&self, utxo: CoinbaseUtxo) {
+        self.state.lock().await.utxos.push(utxo);
     }
 }
 
 #[async_trait]
 impl KaspadClient for FakeKaspad {
-    async fn get_virtual_blue_score(&self) -> Result<u64, KaspadError> {
+    async fn get_virtual_daa_score(&self) -> Result<u64, KaspadError> {
         let mut s = self.state.lock().await;
-        if s.fail_next_virtual_blue {
-            s.fail_next_virtual_blue = false;
+        if s.fail_next_virtual {
+            s.fail_next_virtual = false;
             return Err(KaspadError::Transport("test-injected".to_owned()));
         }
-        Ok(s.virtual_blue_score)
+        Ok(s.virtual_daa_score)
     }
 
-    async fn get_block(&self, hash: BlockHash) -> Result<Option<BlockInfo>, KaspadError> {
+    async fn get_block_color(&self, hash: BlockHash) -> Result<BlockColor, KaspadError> {
         let mut s = self.state.lock().await;
-        if s.fail_next_get_block {
-            s.fail_next_get_block = false;
+        if s.fail_next_color {
+            s.fail_next_color = false;
             return Err(KaspadError::Transport("test-injected".to_owned()));
         }
-        Ok(s.blocks.get(&hash).copied())
+        Ok(s.colors
+            .get(&hash)
+            .copied()
+            .unwrap_or(BlockColor::NotYetMerged))
+    }
+
+    async fn get_pool_coinbase_utxos(&self) -> Result<Vec<CoinbaseUtxo>, KaspadError> {
+        Ok(self.state.lock().await.utxos.clone())
     }
 }
 
@@ -177,13 +196,13 @@ fn build_tracker(
 fn default_cfg() -> MaturityConfig {
     MaturityConfig {
         poll_interval: Duration::from_millis(50),
-        maturity_depth: 100,
+        coinbase_maturity: 1000,
         window_daa_span: 600,
         batch_size: 200,
     }
 }
 
-// ---------- transitions --------------------------------------------
+// ---------- block-lifecycle telemetry ------------------------------
 
 #[tokio::test]
 async fn submitted_to_node_transitions_to_confirmed_blue_when_blue() {
@@ -193,198 +212,219 @@ async fn submitted_to_node_transitions_to_confirmed_blue_when_blue() {
     insert_submitted(&env.db, h, w, wk, 1_000_000).await;
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
-    kaspad
-        .add_block(BlockInfo {
-            hash: h,
-            blue_score: 100_400, // not yet deep enough
-            is_blue: true,
-            coinbase_reward_sompi: 0,
-            daa_score: 1_000_010,
-        })
-        .await;
+    kaspad.set_virtual_daa_score(1_000_500).await;
+    kaspad.set_color(h, BlockColor::Blue).await;
+
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
     assert_eq!(stats.confirmed_blue, 1);
-    assert_eq!(stats.matured, 0);
     assert_eq!(stats.orphaned, 0);
+    assert_eq!(stats.blocks_waiting, 0);
 
     let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
     assert_eq!(blk.status, BlockStatus::ConfirmedBlue);
-    assert_eq!(blk.blue_score, Some(100_400));
 }
 
 #[tokio::test]
-async fn submitted_to_node_stays_when_kaspad_doesnt_know_block_yet() {
+async fn submitted_to_node_stays_when_not_yet_merged_within_depth() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     let h = BlockHash::from_hex(HASH_A).unwrap();
     insert_submitted(&env.db, h, w, wk, 1_000_000).await;
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
-    // No block added.
+    // Within coinbase_maturity (1000) of the block's daa → still waiting.
+    kaspad.set_virtual_daa_score(1_000_500).await;
+    // No colour set → NotYetMerged.
 
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.still_waiting, 1);
+    assert_eq!(stats.blocks_waiting, 1);
     let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
     assert_eq!(blk.status, BlockStatus::SubmittedToNode);
 }
 
 #[tokio::test]
-async fn submitted_to_node_stays_when_block_seen_but_red() {
+async fn submitted_to_node_orphans_when_merged_red() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     let h = BlockHash::from_hex(HASH_A).unwrap();
     insert_submitted(&env.db, h, w, wk, 1_000_000).await;
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
-    kaspad
-        .add_block(BlockInfo {
-            hash: h,
-            blue_score: 0,
-            is_blue: false,
-            coinbase_reward_sompi: 0,
-            daa_score: 1_000_010,
-        })
-        .await;
+    kaspad.set_virtual_daa_score(1_000_500).await;
+    kaspad.set_color(h, BlockColor::Red).await;
+
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.still_waiting, 1);
+    assert_eq!(stats.orphaned, 1);
     let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(blk.status, BlockStatus::SubmittedToNode);
+    assert_eq!(blk.status, BlockStatus::Orphaned);
 }
 
 #[tokio::test]
-async fn confirmed_blue_matures_when_depth_reached_and_triggers_engine() {
+async fn submitted_to_node_ages_out_to_orphan_past_maturity_depth() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     let h = BlockHash::from_hex(HASH_A).unwrap();
-    // Seed enough shares for the engine to do real work.
+    insert_submitted(&env.db, h, w, wk, 1_000_000).await;
+
+    let kaspad = FakeKaspad::new();
+    // Beyond coinbase_maturity (1000) and still NotYetMerged → orphan.
+    kaspad.set_virtual_daa_score(1_001_001).await;
+    // No colour set → NotYetMerged.
+
+    let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
+    let stats = tracker.run_once().await.unwrap();
+    assert_eq!(stats.orphaned, 1);
+    assert_eq!(stats.blocks_waiting, 0);
+    let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
+    assert_eq!(blk.status, BlockStatus::Orphaned);
+}
+
+// ---------- coinbase-reward allocation -----------------------------
+
+#[tokio::test]
+async fn matured_coinbase_utxo_is_recorded_and_allocated() {
+    let env = setup().await;
+    let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
+    // Seed shares inside the PROP window ending at the UTXO's daa.
     for i in 0..5 {
         seed_share(&env.db, w, wk, 1024.0, 1_000_000 + i).await;
     }
-    insert_submitted(&env.db, h, w, wk, 1_000_010).await;
-    block::mark_confirmed_blue(&env.db, h, 100_400)
-        .await
-        .unwrap();
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await; // depth 100
+    // virtual_daa - utxo_daa = 1000 == coinbase_maturity → mature.
+    kaspad.set_virtual_daa_score(1_001_010).await;
     kaspad
-        .add_block(BlockInfo {
-            hash: h,
-            blue_score: 100_400,
-            is_blue: true,
-            coinbase_reward_sompi: 500_000_000,
-            daa_score: 1_000_010,
+        .add_utxo(CoinbaseUtxo {
+            transaction_id: [0xa1; 32],
+            index: 0,
+            amount_sompi: 500_000_000,
+            block_daa_score: 1_000_010,
         })
         .await;
+
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.matured, 1);
-    let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(blk.status, BlockStatus::Matured);
-    assert_eq!(blk.miner_reward_sompi, Some(500_000_000));
+    assert_eq!(stats.rewards_discovered, 1);
+    assert_eq!(stats.rewards_allocated, 1);
 
-    // Engine ran: allocations exist for this block.
-    let n: i64 =
-        sqlx::query_scalar("SELECT count(*)::bigint FROM share_allocation WHERE block_id = $1")
-            .bind(blk.id.0)
-            .fetch_one(&env.db)
-            .await
-            .unwrap();
+    let reward = coinbase_reward::find_by_outpoint(&env.db, &[0xa1; 32], 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reward.amount_sompi, 500_000_000);
+    assert!(reward.allocated_at.is_some());
+
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM share_allocation WHERE coinbase_reward_id = $1",
+    )
+    .bind(reward.id.0)
+    .fetch_one(&env.db)
+    .await
+    .unwrap();
     assert_eq!(n, 1, "exactly one wallet contributed → one allocation");
 }
 
 #[tokio::test]
-async fn confirmed_blue_waits_when_depth_insufficient() {
+async fn immature_coinbase_utxo_is_not_recorded() {
     let env = setup().await;
-    let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    insert_submitted(&env.db, h, w, wk, 1_000_010).await;
-    block::mark_confirmed_blue(&env.db, h, 100_400)
-        .await
-        .unwrap();
-
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_499).await; // depth 99, < 100
+    // depth = 999 < coinbase_maturity (1000) → immature.
+    kaspad.set_virtual_daa_score(1_001_009).await;
     kaspad
-        .add_block(BlockInfo {
-            hash: h,
-            blue_score: 100_400,
-            is_blue: true,
-            coinbase_reward_sompi: 500_000_000,
-            daa_score: 1_000_010,
+        .add_utxo(CoinbaseUtxo {
+            transaction_id: [0xa1; 32],
+            index: 0,
+            amount_sompi: 500_000_000,
+            block_daa_score: 1_000_010,
         })
         .await;
+
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.still_waiting, 1);
-    assert_eq!(stats.matured, 0);
-    let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(blk.status, BlockStatus::ConfirmedBlue);
+    assert_eq!(stats.rewards_discovered, 0);
+    assert_eq!(stats.rewards_allocated, 0);
+    assert!(
+        coinbase_reward::find_by_outpoint(&env.db, &[0xa1; 32], 0)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
-async fn confirmed_blue_orphans_when_block_disappears_from_dag() {
+async fn reward_discovery_and_allocation_are_idempotent() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    insert_submitted(&env.db, h, w, wk, 1_000_010).await;
-    block::mark_confirmed_blue(&env.db, h, 100_400)
-        .await
-        .unwrap();
+    seed_share(&env.db, w, wk, 1024.0, 1_000_000).await;
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
-    // Don't add the block — kaspad has lost it.
-    let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
-    let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.orphaned, 1);
-    let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(blk.status, BlockStatus::Orphaned);
-}
-
-#[tokio::test]
-async fn confirmed_blue_orphans_on_reorg_to_red() {
-    let env = setup().await;
-    let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    insert_submitted(&env.db, h, w, wk, 1_000_010).await;
-    block::mark_confirmed_blue(&env.db, h, 100_400)
-        .await
-        .unwrap();
-
-    let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
+    kaspad.set_virtual_daa_score(1_001_010).await;
     kaspad
-        .add_block(BlockInfo {
-            hash: h,
-            blue_score: 100_400,
-            is_blue: false, // re-orged out
-            coinbase_reward_sompi: 0,
-            daa_score: 1_000_010,
+        .add_utxo(CoinbaseUtxo {
+            transaction_id: [0xa1; 32],
+            index: 0,
+            amount_sompi: 500_000_000,
+            block_daa_score: 1_000_010,
         })
         .await;
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
+
+    let first = tracker.run_once().await.unwrap();
+    assert_eq!(first.rewards_discovered, 1);
+    assert_eq!(first.rewards_allocated, 1);
+
+    // Second sweep: UTXO still present, but already recorded + allocated.
+    let second = tracker.run_once().await.unwrap();
+    assert_eq!(second.rewards_discovered, 0);
+    assert_eq!(second.rewards_allocated, 0);
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM share_allocation")
+        .fetch_one(&env.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "allocation must not be duplicated across sweeps");
+}
+
+#[tokio::test]
+async fn matured_utxo_with_no_shares_is_finalised_empty() {
+    let env = setup().await;
+    // No shares seeded → empty window → reward retained by pool.
+    let kaspad = FakeKaspad::new();
+    kaspad.set_virtual_daa_score(1_001_010).await;
+    kaspad
+        .add_utxo(CoinbaseUtxo {
+            transaction_id: [0xa1; 32],
+            index: 0,
+            amount_sompi: 500_000_000,
+            block_daa_score: 1_000_010,
+        })
+        .await;
+
+    let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
-    assert_eq!(stats.orphaned, 1);
-    let blk = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(blk.status, BlockStatus::Orphaned);
+    assert_eq!(stats.rewards_discovered, 1);
+    assert_eq!(stats.rewards_empty, 1);
+    assert_eq!(stats.rewards_allocated, 0);
+
+    let reward = coinbase_reward::find_by_outpoint(&env.db, &[0xa1; 32], 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(reward.allocated_at.is_some());
 }
 
 // ---------- error isolation ----------------------------------------
 
 #[tokio::test]
-async fn whole_sweep_fails_when_virtual_blue_score_query_errors() {
+async fn whole_sweep_fails_when_virtual_daa_query_errors() {
     let env = setup().await;
     let kaspad = FakeKaspad::new();
     {
         let mut s = kaspad.state.lock().await;
-        s.fail_next_virtual_blue = true;
+        s.fail_next_virtual = true;
     }
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let err = tracker
@@ -396,7 +436,7 @@ async fn whole_sweep_fails_when_virtual_blue_score_query_errors() {
 }
 
 #[tokio::test]
-async fn per_block_get_block_error_is_isolated() {
+async fn per_block_color_error_is_isolated() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     let h_a = BlockHash::from_hex(HASH_A).unwrap();
@@ -405,26 +445,18 @@ async fn per_block_get_block_error_is_isolated() {
     insert_submitted(&env.db, h_b, w, wk, 1_000_010).await;
 
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
-    kaspad
-        .add_block(BlockInfo {
-            hash: h_b,
-            blue_score: 100_400,
-            is_blue: true,
-            coinbase_reward_sompi: 0,
-            daa_score: 1_000_010,
-        })
-        .await;
-    // Inject a one-shot error.
+    kaspad.set_virtual_daa_score(1_000_500).await;
+    kaspad.set_color(h_b, BlockColor::Blue).await;
+    // Inject a one-shot error on the first colour query.
     {
         let mut s = kaspad.state.lock().await;
-        s.fail_next_get_block = true;
+        s.fail_next_color = true;
     }
     let tracker = build_tracker(env.db.clone(), kaspad, default_cfg());
     let stats = tracker.run_once().await.unwrap();
     assert_eq!(stats.errors, 1, "first block sees the injected error");
     // The other block proceeded normally.
-    assert!(stats.confirmed_blue + stats.still_waiting >= 1);
+    assert!(stats.confirmed_blue + stats.blocks_waiting >= 1);
 }
 
 // ---------- batch limit --------------------------------------------
@@ -434,17 +466,14 @@ async fn batch_size_limits_blocks_processed_per_sweep() {
     let env = setup().await;
     let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(100_500).await;
+    kaspad.set_virtual_daa_score(1_000_500).await;
 
-    // Seed 5 submitted_to_node blocks.
+    // Seed 5 submitted_to_node blocks. None known to kaspad → waiting.
     for i in 0..5u64 {
-        // Manufacture distinct hashes via a deterministic prefix
-        // + index byte (collision-free for 0..255).
         let mut bytes = [0u8; 32];
         bytes[31] = i as u8 + 1;
         let h = BlockHash::from_bytes(bytes);
         insert_submitted(&env.db, h, w, wk, 1_000_000 + i).await;
-        // None of them are in kaspad → still_waiting.
     }
 
     let cfg = MaturityConfig {
@@ -454,7 +483,7 @@ async fn batch_size_limits_blocks_processed_per_sweep() {
     let tracker = build_tracker(env.db.clone(), kaspad, cfg);
     let stats = tracker.run_once().await.unwrap();
     assert_eq!(
-        stats.still_waiting + stats.confirmed_blue + stats.matured + stats.orphaned + stats.errors,
+        stats.blocks_waiting + stats.confirmed_blue + stats.orphaned + stats.errors,
         2,
         "exactly batch_size blocks processed per sweep"
     );
@@ -466,7 +495,7 @@ async fn batch_size_limits_blocks_processed_per_sweep() {
 async fn run_loop_exits_cleanly_on_shutdown_signal() {
     let env = setup().await;
     let kaspad = FakeKaspad::new();
-    kaspad.set_virtual_blue_score(0).await;
+    kaspad.set_virtual_daa_score(0).await;
 
     let cfg = MaturityConfig {
         poll_interval: Duration::from_millis(50),

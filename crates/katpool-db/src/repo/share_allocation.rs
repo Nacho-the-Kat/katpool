@@ -1,8 +1,9 @@
-//! Share-allocation aggregate — per-wallet PROP allocation of a
-//! block's matured reward.
+//! Share-allocation aggregate — per-wallet PROP allocation of a matured
+//! coinbase reward.
 //!
-//! Inserted by the accountant once a block reaches the `matured`
-//! lifecycle state and its coinbase reward is known. The schema's
+//! Inserted by the accountant once a coinbase UTXO credited to the pool
+//! address reaches consensus coinbase-maturity and its exact reward is
+//! known (see [`crate::repo::coinbase_reward`]). The schema's
 //! `share_allocation_balance` CHECK constraint enforces the equation
 //! `gross = pool_fee + nacho_accrual + net_payout` — every sompi
 //! accounted for, no rounding leakage.
@@ -11,7 +12,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgExecutor;
 
 use crate::DbError;
-use crate::repo::{BlockId, WalletId};
+use crate::repo::{CoinbaseRewardId, WalletId};
 
 /// Postgres-enum-backed wallet tier.
 ///
@@ -46,8 +47,8 @@ impl DbWalletTier {
 pub struct ShareAllocation {
     /// Synthetic primary key.
     pub id: i64,
-    /// FK to `block.id`.
-    pub block_id: BlockId,
+    /// FK to `coinbase_reward.id`.
+    pub coinbase_reward_id: CoinbaseRewardId,
     /// FK to `wallet.id`.
     pub wallet_id: WalletId,
     /// This wallet's PROP weight in the share window.
@@ -113,15 +114,15 @@ impl NewAllocation {
     }
 }
 
-/// Insert every allocation for a block in one round-trip.
+/// Insert every allocation for a coinbase reward in one round-trip.
 ///
 /// Uses postgres `UNNEST(...)` to flatten the per-wallet arrays into
 /// rows — one SQL statement, transactional, idempotent w.r.t. the
-/// `(block_id, wallet_id)` UNIQUE constraint. Caller is responsible
-/// for filtering duplicates before calling.
+/// `(coinbase_reward_id, wallet_id)` UNIQUE constraint. Caller is
+/// responsible for filtering duplicates before calling.
 pub async fn insert_batch<'e, E>(
     executor: E,
-    block_id: BlockId,
+    coinbase_reward_id: CoinbaseRewardId,
     rows: &[NewAllocation],
 ) -> Result<u64, DbError>
 where
@@ -158,7 +159,7 @@ where
 
     let result = sqlx::query(
         "INSERT INTO share_allocation
-            (block_id, wallet_id, weight, window_total,
+            (coinbase_reward_id, wallet_id, weight, window_total,
              gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
              applied_topline_bps, applied_rebate_bps, applied_tier)
          SELECT $1, *
@@ -166,7 +167,7 @@ where
                        $5::bigint[], $6::bigint[], $7::bigint[], $8::bigint[],
                        $9::smallint[], $10::smallint[], $11::wallet_tier[])",
     )
-    .bind(block_id.0)
+    .bind(coinbase_reward_id.0)
     .bind(&wallet_ids)
     .bind(&weights)
     .bind(&window_totals)
@@ -183,20 +184,20 @@ where
     Ok(result.rows_affected())
 }
 
-/// Every allocation for a block.
-pub async fn list_for_block<'e, E: PgExecutor<'e>>(
+/// Every allocation for a coinbase reward.
+pub async fn list_for_reward<'e, E: PgExecutor<'e>>(
     executor: E,
-    block_id: BlockId,
+    coinbase_reward_id: CoinbaseRewardId,
 ) -> Result<Vec<ShareAllocation>, DbError> {
     sqlx::query_as::<_, ShareAllocation>(
-        "SELECT id, block_id, wallet_id, weight, window_total,
+        "SELECT id, coinbase_reward_id, wallet_id, weight, window_total,
                 gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
                 computed_at, applied_topline_bps, applied_rebate_bps, applied_tier
            FROM share_allocation
-          WHERE block_id = $1
+          WHERE coinbase_reward_id = $1
           ORDER BY weight DESC",
     )
-    .bind(block_id.0)
+    .bind(coinbase_reward_id.0)
     .fetch_all(executor)
     .await
     .map_err(DbError::from)
@@ -209,7 +210,7 @@ pub async fn list_for_wallet<'e, E: PgExecutor<'e>>(
     limit: i64,
 ) -> Result<Vec<ShareAllocation>, DbError> {
     sqlx::query_as::<_, ShareAllocation>(
-        "SELECT id, block_id, wallet_id, weight, window_total,
+        "SELECT id, coinbase_reward_id, wallet_id, weight, window_total,
                 gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
                 computed_at, applied_topline_bps, applied_rebate_bps, applied_tier
            FROM share_allocation

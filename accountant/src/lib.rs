@@ -76,11 +76,11 @@ pub use config::{
 };
 pub use consumer::{ConsumerConfig, ConsumerConfigError, EventConsumer, VALID_NETWORKS};
 pub use error::{AccountantError, EventError};
-pub use kaspad_grpc::{KaspadGrpcClient, extract_block_info};
+pub use kaspad_grpc::{KaspadGrpcClient, coinbase_utxos_from_entries};
 pub use maturity::{
-    BlockInfo, DEFAULT_BATCH_SIZE, DEFAULT_MATURITY_DEPTH, DEFAULT_POLL_INTERVAL,
+    BlockColor, CoinbaseUtxo, DEFAULT_BATCH_SIZE, DEFAULT_COINBASE_MATURITY, DEFAULT_POLL_INTERVAL,
     DEFAULT_WINDOW_DAA_SPAN, KaspadClient, KaspadError, MaturityConfig, MaturityTracker,
-    SweepStats, TrackerError,
+    SweepStats, TrackerError, is_mature,
 };
 pub use replay::{
     DbSnapshot, assert_snapshots_equal, load_ndjson_path, load_ndjson_reader, replay_all, snapshot,

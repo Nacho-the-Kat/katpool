@@ -24,7 +24,7 @@
 //! | `KATPOOL_INSTANCE_ID`                | no       | `tracker-runner` |
 //! | `KATPOOL_FEE_TOPLINE_BPS`            | no       | 75 |
 //! | `KATPOOL_MATURITY_POLL_SECS`         | no       | 15 |
-//! | `KATPOOL_MATURITY_DEPTH`             | no       | 100 |
+//! | `KATPOOL_COINBASE_MATURITY`          | no       | 1000 |
 //! | `KATPOOL_WINDOW_DAA_SPAN`            | no       | 600 |
 //! | `KATPOOL_MATURITY_BATCH_SIZE`        | no       | 200 |
 //!
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
         kaspad = %cfg.kaspad_url,
         instance = %cfg.instance_id,
         poll_interval_secs = cfg.maturity.poll_interval.as_secs(),
-        maturity_depth = cfg.maturity.maturity_depth,
+        coinbase_maturity = cfg.maturity.coinbase_maturity,
         window_daa_span = cfg.maturity.window_daa_span,
         pool_addresses = ?cfg.pool_addresses.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "accountant tracker runner starting"
@@ -195,7 +195,7 @@ impl RunnerConfig {
             optional("KATPOOL_INSTANCE_ID").unwrap_or_else(|| "tracker-runner".to_owned());
         let fee_topline_bps = optional_u16("KATPOOL_FEE_TOPLINE_BPS")?.unwrap_or(75);
         let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
-        let maturity_depth = optional_u64("KATPOOL_MATURITY_DEPTH")?.unwrap_or(100);
+        let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?.unwrap_or(1000);
         let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
         Ok(Self {
@@ -206,7 +206,7 @@ impl RunnerConfig {
             fee_topline_bps,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
-                maturity_depth,
+                coinbase_maturity,
                 window_daa_span,
                 batch_size,
             },

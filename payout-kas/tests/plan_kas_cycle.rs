@@ -12,7 +12,7 @@
 use std::time::Duration;
 
 use katpool_db::repo::payout::{self, PayoutCycleStatus, PayoutKind, PayoutStatus};
-use katpool_db::repo::{audit, block, share_allocation, wallet, worker};
+use katpool_db::repo::{audit, block, coinbase_reward, share_allocation, wallet, worker};
 use katpool_db::{PoolConfig, build_pool, migrate};
 use katpool_domain::{BlockHash, CorrelationId, DaaScore, WalletAddress, WorkerName};
 use payout_kas::{
@@ -88,12 +88,15 @@ async fn seed_two_wallet_allocations(
     .await
     .expect("block");
     block::mark_submitted(pool, hash).await.expect("submit");
-    block::mark_confirmed_blue(pool, hash, 1)
+    block::mark_confirmed_blue(pool, hash, Some(1))
         .await
         .expect("confirm");
     block::mark_matured(pool, hash, 5_000_000_000)
         .await
         .expect("mature");
+    let (reward_id, _) = coinbase_reward::ensure(pool, &[9_u8; 32], 0, 5_000_000_000, 1)
+        .await
+        .expect("coinbase reward");
 
     let rows = vec![
         share_allocation::NewAllocation {
@@ -121,7 +124,7 @@ async fn seed_two_wallet_allocations(
             applied_tier: share_allocation::DbWalletTier::Standard,
         },
     ];
-    share_allocation::insert_batch(pool, block_id, &rows)
+    share_allocation::insert_batch(pool, reward_id, &rows)
         .await
         .expect("allocations");
 

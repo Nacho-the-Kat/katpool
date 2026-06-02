@@ -1,5 +1,9 @@
 //! Integration tests for `AllocationEngine` against ephemeral
 //! Postgres.
+//!
+//! Allocation is anchored on a matured `coinbase_reward` row (the unit
+//! of realised pool income), not on a found block. The block table is
+//! pure lifecycle telemetry and plays no part here — see ADR-0014.
 
 #![allow(
     clippy::expect_used,
@@ -17,12 +21,9 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use katpool_db::repo::block::BlockStatus;
 use katpool_db::repo::share_allocation::DbWalletTier;
-use katpool_db::repo::{block, nacho_rebate, share, wallet, worker};
-use katpool_domain::{
-    BlockHash, CorrelationId, DaaScore, ShareDifficulty, WalletAddress, WorkerName,
-};
+use katpool_db::repo::{CoinbaseRewardId, coinbase_reward, nacho_rebate, share, wallet, worker};
+use katpool_domain::{CorrelationId, DaaScore, ShareDifficulty, WalletAddress, WorkerName};
 
 use accountant::{
     AllocationEngine, AllocationOutcome, FeeConfig, StaticTierClassifier, TierClassifier,
@@ -30,9 +31,13 @@ use accountant::{
 };
 
 mod common;
-use common::{HASH_A, HASH_B, MINER_A, MINER_B, setup};
+use common::{MINER_A, MINER_B, setup};
 
 const NETWORK: &str = "mainnet";
+
+/// Distinct coinbase-outpoint transaction ids for the fixtures.
+const TXID_A: [u8; 32] = [0xa1; 32];
+const TXID_B: [u8; 32] = [0xb2; 32];
 
 async fn ensure_wallet_worker(
     db: &sqlx::PgPool,
@@ -78,26 +83,15 @@ async fn seed_share(
     .unwrap();
 }
 
-async fn insert_confirmed_block(
+/// Record a matured coinbase UTXO and return its anchor id. This is the
+/// unit the tracker hands to the engine.
+async fn insert_reward(
     db: &sqlx::PgPool,
-    hash: BlockHash,
-    finder_wallet: katpool_db::repo::WalletId,
-    finder_worker: katpool_db::repo::WorkerId,
-    daa: u64,
-) -> katpool_db::repo::BlockId {
-    let (id, _) = block::ensure(
-        db,
-        hash,
-        finder_wallet,
-        finder_worker,
-        DaaScore::new(daa),
-        0,
-        CorrelationId::new_v4(),
-    )
-    .await
-    .unwrap();
-    block::mark_submitted(db, hash).await.unwrap();
-    block::mark_confirmed_blue(db, hash, daa as i64)
+    txid: &[u8; 32],
+    amount_sompi: i64,
+    block_daa_score: u64,
+) -> CoinbaseRewardId {
+    let (id, _) = coinbase_reward::ensure(db, txid, 0, amount_sompi, block_daa_score)
         .await
         .unwrap();
     id
@@ -124,8 +118,7 @@ async fn happy_path_two_wallets_standard_tier() {
     seed_share(&env.db, w_a, wk_a, 600.0, 1_000_000).await;
     seed_share(&env.db, w_b, wk_b, 400.0, 1_000_001).await;
 
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 1_000_000_000, 1_000_010).await;
 
     let engine = engine_with(
         env.db.clone(),
@@ -133,8 +126,8 @@ async fn happy_path_two_wallets_standard_tier() {
         Arc::new(StaticTierClassifier::standard()),
     );
     let outcome = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             1_000_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -174,8 +167,7 @@ async fn mixed_tier_elite_dominates_in_nacho_rebate() {
     seed_share(&env.db, w_a, wk_a, 500.0, 1_000_000).await;
     seed_share(&env.db, w_b, wk_b, 500.0, 1_000_001).await;
 
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 1_000_000_000, 1_000_010).await;
 
     // Custom classifier: wallet A elite, wallet B standard.
     struct PerWalletStub;
@@ -195,8 +187,8 @@ async fn mixed_tier_elite_dominates_in_nacho_rebate() {
 
     let engine = engine_with(env.db.clone(), 75, Arc::new(PerWalletStub));
     let _ = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             1_000_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -204,9 +196,8 @@ async fn mixed_tier_elite_dominates_in_nacho_rebate() {
         .await
         .unwrap();
 
-    // Pull allocations for the block.
-    let block_row = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    let allocs = katpool_db::repo::share_allocation::list_for_block(&env.db, block_row.id)
+    // Pull allocations for the reward.
+    let allocs = katpool_db::repo::share_allocation::list_for_reward(&env.db, reward_id)
         .await
         .unwrap();
     assert_eq!(allocs.len(), 2);
@@ -233,13 +224,12 @@ async fn mixed_tier_elite_dominates_in_nacho_rebate() {
 }
 
 #[tokio::test]
-async fn allocate_marks_block_matured_and_records_reward() {
+async fn allocate_marks_reward_allocated() {
     let env = setup().await;
     let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     seed_share(&env.db, w_a, wk_a, 1024.0, 1_000_000).await;
 
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 500_000_000, 1_000_010).await;
 
     let engine = engine_with(
         env.db.clone(),
@@ -247,8 +237,8 @@ async fn allocate_marks_block_matured_and_records_reward() {
         Arc::new(StaticTierClassifier::standard()),
     );
     let _ = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             500_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -256,10 +246,15 @@ async fn allocate_marks_block_matured_and_records_reward() {
         .await
         .unwrap();
 
-    let block_row = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(block_row.status, BlockStatus::Matured);
-    assert_eq!(block_row.miner_reward_sompi, Some(500_000_000));
-    assert!(block_row.matured_at.is_some());
+    let reward = coinbase_reward::find_by_outpoint(&env.db, &TXID_A, 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reward.amount_sompi, 500_000_000);
+    assert!(
+        reward.allocated_at.is_some(),
+        "reward must be stamped allocated"
+    );
 }
 
 #[tokio::test]
@@ -268,9 +263,7 @@ async fn nacho_rebate_accrues_additively() {
     let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     seed_share(&env.db, w_a, wk_a, 1024.0, 1_000_000).await;
 
-    let h_a = BlockHash::from_hex(HASH_A).unwrap();
-    let h_b = BlockHash::from_hex(HASH_B).unwrap();
-    let _ = insert_confirmed_block(&env.db, h_a, w_a, wk_a, 1_000_010).await;
+    let reward_a = insert_reward(&env.db, &TXID_A, 1_000_000_000, 1_000_010).await;
 
     // First allocation.
     let engine = engine_with(
@@ -279,8 +272,8 @@ async fn nacho_rebate_accrues_additively() {
         Arc::new(StaticTierClassifier::new(WalletTier::Elite)),
     );
     let _ = engine
-        .allocate_matured_block(
-            h_a,
+        .allocate_coinbase_reward(
+            reward_a,
             1_000_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -291,12 +284,12 @@ async fn nacho_rebate_accrues_additively() {
     // Elite rebate at 75bps of 1B = 7_500_000.
     assert_eq!(r1.accrued_sompi, 7_500_000);
 
-    // Second block, second allocation — must ADD, not replace.
-    let _ = insert_confirmed_block(&env.db, h_b, w_a, wk_a, 1_000_030).await;
+    // Second reward, second allocation — must ADD, not replace.
     seed_share(&env.db, w_a, wk_a, 2048.0, 1_000_021).await;
+    let reward_b = insert_reward(&env.db, &TXID_B, 1_000_000_000, 1_000_030).await;
     let _ = engine
-        .allocate_matured_block(
-            h_b,
+        .allocate_coinbase_reward(
+            reward_b,
             1_000_000_000,
             DaaScore::new(1_000_020),
             DaaScore::new(1_000_040),
@@ -306,19 +299,18 @@ async fn nacho_rebate_accrues_additively() {
     let r2 = nacho_rebate::get(&env.db, w_a).await.unwrap().unwrap();
     assert_eq!(
         r2.accrued_sompi, 15_000_000,
-        "second block must accrue additively"
+        "second reward must accrue additively"
     );
 }
 
 // ---------- idempotency ---------------------------------------------
 
 #[tokio::test]
-async fn replaying_allocate_on_matured_block_is_noop() {
+async fn replaying_allocate_is_noop() {
     let env = setup().await;
     let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     seed_share(&env.db, w_a, wk_a, 1024.0, 1_000_000).await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 500_000_000, 1_000_010).await;
 
     let engine = engine_with(
         env.db.clone(),
@@ -326,8 +318,8 @@ async fn replaying_allocate_on_matured_block_is_noop() {
         Arc::new(StaticTierClassifier::standard()),
     );
     let _ = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             500_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -336,10 +328,10 @@ async fn replaying_allocate_on_matured_block_is_noop() {
         .unwrap();
     let r_first = nacho_rebate::get(&env.db, w_a).await.unwrap();
 
-    // Second call: idempotent no-op (block is matured already).
+    // Second call: idempotent no-op (reward already allocated).
     let outcome2 = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             500_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -366,11 +358,9 @@ async fn replaying_allocate_on_matured_block_is_noop() {
 // ---------- edge cases ----------------------------------------------
 
 #[tokio::test]
-async fn empty_window_marks_block_matured_no_allocations() {
+async fn empty_window_no_allocations() {
     let env = setup().await;
-    let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 500_000_000, 1_000_010).await;
 
     // No shares seeded.
 
@@ -380,8 +370,8 @@ async fn empty_window_marks_block_matured_no_allocations() {
         Arc::new(StaticTierClassifier::standard()),
     );
     let outcome = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             500_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -395,8 +385,14 @@ async fn empty_window_marks_block_matured_no_allocations() {
         }
     );
 
-    let block_row = block::find_by_hash(&env.db, h).await.unwrap().unwrap();
-    assert_eq!(block_row.status, BlockStatus::Matured);
+    let reward = coinbase_reward::find_by_outpoint(&env.db, &TXID_A, 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        reward.allocated_at.is_some(),
+        "empty-window reward must still be stamped allocated"
+    );
     let count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM share_allocation")
         .fetch_one(&env.db)
         .await
@@ -405,76 +401,37 @@ async fn empty_window_marks_block_matured_no_allocations() {
 }
 
 #[tokio::test]
-async fn rejects_unknown_block_hash() {
+async fn rejects_unknown_reward_id() {
     let env = setup().await;
     let engine = engine_with(
         env.db.clone(),
         75,
         Arc::new(StaticTierClassifier::standard()),
     );
-    let unknown =
-        BlockHash::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-            .unwrap();
     let err = engine
-        .allocate_matured_block(
-            unknown,
+        .allocate_coinbase_reward(
+            CoinbaseRewardId(999_999),
             1_000_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
         )
         .await
-        .expect_err("unknown block hash should error");
+        .expect_err("unknown reward id should error");
     let msg = format!("{err}");
-    assert!(msg.contains("unknown block hash"), "{msg}");
+    assert!(msg.contains("unknown coinbase reward"), "{msg}");
 }
 
 #[tokio::test]
-async fn rejects_block_in_wrong_status() {
+async fn rejects_negative_reward() {
     let env = setup().await;
-    let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    // Insert in `Found` state (no mark_submitted / mark_confirmed_blue).
-    let (_id, _) = block::ensure(
-        &env.db,
-        h,
-        w_a,
-        wk_a,
-        DaaScore::new(1_000_000),
-        0,
-        CorrelationId::new_v4(),
-    )
-    .await
-    .unwrap();
-
+    let reward_id = insert_reward(&env.db, &TXID_A, 0, 1_000_010).await;
     let engine = engine_with(
         env.db.clone(),
         75,
         Arc::new(StaticTierClassifier::standard()),
     );
     let err = engine
-        .allocate_matured_block(h, 1_000_000_000, DaaScore::new(0), DaaScore::new(2_000_000))
-        .await
-        .expect_err("Found status should error");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("Found") || msg.contains("expected confirmed_blue"),
-        "{msg}"
-    );
-}
-
-#[tokio::test]
-async fn rejects_negative_block_reward() {
-    let env = setup().await;
-    let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let _ = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
-    let engine = engine_with(
-        env.db.clone(),
-        75,
-        Arc::new(StaticTierClassifier::standard()),
-    );
-    let err = engine
-        .allocate_matured_block(h, -1, DaaScore::new(0), DaaScore::new(2_000_000))
+        .allocate_coinbase_reward(reward_id, -1, DaaScore::new(0), DaaScore::new(2_000_000))
         .await
         .expect_err("negative reward should error");
     let _ = Utc::now();
@@ -486,8 +443,7 @@ async fn audit_log_records_allocation_event() {
     let env = setup().await;
     let (w_a, wk_a) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
     seed_share(&env.db, w_a, wk_a, 1024.0, 1_000_000).await;
-    let h = BlockHash::from_hex(HASH_A).unwrap();
-    let block_id = insert_confirmed_block(&env.db, h, w_a, wk_a, 1_000_010).await;
+    let reward_id = insert_reward(&env.db, &TXID_A, 500_000_000, 1_000_010).await;
 
     let engine = engine_with(
         env.db.clone(),
@@ -495,8 +451,8 @@ async fn audit_log_records_allocation_event() {
         Arc::new(StaticTierClassifier::standard()),
     );
     let _ = engine
-        .allocate_matured_block(
-            h,
+        .allocate_coinbase_reward(
+            reward_id,
             500_000_000,
             DaaScore::new(1_000_000),
             DaaScore::new(1_000_020),
@@ -504,16 +460,17 @@ async fn audit_log_records_allocation_event() {
         .await
         .unwrap();
 
-    let entries = katpool_db::repo::audit::list_for_subject(&env.db, "block", block_id.0, 10)
-        .await
-        .unwrap();
+    let entries =
+        katpool_db::repo::audit::list_for_subject(&env.db, "coinbase_reward", reward_id.0, 10)
+            .await
+            .unwrap();
     let allocation_entry = entries
         .iter()
-        .find(|e| e.action == "block.allocated")
-        .expect("audit entry for block.allocated must exist");
+        .find(|e| e.action == "coinbase_reward.allocated")
+        .expect("audit entry for coinbase_reward.allocated must exist");
     assert_eq!(allocation_entry.actor, "test");
     let payload = &allocation_entry.payload;
-    assert_eq!(payload["block_reward_sompi"], 500_000_000);
+    assert_eq!(payload["reward_sompi"], 500_000_000);
     assert_eq!(payload["wallet_count"], 1);
     assert_eq!(payload["applied_topline_bps"], 75);
 }
