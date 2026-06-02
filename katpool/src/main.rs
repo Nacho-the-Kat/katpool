@@ -36,7 +36,12 @@
 //! Optional:
 //! - `KATPOOL_INSTANCE_ID`           default `katpool-runtime`
 //! - `KATPOOL_FEE_TOPLINE_BPS`       default 75
-//! - `KATPOOL_MIN_SHARE_DIFF`        default 1
+//! - `KATPOOL_MIN_SHARE_DIFF`        default 4096 (ASIC-class floor;
+//!   raise for higher-hashrate fleets, lower only for CPU/dev miners)
+//! - `KATPOOL_VAR_DIFF`              default `true` (variable difficulty
+//!   retargeting; set `false` to pin every miner at `min_share_diff`)
+//! - `KATPOOL_SHARES_PER_MIN`        default 20 (vardiff retarget setpoint;
+//!   ignored when `KATPOOL_VAR_DIFF=false`)
 //! - `KATPOOL_PROM_PORT`             default empty (disabled)
 //! - `KATPOOL_HEALTH_CHECK_PORT`     default empty (disabled)
 //! - `KATPOOL_MATURITY_POLL_SECS`    default 15
@@ -385,8 +390,8 @@ async fn main() -> Result<()> {
         health_check_port: cfg.health_check_port.clone(),
         block_wait_time: Duration::from_millis(500),
         min_share_diff: cfg.min_share_diff,
-        var_diff: false,
-        shares_per_min: 0,
+        var_diff: cfg.var_diff,
+        shares_per_min: cfg.shares_per_min,
         var_diff_stats: false,
         extranonce_size: 2,
         pow2_clamp: true,
@@ -483,7 +488,18 @@ struct RuntimeConfig {
     health_check_port: String,
     instance_id: String,
     fee_topline_bps: u16,
+    /// Per-miner stratum difficulty floor and (when `var_diff` is off)
+    /// pin point. ASIC-class default is 4096; vardiff lifts from here.
     min_share_diff: u32,
+    /// Enable the bridge's variable-difficulty retarget loop. When `false`,
+    /// every connection is pinned at [`Self::min_share_diff`] for its
+    /// lifetime, which on a fast-block-rate network like Kaspa causes
+    /// ASIC-class miners to flood low-difficulty shares that go stale
+    /// against newer block templates.
+    var_diff: bool,
+    /// Target accepted-shares-per-minute that the vardiff retarget loop
+    /// converges each miner toward; ignored when `var_diff` is `false`.
+    shares_per_min: u32,
     broadcast_capacity: usize,
     maturity: MaturityConfig,
     /// Network identifier passed to the accountant for
@@ -601,7 +617,9 @@ impl RuntimeConfig {
         let prom_port = optional("KATPOOL_PROM_PORT").unwrap_or_default();
         let health_check_port = optional("KATPOOL_HEALTH_CHECK_PORT").unwrap_or_default();
         let fee_topline_bps = optional_u16("KATPOOL_FEE_TOPLINE_BPS")?.unwrap_or(75);
-        let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?.unwrap_or(1);
+        let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?.unwrap_or(4096);
+        let var_diff = optional_bool("KATPOOL_VAR_DIFF")?.unwrap_or(true);
+        let shares_per_min = optional_u32("KATPOOL_SHARES_PER_MIN")?.unwrap_or(20);
         let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?.unwrap_or(4096);
         let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
         let maturity_depth = optional_u64("KATPOOL_MATURITY_DEPTH")?.unwrap_or(100);
@@ -648,6 +666,8 @@ impl RuntimeConfig {
             instance_id,
             fee_topline_bps,
             min_share_diff,
+            var_diff,
+            shares_per_min,
             broadcast_capacity,
             network,
             event_record_path,
