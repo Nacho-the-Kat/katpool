@@ -22,6 +22,7 @@ ADR pointing back.
 | [0016](0016-krc20-payout-conversion-and-floor-price.md) | KAS→NACHO payout conversion, floor price, no payout-time multiplier | accepted |
 | [0017](0017-kaspa-version-pinning.md) | Couple kaspad, kaspa-* crates, and Rust toolchain under one version bump | accepted |
 | [0018](0018-payout-fee-policy-and-on-demand-cycles.md) | KAS payout fee policy, exact-fee finalization, cadence, and on-demand cycles | accepted |
+| [0019](0019-krc20-adaptive-fee-and-fee-persistence.md) | KRC-20 commit/reveal adaptive fees, frozen for crash-safe determinism | accepted |
 
 ## When to write a new ADR
 

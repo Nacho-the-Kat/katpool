@@ -34,8 +34,8 @@ use payout_kas::{
     ExecutionMode, KAS_PAYOUT_CONFIRMATION_DAA, KaspadClient, KaspadError, TreasuryUtxoSnapshot,
 };
 use payout_krc20::{
-    DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_FEE_SOMPI, FloorPrice, FloorPriceSource, Krc20FeeConfig,
-    Krc20PayoutEngine, Krc20PayoutEngineConfig, Krc20TickOutcome, Krc20Transfer, QuoteError,
+    DEFAULT_COMMIT_AMOUNT_SOMPI, FloorPrice, FloorPriceSource, Krc20PayoutEngine,
+    Krc20PayoutEngineConfig, Krc20TickOutcome, Krc20Transfer, QuoteError,
     build_transfer_inscription, commit_address, commit_script_public_key,
 };
 use secp256k1::Keypair;
@@ -139,10 +139,6 @@ fn engine_config(namespace: &str, mode: ExecutionMode) -> Krc20PayoutEngineConfi
         cycle_span_daa: 1_000_000,
         mode,
         lock_namespace: namespace.to_owned(),
-        fees: Krc20FeeConfig {
-            commit_fee_sompi: DEFAULT_FEE_SOMPI,
-            reveal_fee_sompi: DEFAULT_FEE_SOMPI,
-        },
         min_pending_sompi: 1,
         min_nacho_base_units: 100_000_000,
         ticker: "NACHO".to_owned(),

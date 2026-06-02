@@ -29,7 +29,8 @@ use kaspa_consensus_core::{
     },
 };
 use katpool_storagemass::{
-    MIN_PAYOUT_OUTPUT_SOMPI, MassEvaluationError, MassEvaluator, TreasuryUtxo, TxMass,
+    FeeRate, MIN_PAYOUT_OUTPUT_SOMPI, MassEvaluationError, MassEvaluator, TreasuryUtxo, TxMass,
+    is_change_dust,
 };
 
 use crate::inscription::{
@@ -42,10 +43,6 @@ use crate::inscription::{
 /// rusty-kaspa `wallet::tx::mass::SIGNATURE_SIZE`.
 pub const STANDARD_SIGNATURE_SCRIPT_LEN: usize = 66;
 
-/// Default commit/reveal fee, mirroring the legacy pool's fixed
-/// `0.0001 KAS` (`10_000` sompi).
-pub const DEFAULT_FEE_SOMPI: u64 = 10_000;
-
 /// Default amount locked into the commit P2SH output (`0.2 KAS`).
 ///
 /// Spent in full by the reveal and returned to the treasury minus the
@@ -56,26 +53,61 @@ pub const DEFAULT_COMMIT_AMOUNT_SOMPI: u64 = 20_000_000;
 /// Per-input sigop count: one `OP_CHECKSIG` per standard or P2SH input.
 const SIG_OP_COUNT_PER_INPUT: u8 = 1;
 
-/// Fees and amounts that size the commit/reveal pair (mass-irrelevant
-/// beyond their effect on output values; collected here for clarity).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommitRevealConfig {
-    /// Amount locked into the commit P2SH output.
-    pub commit_amount_sompi: u64,
-    /// Fee paid by the commit transaction.
-    pub commit_fee_sompi: u64,
-    /// Fee paid by the reveal transaction.
-    pub reveal_fee_sompi: u64,
+/// How the commit/reveal network fees are sized.
+///
+/// kaspad rejects any transaction below the mass-based minimum relay fee, so
+/// the fee must be derived from each transaction's mass — never a fixed
+/// constant. The commit `change` and reveal `return` values (and therefore
+/// both txids, which are recorded *before* broadcast) depend on the fee, so a
+/// crash-resume must reproduce the identical fee:
+///
+/// - [`Krc20FeePolicy::Adaptive`] sizes the fee from the live node fee-rate
+///   (floored at the relay minimum) on the **first** plan of a transfer.
+/// - [`Krc20FeePolicy::Frozen`] replays the fees persisted at that first plan
+///   so every later reconstruction (reveal build, drift check, commit
+///   re-broadcast) re-derives a bit-identical transaction.
+#[derive(Debug, Clone, Copy)]
+pub enum Krc20FeePolicy {
+    /// Size both fees from the live fee-rate, floored at the relay minimum.
+    Adaptive(FeeRate),
+    /// Replay the exact fees frozen at first execution.
+    Frozen {
+        /// Frozen commit network fee (sompi).
+        commit_fee_sompi: u64,
+        /// Frozen reveal network fee (sompi).
+        reveal_fee_sompi: u64,
+    },
 }
 
-impl Default for CommitRevealConfig {
-    fn default() -> Self {
-        Self {
-            commit_amount_sompi: DEFAULT_COMMIT_AMOUNT_SOMPI,
-            commit_fee_sompi: DEFAULT_FEE_SOMPI,
-            reveal_fee_sompi: DEFAULT_FEE_SOMPI,
+impl Krc20FeePolicy {
+    /// The reveal fee under this policy for a reveal of the given mass.
+    fn reveal_fee(&self, reveal_mass: &TxMass) -> u64 {
+        match self {
+            Self::Adaptive(rate) => rate.fee_for(reveal_mass),
+            Self::Frozen {
+                reveal_fee_sompi, ..
+            } => *reveal_fee_sompi,
         }
     }
+
+    /// The commit fee under this policy for a commit of the given mass.
+    fn commit_fee(&self, commit_mass: &TxMass) -> u64 {
+        match self {
+            Self::Adaptive(rate) => rate.fee_for(commit_mass),
+            Self::Frozen {
+                commit_fee_sompi, ..
+            } => *commit_fee_sompi,
+        }
+    }
+}
+
+/// Amount locked into the commit P2SH and the policy that sizes the fees.
+#[derive(Debug, Clone, Copy)]
+pub struct CommitRevealConfig {
+    /// Amount locked into the commit P2SH output (returned by the reveal).
+    pub commit_amount_sompi: u64,
+    /// How the commit/reveal fees are sized.
+    pub fee_policy: Krc20FeePolicy,
 }
 
 /// A mass-valid KRC-20 commit/reveal pair for one NACHO transfer.
@@ -91,10 +123,14 @@ pub struct PlannedCommitReveal {
     pub commit_inputs: Vec<TreasuryUtxo>,
     /// Change returned to the treasury by the commit (0 when folded to fee).
     pub commit_change_sompi: u64,
+    /// Resolved commit network fee (sompi) — persist to freeze the shape.
+    pub commit_fee_sompi: u64,
     /// The commit transaction's three masses (signed-size accurate).
     pub commit_mass: TxMass,
     /// Amount the reveal returns to the treasury (`commit_amount − reveal_fee`).
     pub reveal_return_sompi: u64,
+    /// Resolved reveal network fee (sompi) — persist to freeze the shape.
+    pub reveal_fee_sompi: u64,
     /// The reveal transaction's three masses (includes the redeem-script push).
     pub reveal_mass: TxMass,
 }
@@ -142,8 +178,10 @@ impl PlannedCommitReveal {
             commit_amount_sompi,
             commit_inputs: Vec::new(),
             commit_change_sompi: 0,
-            commit_mass: zero_mass,
+            commit_fee_sompi: 0,
             reveal_return_sompi,
+            reveal_fee_sompi,
+            commit_mass: zero_mass,
             reveal_mass: zero_mass,
         })
     }
@@ -217,66 +255,15 @@ pub fn plan_commit_reveal(
     transfer: &Krc20Transfer,
     cfg: &CommitRevealConfig,
 ) -> Result<PlannedCommitReveal, PlanError> {
-    // ---- cheap config precondition: reveal return must clear the floor
-    let reveal_return_sompi = cfg
-        .commit_amount_sompi
-        .checked_sub(cfg.reveal_fee_sompi)
-        .filter(|r| *r >= MIN_PAYOUT_OUTPUT_SOMPI)
-        .ok_or_else(|| PlanError::RevealBelowFloor {
-            return_sompi: cfg.commit_amount_sompi.saturating_sub(cfg.reveal_fee_sompi),
-            floor_sompi: MIN_PAYOUT_OUTPUT_SOMPI,
-        })?;
-
     let redeem_script = build_transfer_inscription(xonly_pubkey, transfer)?;
     let commit_spk = commit_script_public_key(&redeem_script);
 
-    // ---- fund + build the commit ------------------------------------
-    let needed = cfg.commit_amount_sompi.saturating_add(cfg.commit_fee_sompi);
-    let (commit_inputs, input_sum) = select_inputs(treasury_utxos, needed)?;
-
-    // Leftover after the locked amount and fee is change; fold sub-floor
-    // change into the fee rather than create a dust output. Note: a change
-    // output that clears the dust floor can still fail KIP-9 storage mass if
-    // it is small relative to a large funding input (anti-dust). That is
-    // reported as `CommitMassExceeded`; UTXO hygiene to avoid it belongs to
-    // the execute/maintain layers (docs/kips.md §5.3–§5.4), not the planner.
-    let leftover = input_sum - needed;
-    let commit_change_sompi = if leftover >= MIN_PAYOUT_OUTPUT_SOMPI {
-        leftover
-    } else {
-        0
-    };
-
-    let mut commit_outputs = vec![TransactionOutput::new(
-        cfg.commit_amount_sompi,
-        commit_spk.clone(),
-    )];
-    if commit_change_sompi > 0 {
-        commit_outputs.push(TransactionOutput::new(
-            commit_change_sompi,
-            treasury_script.clone(),
-        ));
-    }
-    let commit_tx = build_tx(
-        commit_inputs
-            .iter()
-            .map(|u| (u.outpoint, vec![0u8; STANDARD_SIGNATURE_SCRIPT_LEN]))
-            .collect(),
-        commit_outputs,
-    );
-    let commit_entries: Vec<UtxoEntry> = commit_inputs.iter().map(|u| u.entry.clone()).collect();
-    let commit_mass = evaluate(evaluator, &commit_tx, commit_entries)?;
-    if !commit_mass.fits_independently(evaluator.block_mass_limit()) {
-        return Err(PlanError::CommitMassExceeded {
-            mass: commit_mass,
-            limit: evaluator.block_mass_limit(),
-        });
-    }
-
-    // ---- build the reveal (1 input from the commit, 1 output) -------
+    // ---- reveal: 1 input (commit P2SH) → 1 output (treasury return) -----
     // The commit txid is unknown until the commit is signed; the outpoint
-    // value does not affect mass (fixed 32+4 bytes), so a placeholder
-    // outpoint at the commit's P2SH output index suffices for planning.
+    // value does not affect mass (fixed 32+4 bytes), so a placeholder outpoint
+    // suffices. Likewise the return *value* does not move mass, so size the
+    // mass with a placeholder, derive the reveal fee from it, then set the
+    // real return (`commit_amount − reveal_fee`).
     let commit_p2sh_outpoint = TransactionOutpoint {
         transaction_id: TransactionId::from_bytes([0u8; 32]),
         index: 0,
@@ -288,7 +275,7 @@ pub fn plan_commit_reveal(
     let reveal_tx = build_tx(
         vec![(commit_p2sh_outpoint, reveal_sig_script)],
         vec![TransactionOutput::new(
-            reveal_return_sompi,
+            cfg.commit_amount_sompi,
             treasury_script.clone(),
         )],
     );
@@ -306,44 +293,186 @@ pub fn plan_commit_reveal(
             limit: evaluator.block_mass_limit(),
         });
     }
+    let reveal_fee_sompi = cfg.fee_policy.reveal_fee(&reveal_mass);
+    let reveal_return_sompi = cfg
+        .commit_amount_sompi
+        .checked_sub(reveal_fee_sompi)
+        .filter(|r| *r >= MIN_PAYOUT_OUTPUT_SOMPI)
+        .ok_or_else(|| PlanError::RevealBelowFloor {
+            return_sompi: cfg.commit_amount_sompi.saturating_sub(reveal_fee_sompi),
+            floor_sompi: MIN_PAYOUT_OUTPUT_SOMPI,
+        })?;
+
+    // ---- commit: lock `commit_amount` into the P2SH, reserve the network
+    // fee out of treasury change, widening the funding set until the inputs
+    // cover `commit_amount + fee`. -----------------------------------------
+    let commit = fund_commit(
+        evaluator,
+        treasury_utxos,
+        &commit_spk,
+        treasury_script,
+        cfg.commit_amount_sompi,
+        &cfg.fee_policy,
+    )?;
+    if !commit.mass.fits_independently(evaluator.block_mass_limit()) {
+        return Err(PlanError::CommitMassExceeded {
+            mass: commit.mass,
+            limit: evaluator.block_mass_limit(),
+        });
+    }
 
     Ok(PlannedCommitReveal {
         redeem_script,
         commit_script_public_key: commit_spk,
         commit_amount_sompi: cfg.commit_amount_sompi,
-        commit_inputs,
-        commit_change_sompi,
-        commit_mass,
+        commit_inputs: commit.inputs,
+        commit_change_sompi: commit.change_sompi,
+        commit_fee_sompi: commit.fee_sompi,
+        commit_mass: commit.mass,
         reveal_return_sompi,
+        reveal_fee_sompi,
         reveal_mass,
     })
 }
 
-/// Greedily selects treasury UTXOs (largest first) until they cover `needed`.
-fn select_inputs(
+/// A funded commit shape: the selected inputs plus the resolved fee, change,
+/// and mass for the transaction that will actually be signed.
+struct FundedCommit {
+    inputs: Vec<TreasuryUtxo>,
+    change_sompi: u64,
+    fee_sompi: u64,
+    mass: TxMass,
+}
+
+/// Fund `commit_amount + fee`, reserving the network fee out of change.
+///
+/// Mirrors the KAS planner: size the fee from the pre-fee (change-present)
+/// shape — mass is insensitive to the change *value*, only its presence —
+/// then drop a zero/dust change output into the fee (re-measuring the
+/// no-change shape so the recorded mass matches what is signed). The
+/// largest-first funding set is widened until the inputs cover the locked
+/// amount plus the resulting fee. Under [`Krc20FeePolicy::Frozen`] the same
+/// arithmetic with the persisted fee reproduces the original shape exactly.
+fn fund_commit(
+    evaluator: &MassEvaluator,
     treasury_utxos: &[TreasuryUtxo],
-    needed: u64,
-) -> Result<(Vec<TreasuryUtxo>, u64), PlanError> {
+    commit_spk: &ScriptPublicKey,
+    treasury_script: &ScriptPublicKey,
+    commit_amount_sompi: u64,
+    fee_policy: &Krc20FeePolicy,
+) -> Result<FundedCommit, PlanError> {
     let mut sorted: Vec<TreasuryUtxo> = treasury_utxos.to_vec();
     sorted.sort_by(|a, b| b.entry.amount.cmp(&a.entry.amount));
-
     let available: u64 = sorted.iter().map(|u| u.entry.amount).sum();
-    let mut selected = Vec::new();
-    let mut sum = 0u64;
-    for utxo in sorted {
-        if sum >= needed {
+
+    let mut input_count = 1;
+    while input_count <= sorted.len() {
+        let Some(inputs) = sorted.get(..input_count) else {
             break;
+        };
+        let input_sum: u64 = inputs.iter().map(|u| u.entry.amount).sum();
+        // The inputs must at least cover the locked amount before a fee can be
+        // reserved from the remainder.
+        if input_sum <= commit_amount_sompi {
+            input_count += 1;
+            continue;
         }
-        sum = sum.saturating_add(utxo.entry.amount);
-        selected.push(utxo);
-    }
-    if sum < needed {
-        return Err(PlanError::InsufficientFunds {
-            needed_sompi: needed,
-            available_sompi: available,
+
+        let gross_change = input_sum - commit_amount_sompi;
+        let gross_mass = commit_mass(
+            evaluator,
+            inputs,
+            commit_spk,
+            commit_amount_sompi,
+            treasury_script,
+            gross_change,
+        )?;
+        let fee = fee_policy.commit_fee(&gross_mass);
+        if commit_amount_sompi.saturating_add(fee) > input_sum {
+            input_count += 1;
+            continue;
+        }
+        let change = input_sum - commit_amount_sompi - fee;
+
+        // Fold a zero/dust change output into the fee (kaspad rejects dust);
+        // the no-change shape is re-measured so the recorded mass matches the
+        // signed transaction. The leftover is absorbed, so the effective fee
+        // is `input_sum − commit_amount` — which a frozen replay reproduces.
+        if change == 0 || is_change_dust(change, treasury_script) {
+            let mass = commit_mass(
+                evaluator,
+                inputs,
+                commit_spk,
+                commit_amount_sompi,
+                treasury_script,
+                0,
+            )?;
+            return Ok(FundedCommit {
+                inputs: inputs.to_vec(),
+                change_sompi: 0,
+                fee_sompi: input_sum - commit_amount_sompi,
+                mass,
+            });
+        }
+        return Ok(FundedCommit {
+            inputs: inputs.to_vec(),
+            change_sompi: change,
+            fee_sompi: fee,
+            mass: gross_mass,
         });
     }
-    Ok((selected, sum))
+
+    // Report the fee the full funding set would owe, for an actionable error.
+    let needed_sompi = available
+        .checked_sub(commit_amount_sompi)
+        .and_then(|gross_change| {
+            commit_mass(
+                evaluator,
+                &sorted,
+                commit_spk,
+                commit_amount_sompi,
+                treasury_script,
+                gross_change,
+            )
+            .ok()
+        })
+        .map_or(commit_amount_sompi, |m| {
+            commit_amount_sompi.saturating_add(fee_policy.commit_fee(&m))
+        });
+    Err(PlanError::InsufficientFunds {
+        needed_sompi,
+        available_sompi: available,
+    })
+}
+
+/// Evaluate the commit transaction's mass for the given inputs and change.
+fn commit_mass(
+    evaluator: &MassEvaluator,
+    inputs: &[TreasuryUtxo],
+    commit_spk: &ScriptPublicKey,
+    commit_amount_sompi: u64,
+    treasury_script: &ScriptPublicKey,
+    change_sompi: u64,
+) -> Result<TxMass, MassEvaluationError> {
+    let mut outputs = vec![TransactionOutput::new(
+        commit_amount_sompi,
+        commit_spk.clone(),
+    )];
+    if change_sompi > 0 {
+        outputs.push(TransactionOutput::new(
+            change_sompi,
+            treasury_script.clone(),
+        ));
+    }
+    let tx = build_tx(
+        inputs
+            .iter()
+            .map(|u| (u.outpoint, vec![0u8; STANDARD_SIGNATURE_SCRIPT_LEN]))
+            .collect(),
+        outputs,
+    );
+    let entries: Vec<UtxoEntry> = inputs.iter().map(|u| u.entry.clone()).collect();
+    evaluate(evaluator, &tx, entries)
 }
 
 /// Builds an unsigned-shape transaction whose inputs already carry the

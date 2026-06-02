@@ -91,7 +91,8 @@
 //! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 10 KAS (coarse pre-filter)
 //! - `KATPOOL_KRC20_MIN_NACHO_BASE_UNITS`  default 1 NACHO (dust gate)
 //! - `KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI`   default 0.2 KAS (commit P2SH lock)
-//! - `KATPOOL_KRC20_COMMIT_FEE_SOMPI` / `..._REVEAL_FEE_SOMPI` default 0.01 KAS
+//! - commit/reveal network fees are sized adaptively from the node fee-rate
+//!   (floored at the relay minimum) and frozen per-transfer; not configurable
 //! - `KATPOOL_KRC20_BATCH_LIMIT`           default 1000 recipients/tick
 //! - `KATPOOL_KRC20_TICKER`                default `NACHO`
 //! - `KATPOOL_KRC20_QUOTE_BASE`            default `https://api.kaspa.com`
@@ -120,9 +121,9 @@ use payout_kas::{
 };
 use payout_krc20::{
     BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
-    DEFAULT_FEE_SOMPI, DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS,
-    DEFAULT_MIN_PENDING_SOMPI, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice,
-    Krc20FeeConfig, Krc20PayoutEngine, Krc20PayoutEngineConfig,
+    DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI,
+    DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice, Krc20PayoutEngine,
+    Krc20PayoutEngineConfig,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::signal;
@@ -377,10 +378,6 @@ async fn main() -> Result<()> {
                 cycle_span_daa: cfg.krc20_payout.cycle_span_daa,
                 mode,
                 lock_namespace: "payout-krc20:nacho-leader".to_owned(),
-                fees: Krc20FeeConfig {
-                    commit_fee_sompi: cfg.krc20_payout.commit_fee_sompi,
-                    reveal_fee_sompi: cfg.krc20_payout.reveal_fee_sompi,
-                },
                 min_pending_sompi: cfg.krc20_payout.min_pending_sompi,
                 min_nacho_base_units: cfg.krc20_payout.min_nacho_base_units,
                 ticker: cfg.krc20_payout.ticker.clone(),
@@ -752,8 +749,6 @@ struct Krc20RuntimeConfig {
     min_pending_sompi: i64,
     min_nacho_base_units: u128,
     commit_amount_sompi: u64,
-    commit_fee_sompi: u64,
-    reveal_fee_sompi: u64,
     batch_limit: i64,
     ticker: String,
     quote_base: String,
@@ -776,10 +771,6 @@ impl Krc20RuntimeConfig {
                 .unwrap_or(DEFAULT_MIN_NACHO_BASE_UNITS),
             commit_amount_sompi: optional_u64("KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI")?
                 .unwrap_or(DEFAULT_COMMIT_AMOUNT_SOMPI),
-            commit_fee_sompi: optional_u64("KATPOOL_KRC20_COMMIT_FEE_SOMPI")?
-                .unwrap_or(DEFAULT_FEE_SOMPI),
-            reveal_fee_sompi: optional_u64("KATPOOL_KRC20_REVEAL_FEE_SOMPI")?
-                .unwrap_or(DEFAULT_FEE_SOMPI),
             batch_limit: optional_i64("KATPOOL_KRC20_BATCH_LIMIT")?.unwrap_or(DEFAULT_CYCLE_LIMIT),
             ticker: optional("KATPOOL_KRC20_TICKER")
                 .unwrap_or_else(|| DEFAULT_QUOTE_TICKER.to_owned()),

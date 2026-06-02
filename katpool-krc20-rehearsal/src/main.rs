@@ -39,9 +39,9 @@ use katpool_secrets::load_from_path;
 use payout_kas::{ExecutionMode, GrpcKaspadClient};
 use payout_krc20::{
     BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
-    DEFAULT_FEE_SOMPI, DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS,
-    DEFAULT_MIN_PENDING_SOMPI, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice,
-    Krc20FeeConfig, Krc20PayoutEngine, Krc20PayoutEngineConfig, Krc20TickOutcome,
+    DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI,
+    DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice, Krc20PayoutEngine,
+    Krc20PayoutEngineConfig, Krc20TickOutcome,
 };
 use serde_json::json;
 use tracing::info;
@@ -94,14 +94,6 @@ struct Args {
     /// KAS-sompi locked into each commit P2SH output.
     #[arg(long, env = "KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI", default_value_t = DEFAULT_COMMIT_AMOUNT_SOMPI)]
     commit_amount_sompi: u64,
-
-    /// Commit transaction fee (sompi).
-    #[arg(long, env = "KATPOOL_KRC20_COMMIT_FEE_SOMPI", default_value_t = DEFAULT_FEE_SOMPI)]
-    commit_fee_sompi: u64,
-
-    /// Reveal transaction fee (sompi).
-    #[arg(long, env = "KATPOOL_KRC20_REVEAL_FEE_SOMPI", default_value_t = DEFAULT_FEE_SOMPI)]
-    reveal_fee_sompi: u64,
 
     /// DAA width of the payout cycle window (must exceed the confirmation depth).
     #[arg(
@@ -197,10 +189,6 @@ async fn main() -> Result<()> {
             cycle_span_daa: args.cycle_span_daa,
             mode: ExecutionMode::DryRun,
             lock_namespace: "payout-krc20:nacho-leader".to_owned(),
-            fees: Krc20FeeConfig {
-                commit_fee_sompi: args.commit_fee_sompi,
-                reveal_fee_sompi: args.reveal_fee_sompi,
-            },
             min_pending_sompi: args.min_pending_sompi,
             min_nacho_base_units: args.min_nacho_base_units,
             ticker: args.ticker.clone(),
@@ -249,8 +237,6 @@ async fn main() -> Result<()> {
         min_pending_sompi: args.min_pending_sompi,
         min_nacho_base_units: args.min_nacho_base_units,
         commit_amount_sompi: args.commit_amount_sompi,
-        commit_fee_sompi: args.commit_fee_sompi,
-        reveal_fee_sompi: args.reveal_fee_sompi,
         cycle_span_daa: args.cycle_span_daa,
         virtual_daa: report.virtual_daa,
     };

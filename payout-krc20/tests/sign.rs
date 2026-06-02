@@ -15,10 +15,11 @@ use kaspa_addresses::{Address, Prefix, Version};
 use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionId, TransactionOutpoint, UtxoEntry};
 use kaspa_txscript::pay_to_address_script;
 use katpool_secrets::{TreasurySecret, from_hex};
-use katpool_storagemass::{MassEvaluator, PLANNING_VIRTUAL_TXID_BYTES, TreasuryUtxo};
+use katpool_storagemass::{FeeRate, MassEvaluator, PLANNING_VIRTUAL_TXID_BYTES, TreasuryUtxo};
 use payout_krc20::{
-    CommitRevealConfig, Krc20Transfer, PlannedCommitReveal, SignError, commit_txid,
-    plan_commit_reveal, reveal_txid, sign_commit, sign_reveal,
+    CommitRevealConfig, DEFAULT_COMMIT_AMOUNT_SOMPI, Krc20FeePolicy, Krc20Transfer,
+    PlannedCommitReveal, SignError, commit_txid, plan_commit_reveal, reveal_txid, sign_commit,
+    sign_reveal,
 };
 use secp256k1::Keypair;
 
@@ -65,7 +66,10 @@ fn transfer() -> Krc20Transfer {
 /// Build a real plan funded by `treasury_script`, ready to sign.
 fn build_plan(xonly: &[u8; 32]) -> (PlannedCommitReveal, ScriptPublicKey) {
     let eval = MassEvaluator::mainnet();
-    let cfg = CommitRevealConfig::default();
+    let cfg = CommitRevealConfig {
+        commit_amount_sompi: DEFAULT_COMMIT_AMOUNT_SOMPI,
+        fee_policy: Krc20FeePolicy::Adaptive(FeeRate::from_feerate(0.0)),
+    };
     let script = treasury_script(xonly);
     let utxos = vec![utxo(&script, 0, 5_000_000_000)]; // 50 KAS
     let plan = plan_commit_reveal(&eval, &utxos, &script, xonly, &transfer(), &cfg).unwrap();

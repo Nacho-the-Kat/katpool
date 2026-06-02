@@ -34,6 +34,27 @@ backward-incompatible ways at every minor bump.
   `payout-kas:kas-leader` advisory lock so it is safe to run alongside a live
   daemon. `--dry-run` previews (sign + verify) without broadcasting. The
   binary otherwise runs the full daemon as before (no arguments).
+- **Adaptive network fees for KRC-20 (NACHO) commit/reveal payouts, frozen
+  per-transfer** (ADR-0019). The commit and reveal fees are now sized with the
+  same `FeeRate` policy as KAS (`feerate × effective_mass`, floored at the
+  relay minimum, with the dust/zero change output folded into the fee),
+  replacing the fixed `0.0001 KAS` fee that was ~18–20× below the mempool
+  minimum and would have been rejected (`RejectInsufficientFee`) on go-live.
+  Because the commit change and reveal return — and therefore both txids,
+  recorded *before* broadcast for crash-safety — depend on the fees, the
+  resolved fees are **frozen** onto the `krc20_pending_transfer` row (new
+  nullable `commit_fee_sompi` / `reveal_fee_sompi` columns) in the same
+  transaction that records the commit hash. Every later reconstruction (reveal
+  build, drift check, commit/reveal re-broadcast) replays the frozen fees via a
+  new `Krc20FeePolicy::{Adaptive, Frozen}`, so a crash-resume re-derives
+  bit-identical transactions.
+
+### Removed
+
+- **Fixed KRC-20 fee configuration.** `Krc20FeeConfig` and the
+  `KATPOOL_KRC20_COMMIT_FEE_SOMPI` / `KATPOOL_KRC20_REVEAL_FEE_SOMPI` env knobs
+  (and the matching `katpool-krc20-rehearsal` flags) are gone — KRC-20 fees are
+  now adaptive and frozen per-transfer (ADR-0019), not operator-tunable.
 
 ### Changed
 

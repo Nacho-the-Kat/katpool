@@ -151,6 +151,12 @@ pub struct Krc20PendingTransfer {
     pub p2sh_address: String,
     /// State.
     pub status: Krc20TransferStatus,
+    /// Frozen commit network fee (sompi). `None` until the transfer is first
+    /// executed; persisted then so a crash-resume re-derives the same txid.
+    pub commit_fee_sompi: Option<i64>,
+    /// Frozen reveal network fee (sompi). `None` until the transfer is first
+    /// executed; see [`Self::commit_fee_sompi`].
+    pub reveal_fee_sompi: Option<i64>,
     /// Created-at timestamp.
     pub created_at: DateTime<Utc>,
     /// Updated-at timestamp.
@@ -690,7 +696,7 @@ where
             (payout_id, sompi_to_miner, nacho_amount, p2sh_address)
          VALUES ($1, $2, $3, $4)
          RETURNING id, payout_id, sompi_to_miner, nacho_amount, p2sh_address,
-                   status, created_at, updated_at",
+                   status, commit_fee_sompi, reveal_fee_sompi, created_at, updated_at",
     )
     .bind(payout_id)
     .bind(sompi_to_miner)
@@ -727,7 +733,7 @@ where
                 p2sh_address = EXCLUDED.p2sh_address,
                 updated_at = now()
          RETURNING id, payout_id, sompi_to_miner, nacho_amount, p2sh_address,
-                   status, created_at, updated_at",
+                   status, commit_fee_sompi, reveal_fee_sompi, created_at, updated_at",
     )
     .bind(payout_id)
     .bind(sompi_to_miner)
@@ -778,6 +784,38 @@ pub async fn record_krc20_reveal_hash<'e, E: PgExecutor<'e>>(
     )
     .bind(payout_id)
     .bind(reveal_hash.as_bytes().to_vec())
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// Freeze the resolved commit/reveal network fees on a transfer row.
+///
+/// Written once, in the same transaction as [`record_krc20_commit_hash`] /
+/// [`mark_krc20_commit_submitted`], *before* the commit is broadcast. The
+/// commit `change` and reveal `return` values (hence both txids) derive from
+/// these fees, so persisting them lets a crash-resume reconstruct the exact
+/// same transactions instead of re-quoting a drifted node fee-rate. The guard
+/// only writes when both columns are still NULL, so the first executor to
+/// record wins and later reconstructions never overwrite the frozen value.
+pub async fn record_krc20_fees<'e, E: PgExecutor<'e>>(
+    executor: E,
+    payout_id: i64,
+    commit_fee_sompi: i64,
+    reveal_fee_sompi: i64,
+) -> Result<(), DbError> {
+    sqlx::query(
+        "UPDATE krc20_pending_transfer
+            SET commit_fee_sompi = $2,
+                reveal_fee_sompi = $3,
+                updated_at = now()
+          WHERE payout_id = $1
+            AND commit_fee_sompi IS NULL
+            AND reveal_fee_sompi IS NULL",
+    )
+    .bind(payout_id)
+    .bind(commit_fee_sompi)
+    .bind(reveal_fee_sompi)
     .execute(executor)
     .await?;
     Ok(())
@@ -863,7 +901,7 @@ pub async fn list_krc20_by_status<'e, E: PgExecutor<'e>>(
 ) -> Result<Vec<Krc20PendingTransfer>, DbError> {
     sqlx::query_as::<_, Krc20PendingTransfer>(
         "SELECT id, payout_id, sompi_to_miner, nacho_amount, p2sh_address,
-                status, created_at, updated_at
+                status, commit_fee_sompi, reveal_fee_sompi, created_at, updated_at
            FROM krc20_pending_transfer
           WHERE status = ANY($1)
           ORDER BY created_at ASC
@@ -883,7 +921,7 @@ pub async fn list_krc20_for_cycle<'e, E: PgExecutor<'e>>(
 ) -> Result<Vec<Krc20PendingTransfer>, DbError> {
     sqlx::query_as::<_, Krc20PendingTransfer>(
         "SELECT k.id, k.payout_id, k.sompi_to_miner, k.nacho_amount, k.p2sh_address,
-                k.status, k.created_at, k.updated_at
+                k.status, k.commit_fee_sompi, k.reveal_fee_sompi, k.created_at, k.updated_at
            FROM krc20_pending_transfer k
            INNER JOIN payout p ON p.id = k.payout_id
           WHERE p.cycle_id = $1

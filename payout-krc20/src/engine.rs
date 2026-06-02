@@ -38,7 +38,7 @@ use crate::cycle::{
     CreditReport, Krc20CycleError, Krc20CycleParams, credit_completed_transfers,
     reconcile_krc20_cycle_status, resume_or_plan_krc20_cycle,
 };
-use crate::execute::{Krc20ExecuteError, Krc20FeeConfig, SettleReport, settle_pending};
+use crate::execute::{Krc20ExecuteError, SettleReport, settle_pending};
 use crate::quote::FloorPriceSource;
 
 /// Errors from the KRC-20 payout engine.
@@ -88,8 +88,6 @@ pub struct Krc20PayoutEngineConfig {
     /// Advisory-lock namespace (hashed to the leader key). Distinct from the
     /// KAS engine's namespace so the two engines never contend.
     pub lock_namespace: String,
-    /// Commit/reveal fees.
-    pub fees: Krc20FeeConfig,
     /// Minimum pending KAS-sompi for a wallet to be selected (coarse filter).
     pub min_pending_sompi: i64,
     /// Minimum converted NACHO base units worth a reveal (dust gate).
@@ -241,7 +239,6 @@ where
             &self.client,
             &self.secret,
             &self.treasury_address,
-            self.config.fees,
             self.config.batch_limit,
             self.config.mode,
         )

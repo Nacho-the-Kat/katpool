@@ -37,43 +37,25 @@ use katpool_db::repo::payout::{self, Krc20PendingTransfer, Krc20TransferStatus, 
 use katpool_db::repo::wallet;
 use katpool_domain::BlockHash;
 use katpool_secrets::TreasurySecret;
-use katpool_storagemass::{MassEvaluator, TreasuryUtxo};
+use katpool_storagemass::{FeeRate, MassEvaluator, TreasuryUtxo};
 use payout_kas::{
     ConfirmationInputs, ConfirmationState, ExecutionMode, KaspadClient, KaspadError,
     TreasuryUtxoSnapshot, classify_confirmation, is_spendable,
 };
 use secp256k1::Keypair;
 use sqlx::PgPool;
+use tracing::warn;
 
 use crate::inscription::{Krc20Transfer, commit_address};
-use crate::plan::{CommitRevealConfig, PlanError, PlannedCommitReveal, plan_commit_reveal};
+use crate::plan::{
+    CommitRevealConfig, Krc20FeePolicy, PlanError, PlannedCommitReveal, plan_commit_reveal,
+};
 use crate::sign::{
     COMMIT_P2SH_OUTPUT_INDEX, SignError, commit_txid, reveal_txid, sign_commit, sign_reveal,
 };
 
 /// KRC-20 token ticker paid by the NACHO rebate engine.
 const NACHO_TICK: &str = "NACHO";
-
-/// Per-cycle transaction fees for the commit and reveal.
-///
-/// Amounts are taken per-transfer from the planned `sompi_to_miner` (the
-/// commit P2SH lock); only the fees are configured here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Krc20FeeConfig {
-    /// Fee paid by the commit transaction.
-    pub commit_fee_sompi: u64,
-    /// Fee paid by the reveal transaction.
-    pub reveal_fee_sompi: u64,
-}
-
-impl Default for Krc20FeeConfig {
-    fn default() -> Self {
-        Self {
-            commit_fee_sompi: crate::plan::DEFAULT_FEE_SOMPI,
-            reveal_fee_sompi: crate::plan::DEFAULT_FEE_SOMPI,
-        }
-    }
-}
 
 /// The state transition a single [`advance_transfer`] call performed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +164,16 @@ pub enum Krc20ExecuteError {
         kind: &'static str,
     },
 
+    /// A submitted/in-flight transfer is missing its frozen network fees,
+    /// so its commit/reveal cannot be reconstructed deterministically.
+    #[error("missing frozen {kind} fee on payout {payout_id}")]
+    MissingFee {
+        /// Parent payout id.
+        payout_id: i64,
+        /// `"commit"` or `"reveal"`.
+        kind: &'static str,
+    },
+
     /// The stored P2SH address does not match the rebuilt inscription —
     /// configuration drift (wrong key, ticker, amount, or recipient).
     #[error("inscription drift on payout {payout_id}: stored {stored}, rebuilt {rebuilt}")]
@@ -226,11 +218,59 @@ struct TransferCtx<'a> {
     treasury_script: ScriptPublicKey,
     prefix: Prefix,
     xonly: [u8; 32],
-    fees: Krc20FeeConfig,
+    /// Live fee-rate, used to size fees on the **first** plan of a transfer.
+    fee_rate: FeeRate,
+    /// Commit fee frozen at first execution (`None` for a fresh transfer).
+    frozen_commit_fee: Option<u64>,
+    /// Reveal fee frozen at first execution (`None` for a fresh transfer).
+    frozen_reveal_fee: Option<u64>,
     inscription: Krc20Transfer,
     commit_amount_sompi: u64,
     payout_id: i64,
     p2sh_address: String,
+}
+
+impl TransferCtx<'_> {
+    /// The frozen reveal fee, required once the transfer is in flight.
+    fn reveal_fee(&self) -> Result<u64, Krc20ExecuteError> {
+        self.frozen_reveal_fee.ok_or(Krc20ExecuteError::MissingFee {
+            payout_id: self.payout_id,
+            kind: "reveal",
+        })
+    }
+
+    /// The frozen fee policy, replayed for deterministic crash-resume of an
+    /// already-recorded commit/reveal.
+    fn frozen_policy(&self) -> Result<Krc20FeePolicy, Krc20ExecuteError> {
+        let commit_fee_sompi = self
+            .frozen_commit_fee
+            .ok_or(Krc20ExecuteError::MissingFee {
+                payout_id: self.payout_id,
+                kind: "commit",
+            })?;
+        Ok(Krc20FeePolicy::Frozen {
+            commit_fee_sompi,
+            reveal_fee_sompi: self.reveal_fee()?,
+        })
+    }
+}
+
+/// Convert a persisted optional fee column to `u64`, rejecting a negative
+/// value (which the CHECK constraint forbids, but defend in depth).
+fn opt_fee(
+    value: Option<i64>,
+    payout_id: i64,
+    field: &'static str,
+) -> Result<Option<u64>, Krc20ExecuteError> {
+    value
+        .map(|v| {
+            u64::try_from(v).map_err(|_| Krc20ExecuteError::Amount {
+                payout_id,
+                field,
+                value: v,
+            })
+        })
+        .transpose()
 }
 
 /// Process every actionable transfer (`pending`, `commit_submitted`,
@@ -248,7 +288,6 @@ pub async fn settle_pending<C: KaspadClient + Sync>(
     client: &C,
     secret: &TreasurySecret,
     treasury_address: &Address,
-    fees: Krc20FeeConfig,
     limit: i64,
     mode: ExecutionMode,
 ) -> Result<SettleReport, Krc20ExecuteError> {
@@ -263,9 +302,30 @@ pub async fn settle_pending<C: KaspadClient + Sync>(
     )
     .await?;
 
+    // Size fresh transfers' fees from the live node fee-rate (frozen per-row at
+    // first execution). A fee-estimate RPC failure is non-fatal: fall back to
+    // the relay-minimum floor so transfers still go out. Mirrors `payout-kas`.
+    let fee_rate = match client.fee_estimate_sompi_per_gram().await {
+        Ok(feerate) => FeeRate::from_feerate(feerate),
+        Err(e) => {
+            warn!(error = %e, "fee-estimate RPC failed; using minimum relay fee floor");
+            FeeRate::from_feerate(0.0)
+        }
+    };
+
     let mut report = SettleReport::default();
     for transfer in &transfers {
-        match advance_transfer(pool, client, secret, treasury_address, fees, transfer, mode).await {
+        match advance_transfer(
+            pool,
+            client,
+            secret,
+            treasury_address,
+            &fee_rate,
+            transfer,
+            mode,
+        )
+        .await
+        {
             Ok(step) => report.record(step),
             Err(e) => report.errors.push(format!(
                 "krc20 transfer {} (payout {}): {e}",
@@ -287,7 +347,7 @@ pub async fn advance_transfer<C: KaspadClient + Sync>(
     client: &C,
     secret: &TreasurySecret,
     treasury_address: &Address,
-    fees: Krc20FeeConfig,
+    fee_rate: &FeeRate,
     transfer: &Krc20PendingTransfer,
     mode: ExecutionMode,
 ) -> Result<TransferStep, Krc20ExecuteError> {
@@ -324,7 +384,9 @@ pub async fn advance_transfer<C: KaspadClient + Sync>(
         treasury_script: pay_to_address_script(treasury_address),
         prefix: treasury_address.prefix,
         xonly,
-        fees,
+        fee_rate: *fee_rate,
+        frozen_commit_fee: opt_fee(transfer.commit_fee_sompi, transfer.payout_id, "commit")?,
+        frozen_reveal_fee: opt_fee(transfer.reveal_fee_sompi, transfer.payout_id, "reveal")?,
         inscription: Krc20Transfer::new(NACHO_TICK, nacho_amount.to_string(), recipient.address),
         commit_amount_sompi,
         payout_id: transfer.payout_id,
@@ -351,7 +413,10 @@ async fn handle_pending<C: KaspadClient + Sync>(
     ctx: &TransferCtx<'_>,
     mode: ExecutionMode,
 ) -> Result<TransferStep, Krc20ExecuteError> {
-    let plan = build_plan(client, ctx).await?;
+    // A fresh transfer sizes both fees from the live fee-rate; they are then
+    // frozen onto the row so every later reconstruction reproduces this exact
+    // commit/reveal.
+    let plan = build_plan(client, ctx, Krc20FeePolicy::Adaptive(ctx.fee_rate)).await?;
     verify_p2sh(ctx, &plan)?;
 
     let signed = sign_commit(&plan, &ctx.treasury_script, ctx.secret)?;
@@ -361,8 +426,23 @@ async fn handle_pending<C: KaspadClient + Sync>(
         return Ok(TransferStep::NoChange);
     }
 
-    // Record intent (hash + state) atomically, before the tx hits the wire.
+    let commit_fee =
+        i64::try_from(plan.commit_fee_sompi).map_err(|_| Krc20ExecuteError::Amount {
+            payout_id: ctx.payout_id,
+            field: "commit_fee_sompi",
+            value: i64::MAX,
+        })?;
+    let reveal_fee =
+        i64::try_from(plan.reveal_fee_sompi).map_err(|_| Krc20ExecuteError::Amount {
+            payout_id: ctx.payout_id,
+            field: "reveal_fee_sompi",
+            value: i64::MAX,
+        })?;
+
+    // Record intent (frozen fees + commit hash + state) atomically, before the
+    // tx hits the wire, so a crash-resume re-derives the identical txid.
     let mut db = pool.begin().await.map_err(DbError::from)?;
+    payout::record_krc20_fees(&mut *db, ctx.payout_id, commit_fee, reveal_fee).await?;
     payout::record_krc20_commit_hash(&mut *db, ctx.payout_id, txid_to_hash(commit_id)).await?;
     payout::mark_krc20_commit_submitted(&mut *db, ctx.payout_id).await?;
     db.commit().await.map_err(DbError::from)?;
@@ -385,11 +465,13 @@ async fn handle_commit_submitted<C: KaspadClient + Sync>(
     )?;
 
     // Reveal-only reconstruction: the redeem script + P2SH address it spends.
+    // The reveal fee was frozen when the commit was recorded, so the reveal
+    // return (and txid) re-derives identically.
     let reveal_plan = PlannedCommitReveal::reveal_only(
         &ctx.xonly,
         &ctx.inscription,
         ctx.commit_amount_sompi,
-        ctx.fees.reveal_fee_sompi,
+        ctx.reveal_fee()?,
     )?;
     let commit_addr = commit_address(&reveal_plan.redeem_script, ctx.prefix)?;
     let commit_outpoint = TransactionOutpoint {
@@ -415,10 +497,11 @@ async fn handle_commit_submitted<C: KaspadClient + Sync>(
                 return Ok(TransferStep::NoChange);
             }
             // Neither on chain nor in mempool: crash-before-broadcast (or a
-            // dropped mempool entry). Rebuild from live UTXOs; only re-broadcast
-            // if it reproduces the recorded txid — otherwise treasury UTXOs
-            // drifted and a new commit would be a distinct spend.
-            let plan = build_plan(client, ctx).await?;
+            // dropped mempool entry). Rebuild from live UTXOs with the frozen
+            // fees; only re-broadcast if it reproduces the recorded txid —
+            // otherwise treasury UTXOs drifted and a new commit would be a
+            // distinct spend.
+            let plan = build_plan(client, ctx, ctx.frozen_policy()?).await?;
             let rebuilt = commit_txid(&plan, &ctx.treasury_script)?;
             if rebuilt != recorded {
                 return Err(Krc20ExecuteError::CommitDrift {
@@ -494,7 +577,7 @@ async fn handle_reveal_submitted<C: KaspadClient + Sync>(
                 &ctx.xonly,
                 &ctx.inscription,
                 ctx.commit_amount_sompi,
-                ctx.fees.reveal_fee_sompi,
+                ctx.reveal_fee()?,
             )?;
             let rebuilt = reveal_txid(&reveal_plan, commit_outpoint, &ctx.treasury_script);
             if rebuilt != reveal_recorded {
@@ -548,10 +631,13 @@ async fn broadcast_reveal<C: KaspadClient + Sync>(
 
 // ---- helpers --------------------------------------------------------
 
-/// Plan a fresh commit/reveal against the live, spendable treasury UTXO set.
+/// Plan a commit/reveal against the live, spendable treasury UTXO set under
+/// the given fee policy ([`Krc20FeePolicy::Adaptive`] for a fresh transfer,
+/// [`Krc20FeePolicy::Frozen`] to deterministically replay an in-flight one).
 async fn build_plan<C: KaspadClient + Sync>(
     client: &C,
     ctx: &TransferCtx<'_>,
+    fee_policy: Krc20FeePolicy,
 ) -> Result<PlannedCommitReveal, Krc20ExecuteError> {
     let virtual_daa = client.virtual_daa_score().await?;
     let snapshots = client.treasury_utxos(ctx.treasury_address).await?;
@@ -563,8 +649,7 @@ async fn build_plan<C: KaspadClient + Sync>(
 
     let cfg = CommitRevealConfig {
         commit_amount_sompi: ctx.commit_amount_sompi,
-        commit_fee_sompi: ctx.fees.commit_fee_sompi,
-        reveal_fee_sompi: ctx.fees.reveal_fee_sompi,
+        fee_policy,
     };
     let evaluator = MassEvaluator::mainnet();
     let plan = plan_commit_reveal(

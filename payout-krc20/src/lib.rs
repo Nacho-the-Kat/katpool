@@ -65,14 +65,14 @@ pub use engine::{
     Krc20EngineError, Krc20PayoutEngine, Krc20PayoutEngineConfig, Krc20TickOutcome, Krc20TickReport,
 };
 pub use execute::{
-    Krc20ExecuteError, Krc20FeeConfig, SettleReport, TransferStep, advance_transfer, settle_pending,
+    Krc20ExecuteError, SettleReport, TransferStep, advance_transfer, settle_pending,
 };
 pub use inscription::{
     InscriptionError, KASPLEX_TAG, KRC20_PROTOCOL, Krc20Transfer, build_transfer_inscription,
     commit_address, commit_script_public_key, reveal_signature_script,
 };
 pub use plan::{
-    CommitRevealConfig, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_FEE_SOMPI, PlanError,
+    CommitRevealConfig, DEFAULT_COMMIT_AMOUNT_SOMPI, Krc20FeePolicy, PlanError,
     PlannedCommitReveal, STANDARD_SIGNATURE_SCRIPT_LEN, plan_commit_reveal,
 };
 pub use quote::{
