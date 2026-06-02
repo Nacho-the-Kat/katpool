@@ -24,6 +24,7 @@ ADR pointing back.
 | [0018](0018-payout-fee-policy-and-on-demand-cycles.md) | KAS payout fee policy, exact-fee finalization, cadence, and on-demand cycles | accepted |
 | [0019](0019-krc20-adaptive-fee-and-fee-persistence.md) | KRC-20 commit/reveal adaptive fees, frozen for crash-safe determinism | accepted |
 | [0020](0020-krc20-sweep-coherent-utxo-chaining.md) | KRC-20 sweep-coherent UTXO chaining for sibling commits | accepted |
+| [0021](0021-public-read-only-http-api.md) | Public read-only HTTP API: embedded axum service, versioned data surface, DoS posture | proposed |
 
 ## When to write a new ADR
 

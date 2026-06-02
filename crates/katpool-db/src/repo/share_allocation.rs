@@ -225,6 +225,31 @@ pub async fn list_for_wallet<'e, E: PgExecutor<'e>>(
     .map_err(DbError::from)
 }
 
+/// The tier applied to this wallet's most-recent allocation, or `None`
+/// if the wallet has never been allocated.
+///
+/// This is the ground truth behind the Phase 6 `/full_rebate/:address`
+/// endpoint: it reports the tier that was actually applied to the
+/// wallet's money (the persisted `applied_tier`), not a live classifier
+/// opinion — deterministic and honest on every network, including tn10
+/// where NACHO does not exist (ADR-0021).
+pub async fn latest_applied_tier_for_wallet<'e, E: PgExecutor<'e>>(
+    executor: E,
+    wallet_id: WalletId,
+) -> Result<Option<DbWalletTier>, DbError> {
+    sqlx::query_scalar::<_, DbWalletTier>(
+        "SELECT applied_tier
+           FROM share_allocation
+          WHERE wallet_id = $1
+          ORDER BY computed_at DESC, id DESC
+          LIMIT 1",
+    )
+    .bind(wallet_id.0)
+    .fetch_optional(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// Total `net_payout_sompi` owed to a wallet across all allocations.
 /// The Phase 3 accountant uses this as the planned-payout balance.
 pub async fn pending_balance_for_wallet<'e, E: PgExecutor<'e>>(

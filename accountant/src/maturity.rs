@@ -182,6 +182,11 @@ pub struct MaturityTracker {
     engine: Arc<AllocationEngine>,
     cfg: MaturityConfig,
     instance_id: String,
+    /// Optional kaspad-reachability signal. Each [`Self::run_loop`] sweep
+    /// publishes `true` on a successful poll and `false` on a failed one,
+    /// letting an embedder (the unified runtime's API readiness probe) reuse
+    /// this poller instead of opening a second kaspad connection.
+    sync_observer: Option<watch::Sender<bool>>,
 }
 
 impl MaturityTracker {
@@ -200,7 +205,19 @@ impl MaturityTracker {
             engine,
             cfg,
             instance_id,
+            sync_observer: None,
         }
+    }
+
+    /// Attach a kaspad-reachability observer published once per sweep.
+    ///
+    /// Consumed builder-style at wiring time. The sender's initial `watch`
+    /// value is whatever the caller seeded the channel with; the first sweep
+    /// overwrites it. Dropped silently if no sweep ever runs.
+    #[must_use]
+    pub fn with_sync_observer(mut self, observer: watch::Sender<bool>) -> Self {
+        self.sync_observer = Some(observer);
+        self
     }
 
     /// One sweep: block-lifecycle telemetry, then coinbase-reward
@@ -422,11 +439,21 @@ impl MaturityTracker {
                     }
                 }
                 _ = interval.tick() => {
-                    if let Err(e) = self.run_once().await {
-                        // A whole-sweep error (e.g. kaspad transport
-                        // down) is logged but doesn't kill the loop —
-                        // the next interval tick retries.
-                        warn!(instance = %self.instance_id, error = %e, "tracker sweep failed; will retry");
+                    let reachable = match self.run_once().await {
+                        Ok(_) => true,
+                        Err(e) => {
+                            // A whole-sweep error (e.g. kaspad transport
+                            // down) is logged but doesn't kill the loop —
+                            // the next interval tick retries.
+                            warn!(instance = %self.instance_id, error = %e, "tracker sweep failed; will retry");
+                            false
+                        }
+                    };
+                    // Publish kaspad reachability for any embedded readiness
+                    // probe. `send` errors only when every receiver is gone,
+                    // which is benign here.
+                    if let Some(observer) = &self.sync_observer {
+                        let _ = observer.send(reachable);
                     }
                 }
             }

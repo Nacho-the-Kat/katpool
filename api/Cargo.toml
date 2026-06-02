@@ -1,6 +1,6 @@
 [package]
 name = "api"
-description = "Public read-only HTTP API: /health, /balance, /api/pool/*, /full_rebate/*"
+description = "Public read-only HTTP API: /health, /api/v1/pool/*, /api/v1/balance, /api/v1/miners/*, /api/v1/full_rebate/*"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,39 +12,25 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Scaffold crate — every dep below is reserved for Phase 6
-# (read-only HTTP API).
-[package.metadata.cargo-machete]
-ignored = [
-    "axum",
-    "chrono",
-    "katpool-db",
-    "katpool-domain",
-    "katpool-metrics",
-    "katpool-telemetry",
-    "serde",
-    "serde_json",
-    "thiserror",
-    "tokio",
-    "tower",
-    "tower-http",
-    "tracing",
-]
-
 [dependencies]
 katpool-domain = { path = "../crates/katpool-domain" }
 katpool-db = { path = "../crates/katpool-db" }
-katpool-metrics = { path = "../crates/katpool-metrics" }
-katpool-telemetry = { path = "../crates/katpool-telemetry" }
+sqlx = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
-tower = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 tower-http = { workspace = true }
+tower_governor = { workspace = true }
+moka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+reqwest = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }

@@ -526,6 +526,168 @@ pub async fn get_payout<'e, E: PgExecutor<'e>>(
     .map_err(DbError::from)
 }
 
+/// A wallet's KAS payable position — the single-wallet analogue of one
+/// [`list_kas_eligible_wallets`] row. Drives the Phase 6
+/// `/api/v1/balance/:address` endpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalletKasBalance {
+    /// Lifetime `sum(share_allocation.net_payout_sompi)`.
+    pub allocated_sompi: i64,
+    /// Lifetime confirmed KAS payouts (`payout.amount_sompi`, `kas` cycles).
+    pub confirmed_paid_sompi: i64,
+    /// `allocated_sompi - confirmed_paid_sompi` — the unpaid KAS balance.
+    pub payable_sompi: i64,
+}
+
+/// Compute a single wallet's KAS payable balance.
+///
+/// Identical accounting to [`list_kas_eligible_wallets`] (allocated minus
+/// confirmed `kas`-cycle payouts; in-flight payouts do **not** reduce it),
+/// scoped to one wallet and returning a row even when the wallet has no
+/// allocations (all-zero), so the API can distinguish "known wallet, zero
+/// balance" from "unknown wallet" (the latter is caught earlier by
+/// `wallet::find_by_address`).
+pub async fn kas_payable_for_wallet<'e, E: PgExecutor<'e>>(
+    executor: E,
+    wallet_id: WalletId,
+) -> Result<WalletKasBalance, DbError> {
+    let row: (i64, i64) = sqlx::query_as(
+        "SELECT
+           COALESCE((SELECT sum(net_payout_sompi)::bigint
+                       FROM share_allocation
+                      WHERE wallet_id = $1), 0),
+           COALESCE((SELECT sum(po.amount_sompi)::bigint
+                       FROM payout po
+                       INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+                      WHERE pc.kind = 'kas'
+                        AND po.status = 'confirmed'
+                        AND po.wallet_id = $1), 0)",
+    )
+    .bind(wallet_id.0)
+    .fetch_one(executor)
+    .await?;
+    Ok(WalletKasBalance {
+        allocated_sompi: row.0,
+        confirmed_paid_sompi: row.1,
+        payable_sompi: row.0 - row.1,
+    })
+}
+
+/// Pool-wide confirmed-payout totals, split by kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolPayoutTotals {
+    /// Sum of confirmed KAS payout amounts (sompi).
+    pub kas_confirmed_sompi: i64,
+    /// Sum of confirmed KRC-20/NACHO payout amounts, denominated in the
+    /// KAS-sompi value that was converted (not NACHO base units).
+    pub nacho_confirmed_sompi: i64,
+    /// Count of confirmed payout rows across both kinds.
+    pub confirmed_payouts: i64,
+}
+
+/// Aggregate confirmed-payout totals across the whole pool. Drives the
+/// pool-stats "total paid" figures.
+pub async fn pool_payout_totals<'e, E: PgExecutor<'e>>(
+    executor: E,
+) -> Result<PoolPayoutTotals, DbError> {
+    let row: (Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
+        "SELECT
+           COALESCE(sum(CASE WHEN pc.kind = 'kas' AND po.status = 'confirmed'
+                             THEN po.amount_sompi ELSE 0 END), 0)::bigint,
+           COALESCE(sum(CASE WHEN pc.kind = 'krc20_nacho' AND po.status = 'confirmed'
+                             THEN po.amount_sompi ELSE 0 END), 0)::bigint,
+           COALESCE(sum(CASE WHEN po.status = 'confirmed' THEN 1 ELSE 0 END), 0)::bigint
+           FROM payout po
+           INNER JOIN payout_cycle pc ON pc.id = po.cycle_id",
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(PoolPayoutTotals {
+        kas_confirmed_sompi: row.0.unwrap_or(0),
+        nacho_confirmed_sompi: row.1.unwrap_or(0),
+        confirmed_payouts: row.2.unwrap_or(0),
+    })
+}
+
+/// Recent payout cycles across both kinds, newest-first, keyset-paginated
+/// (`before_id = None` for the first page; the previous page's smallest
+/// `id` for the next).
+pub async fn list_recent_cycles<'e, E: PgExecutor<'e>>(
+    executor: E,
+    limit: i64,
+    before_id: Option<i64>,
+) -> Result<Vec<PayoutCycle>, DbError> {
+    sqlx::query_as::<_, PayoutCycle>(
+        "SELECT id, kind, status, daa_start, daa_end, planned_at, broadcast_at,
+                settled_at, total_sompi, total_recipients, idempotency_key
+           FROM payout_cycle
+          WHERE ($2::bigint IS NULL OR id < $2)
+          ORDER BY id DESC
+          LIMIT $1",
+    )
+    .bind(limit)
+    .bind(before_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// One row of a wallet's payout history, joined with its cycle's `kind`
+/// so the API can label KAS vs NACHO without a second query.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WalletPayout {
+    /// `payout.id`.
+    pub id: i64,
+    /// FK to `payout_cycle.id`.
+    pub cycle_id: i64,
+    /// The owning cycle's kind.
+    pub kind: PayoutKind,
+    /// Payout amount in sompi.
+    pub amount_sompi: i64,
+    /// Per-recipient status.
+    pub status: PayoutStatus,
+    /// KAS tx hash (KAS cycles).
+    pub tx_hash: Option<Vec<u8>>,
+    /// KRC-20 commit tx hash (NACHO cycles).
+    pub krc20_commit_hash: Option<Vec<u8>>,
+    /// KRC-20 reveal tx hash (NACHO cycles).
+    pub krc20_reveal_hash: Option<Vec<u8>>,
+    /// When the payout row was created.
+    pub planned_at: DateTime<Utc>,
+    /// When the tx was submitted.
+    pub submitted_at: Option<DateTime<Utc>>,
+    /// When the tx confirmed past maturity.
+    pub confirmed_at: Option<DateTime<Utc>>,
+    /// Failure reason if `status = failed`.
+    pub failure_reason: Option<String>,
+}
+
+/// A wallet's payout history (both kinds), newest-first, keyset-paginated.
+pub async fn list_for_wallet_detailed<'e, E: PgExecutor<'e>>(
+    executor: E,
+    wallet_id: WalletId,
+    limit: i64,
+    before_id: Option<i64>,
+) -> Result<Vec<WalletPayout>, DbError> {
+    sqlx::query_as::<_, WalletPayout>(
+        "SELECT po.id, po.cycle_id, pc.kind, po.amount_sompi, po.status,
+                po.tx_hash, po.krc20_commit_hash, po.krc20_reveal_hash,
+                po.planned_at, po.submitted_at, po.confirmed_at, po.failure_reason
+           FROM payout po
+           INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+          WHERE po.wallet_id = $1
+            AND ($3::bigint IS NULL OR po.id < $3)
+          ORDER BY po.id DESC
+          LIMIT $2",
+    )
+    .bind(wallet_id.0)
+    .bind(limit)
+    .bind(before_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// List every payout under a cycle.
 pub async fn list_for_cycle<'e, E: PgExecutor<'e>>(
     executor: E,
