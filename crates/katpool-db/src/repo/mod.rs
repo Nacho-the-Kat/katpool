@@ -55,6 +55,7 @@
 
 pub mod audit;
 pub mod block;
+pub mod coinbase_reward;
 pub mod connection_session;
 pub mod nacho_rebate;
 pub mod payout;
@@ -92,6 +93,11 @@ pub struct ShareId(pub i64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct BlockId(pub i64);
+
+/// Strongly-typed wrapper around a `coinbase_reward.id` value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct CoinbaseRewardId(pub i64);
 
 /// Strongly-typed wrapper around an `audit_log.id` value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]

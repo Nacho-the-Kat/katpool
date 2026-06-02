@@ -1,7 +1,8 @@
 //! PROP allocation engine.
 //!
-//! Takes a matured block (a `confirmed_blue` block whose coinbase
-//! reward is now known) and atomically:
+//! Takes a matured coinbase reward (a coinbase UTXO credited to the
+//! pool address that has reached consensus coinbase-maturity, with its
+//! exact sompi value known) and atomically:
 //!
 //! 1. Closes the share-window covering the block's reward span
 //!    via [`WindowAggregator`].
@@ -27,17 +28,17 @@
 //!
 //! ## Idempotency
 //!
-//! The engine gates on `block.status`:
+//! The engine gates on `coinbase_reward.allocated_at`, taken under a
+//! `SELECT … FOR UPDATE` row lock:
 //!
-//! - `confirmed_blue` → do the allocation, advance to `matured`.
-//! - `matured`        → no-op, return [`AllocationOutcome::AlreadyAllocated`].
-//! - anything else    → error.
+//! - `allocated_at IS NULL` → do the allocation, stamp `allocated_at`.
+//! - `allocated_at` set      → no-op, return [`AllocationOutcome::AlreadyAllocated`].
 //!
-//! The combination of the block's status gate + the schema's
-//! `UNIQUE(block_id, wallet_id)` on `share_allocation` makes
-//! double-allocation impossible. The rebate accrual is also
-//! gated by the status check, so additive `nacho_rebate::accrue`
-//! is called at most once per (wallet, block).
+//! The combination of the row-lock gate + the schema's
+//! `UNIQUE(coinbase_reward_id, wallet_id)` on `share_allocation` makes
+//! double-allocation impossible. The rebate accrual is also gated by
+//! the lock, so additive `nacho_rebate::accrue` is called at most once
+//! per (wallet, reward).
 //!
 //! ## Pro-rating + rounding residue
 //!
@@ -70,12 +71,13 @@
 use std::sync::Arc;
 
 use katpool_db::DbError;
+use katpool_db::repo::CoinbaseRewardId;
 use katpool_db::repo::audit;
-use katpool_db::repo::block::{self, BlockStatus};
+use katpool_db::repo::coinbase_reward;
 use katpool_db::repo::nacho_rebate;
 use katpool_db::repo::share_allocation::{self, DbWalletTier, NewAllocation};
 use katpool_db::repo::share_window;
-use katpool_domain::{BlockHash, DaaScore};
+use katpool_domain::DaaScore;
 use sqlx::PgPool;
 use tracing::{info, warn};
 
@@ -83,7 +85,7 @@ use crate::config::{Allocation, AllocationError, FeeConfig, WalletTier};
 use crate::tier::TierClassifier;
 use crate::window::WindowAggregator;
 
-/// Result of running [`AllocationEngine::allocate_matured_block`].
+/// Result of running [`AllocationEngine::allocate_coinbase_reward`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AllocationOutcome {
     /// Allocation freshly performed; counts inside.
@@ -131,22 +133,11 @@ pub enum AllocationEngineError {
     #[error("allocation math: {0}")]
     Math(#[from] AllocationError),
 
-    /// Block hash isn't in the DB.
-    #[error("unknown block hash: {hash}")]
-    UnknownBlock {
-        /// The hash we couldn't find.
-        hash: String,
-    },
-
-    /// Block is in a status the engine cannot allocate from.
-    /// `confirmed_blue` and `matured` are the only acceptable
-    /// states (the latter triggers the idempotent no-op path).
-    #[error("block {hash} is in status `{status:?}`; expected confirmed_blue or matured")]
-    BadStatus {
-        /// The hash.
-        hash: String,
-        /// The current status.
-        status: BlockStatus,
+    /// Coinbase-reward id isn't in the DB.
+    #[error("unknown coinbase reward id: {id}")]
+    UnknownReward {
+        /// The id we couldn't find.
+        id: i64,
     },
 
     /// The window's total weight is zero or non-finite. This is
@@ -157,6 +148,15 @@ pub enum AllocationEngineError {
     InvalidWindowWeight {
         /// Offending value.
         total_weight: f64,
+    },
+
+    /// A wallet address persisted in the DB failed domain
+    /// re-validation. Indicates schema drift or out-of-band writes;
+    /// surfaced rather than silently dropping the recipient.
+    #[error("invalid wallet address in DB: {address}")]
+    InvalidWalletAddress {
+        /// The offending stored address.
+        address: String,
     },
 }
 
@@ -188,62 +188,36 @@ impl AllocationEngine {
         }
     }
 
-    /// Run the full allocation cycle for one matured block.
+    /// Run the full allocation cycle for one matured coinbase reward.
     ///
-    /// `block_hash` MUST already be in the `block` table (the
-    /// bridge's `BlockFound` consumer puts it there). The block
-    /// MUST be in `confirmed_blue` status — call
-    /// [`block::mark_confirmed_blue`] beforehand once kaspad
-    /// confirms blueness.
+    /// `reward_id` MUST reference a row in the `coinbase_reward` table
+    /// (the maturity tracker records it once the UTXO reaches consensus
+    /// coinbase-maturity). Allocation is gated on the row's
+    /// `allocated_at` taken under a `SELECT … FOR UPDATE` lock, so a
+    /// second call is a no-op.
     ///
-    /// `block_reward_sompi` is the actual coinbase reward
-    /// observed at maturity. The engine writes it to the block
-    /// row alongside the `matured` transition.
+    /// `reward_sompi` is the exact value of the matured coinbase UTXO.
     ///
-    /// `daa_start..daa_end` is the share-window the block's
-    /// reward covers. Half-open `[start, end)` semantics —
-    /// shares at exactly `daa_end` land in the *next* window.
+    /// `daa_start..daa_end` is the share-window the reward covers.
+    /// Half-open `[start, end)` semantics — shares at exactly `daa_end`
+    /// land in the *next* window.
     // The orchestration is intentionally long-form: every step is
     // a single named operation against the schema, and abstracting
     // them out reduces traceability for a money-path function.
     #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
-    pub async fn allocate_matured_block(
+    pub async fn allocate_coinbase_reward(
         &self,
-        block_hash: BlockHash,
-        block_reward_sompi: i64,
+        reward_id: CoinbaseRewardId,
+        reward_sompi: i64,
         daa_start: DaaScore,
         daa_end: DaaScore,
     ) -> Result<AllocationOutcome, AllocationEngineError> {
-        if block_reward_sompi < 0 {
+        if reward_sompi < 0 {
             return Err(AllocationEngineError::Math(
                 AllocationError::NegativeGross {
-                    gross_sompi: block_reward_sompi,
+                    gross_sompi: reward_sompi,
                 },
             ));
-        }
-
-        // ---- gate on block status (idempotency root) ----------------
-        let block_row = block::find_by_hash(&self.db, block_hash)
-            .await?
-            .ok_or_else(|| AllocationEngineError::UnknownBlock {
-                hash: block_hash.to_string(),
-            })?;
-        match block_row.status {
-            BlockStatus::ConfirmedBlue => {} // good
-            BlockStatus::Matured => {
-                info!(
-                    instance = %self.instance_id,
-                    hash = %block_hash,
-                    "block already matured; allocation is a no-op replay"
-                );
-                return Ok(AllocationOutcome::AlreadyAllocated);
-            }
-            other => {
-                return Err(AllocationEngineError::BadStatus {
-                    hash: block_hash.to_string(),
-                    status: other,
-                });
-            }
         }
 
         // ---- close the share window (idempotent) --------------------
@@ -252,14 +226,13 @@ impl AllocationEngine {
             .close_window(daa_start, daa_end, chrono::Utc::now())
             .await?;
 
-        // ---- read per-wallet rollups --------------------------------
+        // ---- read per-wallet rollups (pure reads; the FOR UPDATE
+        //      critical section below is kept short) -----------------
         let windows = share_window::list_for_window(&self.db, daa_start, daa_end).await?;
+
+        // ---- empty window: reward retained by the pool --------------
         if windows.is_empty() {
-            // Block has no contributing wallets — advance state and
-            // surface the retained reward via audit log.
-            return self
-                .finalise_empty(block_hash, block_row.id.0, block_reward_sompi)
-                .await;
+            return self.finalise_empty(reward_id, reward_sompi).await;
         }
 
         let total_weight: f64 = windows.iter().map(|w| w.total_weight).sum();
@@ -270,10 +243,10 @@ impl AllocationEngine {
         // ---- pro-rate the reward; assign residue --------------------
         let mut grosses: Vec<i64> = windows
             .iter()
-            .map(|w| pro_rate(block_reward_sompi, w.total_weight, total_weight))
+            .map(|w| pro_rate(reward_sompi, w.total_weight, total_weight))
             .collect();
         let summed: i64 = grosses.iter().sum();
-        let residue = block_reward_sompi.saturating_sub(summed);
+        let residue = reward_sompi.saturating_sub(summed);
         // Award residue to the smallest wallet_id (deterministic).
         let mut order: Vec<usize> = (0..windows.len()).collect();
         order.sort_by_key(|i| windows.get(*i).map_or(i64::MAX, |w| w.wallet_id.0));
@@ -283,8 +256,8 @@ impl AllocationEngine {
             *slot = slot.saturating_add(residue);
         }
 
-        // ---- classify tiers (parallel; falls back to Standard
-        //      individually on classifier error) ----------------------
+        // ---- classify tiers (falls back to Standard individually on
+        //      classifier error) ---------------------------------------
         let mut tiers: Vec<WalletTier> = Vec::with_capacity(windows.len());
         for w in &windows {
             let addr = self.lookup_wallet_addr(w.wallet_id.0).await?;
@@ -305,8 +278,8 @@ impl AllocationEngine {
             allocations.push(alloc);
         }
 
-        // ---- single transaction: insert allocations, accrue
-        //      rebates, advance block status, write audit log --------
+        // ---- single transaction: lock+gate the reward, insert
+        //      allocations, accrue rebates, stamp allocated, audit ----
         let new_rows: Vec<NewAllocation> = windows
             .iter()
             .zip(allocations.iter())
@@ -325,17 +298,30 @@ impl AllocationEngine {
             .collect();
 
         let mut tx = self.db.begin().await?;
-        let _ = share_allocation::insert_batch(&mut *tx, block_row.id, &new_rows).await?;
+        let reward_row = coinbase_reward::lock_for_allocation(&mut *tx, reward_id)
+            .await?
+            .ok_or(AllocationEngineError::UnknownReward { id: reward_id.0 })?;
+        if reward_row.allocated_at.is_some() {
+            // Another sweep already allocated this reward; the tx rolls
+            // back on drop.
+            info!(
+                instance = %self.instance_id,
+                reward_id = reward_id.0,
+                "coinbase reward already allocated; no-op replay"
+            );
+            return Ok(AllocationOutcome::AlreadyAllocated);
+        }
+        let _ = share_allocation::insert_batch(&mut *tx, reward_id, &new_rows).await?;
         for (w, a) in windows.iter().zip(allocations.iter()) {
             if a.nacho_accrual_sompi > 0 {
                 nacho_rebate::accrue(&mut *tx, w.wallet_id, a.nacho_accrual_sompi).await?;
             }
         }
-        block::mark_matured(&mut *tx, block_hash, block_reward_sompi).await?;
+        coinbase_reward::mark_allocated(&mut *tx, reward_id).await?;
         let totals = sum_totals(&allocations);
         let payload = serde_json::json!({
-            "block_hash": block_hash.to_string(),
-            "block_reward_sompi": block_reward_sompi,
+            "coinbase_reward_id": reward_id.0,
+            "reward_sompi": reward_sompi,
             "wallet_count": windows.len(),
             "total_pool_fee_sompi": totals.pool_fee,
             "total_nacho_accrual_sompi": totals.nacho,
@@ -343,19 +329,19 @@ impl AllocationEngine {
             "rounding_residue_sompi": residue,
             "applied_topline_bps": self.fee.topline_bps(),
         });
-        let entry = audit::NewEntry::new(&self.instance_id, "block.allocated")
-            .subject("block", block_row.id.0)
+        let entry = audit::NewEntry::new(&self.instance_id, "coinbase_reward.allocated")
+            .subject("coinbase_reward", reward_id.0)
             .payload(payload);
         audit::append(&mut *tx, entry).await?;
         tx.commit().await?;
 
         info!(
             instance = %self.instance_id,
-            hash = %block_hash,
+            reward_id = reward_id.0,
             wallets = windows.len(),
-            reward = block_reward_sompi,
+            reward = reward_sompi,
             residue,
-            "block allocated"
+            "coinbase reward allocated"
         );
 
         Ok(AllocationOutcome::Allocated {
@@ -383,33 +369,38 @@ impl AllocationEngine {
                 wallet_id,
                 "wallet address in DB failed domain validation: {e}"
             );
-            AllocationEngineError::UnknownBlock { hash: addr }
+            AllocationEngineError::InvalidWalletAddress { address: addr }
         })
     }
 
     async fn finalise_empty(
         &self,
-        block_hash: BlockHash,
-        block_id: i64,
+        reward_id: CoinbaseRewardId,
         reward: i64,
     ) -> Result<AllocationOutcome, AllocationEngineError> {
         let mut tx = self.db.begin().await?;
-        block::mark_matured(&mut *tx, block_hash, reward).await?;
+        let reward_row = coinbase_reward::lock_for_allocation(&mut *tx, reward_id)
+            .await?
+            .ok_or(AllocationEngineError::UnknownReward { id: reward_id.0 })?;
+        if reward_row.allocated_at.is_some() {
+            return Ok(AllocationOutcome::AlreadyAllocated);
+        }
+        coinbase_reward::mark_allocated(&mut *tx, reward_id).await?;
         let payload = serde_json::json!({
-            "block_hash": block_hash.to_string(),
-            "block_reward_sompi": reward,
+            "coinbase_reward_id": reward_id.0,
+            "reward_sompi": reward,
             "note": "no contributing wallets in share window; reward retained by pool",
         });
-        let entry = audit::NewEntry::new(&self.instance_id, "block.allocated_empty")
-            .subject("block", block_id)
+        let entry = audit::NewEntry::new(&self.instance_id, "coinbase_reward.allocated_empty")
+            .subject("coinbase_reward", reward_id.0)
             .payload(payload);
         audit::append(&mut *tx, entry).await?;
         tx.commit().await?;
         warn!(
             instance = %self.instance_id,
-            hash = %block_hash,
+            reward_id = reward_id.0,
             reward,
-            "block matured with no contributing wallets; reward retained by pool"
+            "coinbase reward had no contributing wallets; retained by pool"
         );
         Ok(AllocationOutcome::NoContributingWallets {
             retained_reward_sompi: reward,

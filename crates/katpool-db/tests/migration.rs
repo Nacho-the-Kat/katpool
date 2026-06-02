@@ -229,28 +229,29 @@ async fn share_allocation_balance_check_rejects_mismatch() {
     .await
     .expect("insert worker");
 
-    let block_id: i64 = sqlx::query_scalar(
-        "INSERT INTO block (hash, finder_wallet_id, finder_worker_id, daa_score, nonce, correlation_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    // Allocation now anchors on a matured coinbase_reward, not a block.
+    let reward_id: i64 = sqlx::query_scalar(
+        "INSERT INTO coinbase_reward
+            (outpoint_transaction_id, outpoint_index, amount_sompi, block_daa_score)
+         VALUES ($1, $2, $3, $4) RETURNING id",
     )
     .bind(vec![1u8; 32])
-    .bind(wallet_id)
-    .bind(worker_id)
+    .bind(0_i32)
+    .bind(100_i64)
     .bind(1_i64)
-    .bind(0_i64)
-    .bind(Uuid::new_v4())
     .fetch_one(&pool)
     .await
-    .expect("insert block");
+    .expect("insert coinbase_reward");
+    let _ = worker_id;
 
     // Bad allocation: gross != fee + accrual + net.
     let err = sqlx::query(
-        "INSERT INTO share_allocation (block_id, wallet_id, weight, window_total,
+        "INSERT INTO share_allocation (coinbase_reward_id, wallet_id, weight, window_total,
             gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
             applied_topline_bps, applied_rebate_bps, applied_tier)
          VALUES ($1, $2, 100.0, 100.0, 100, 1, 1, 1, 75, 3300, 'standard')",
     )
-    .bind(block_id)
+    .bind(reward_id)
     .bind(wallet_id)
     .execute(&pool)
     .await

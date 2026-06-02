@@ -16,9 +16,10 @@
 //! 2. **Accountant event consumer**. Drains the broadcast channel,
 //!    writes share / block rows via the new schema's repo layer.
 //! 3. **Maturity tracker**. Polls kaspad (via the same gRPC URL,
-//!    separate client) for blue-score / block-info; transitions
-//!    blocks `submitted_to_node → confirmed_blue → matured` and
-//!    calls the accountant's allocation engine on maturity.
+//!    separate client): resolves `submitted_to_node` blocks to
+//!    `confirmed_blue` / `orphaned` by GHOSTDAG colour, and allocates
+//!    matured coinbase UTXOs credited to the pool address via the
+//!    accountant's allocation engine.
 //!
 //! All three subsystems shut down cleanly on SIGINT / SIGTERM via
 //! a `tokio::sync::watch::Receiver<bool>` propagated from the
@@ -45,7 +46,7 @@
 //! - `KATPOOL_PROM_PORT`             default empty (disabled)
 //! - `KATPOOL_HEALTH_CHECK_PORT`     default empty (disabled)
 //! - `KATPOOL_MATURITY_POLL_SECS`    default 15
-//! - `KATPOOL_MATURITY_DEPTH`        default 100
+//! - `KATPOOL_COINBASE_MATURITY`     default 1000 (DAA-score depth)
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
@@ -622,7 +623,7 @@ impl RuntimeConfig {
         let shares_per_min = optional_u32("KATPOOL_SHARES_PER_MIN")?.unwrap_or(20);
         let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?.unwrap_or(4096);
         let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
-        let maturity_depth = optional_u64("KATPOOL_MATURITY_DEPTH")?.unwrap_or(100);
+        let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?.unwrap_or(1000);
         let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
         let network = resolve_network(&pool_addresses)?;
@@ -673,7 +674,7 @@ impl RuntimeConfig {
             event_record_path,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
-                maturity_depth,
+                coinbase_maturity,
                 window_daa_span,
                 batch_size,
             },

@@ -302,7 +302,7 @@ async fn block_lifecycle_advance_in_order() {
     assert_eq!(after_sub.status, BlockStatus::SubmittedToNode);
     assert!(after_sub.submitted_at.is_some());
 
-    block::mark_confirmed_blue(&pool, hash, 1234)
+    block::mark_confirmed_blue(&pool, hash, Some(1234))
         .await
         .expect("confirmed");
     let after_conf = block::find_by_hash(&pool, hash)
@@ -358,7 +358,7 @@ async fn block_mark_submitted_is_idempotent() {
 }
 
 #[tokio::test]
-async fn block_list_by_status_orders_recent_first() {
+async fn block_list_by_status_orders_oldest_first() {
     let (pool, _ctr) = fresh_pool().await;
     let w = wallet::ensure(&pool, &sample_wallet_addr(), "mainnet")
         .await
@@ -385,9 +385,10 @@ async fn block_list_by_status_orders_recent_first() {
         .await
         .expect("list");
     assert_eq!(listed.len(), 3);
-    // Newest-first, so the last-inserted (hash byte 3) is first.
-    assert_eq!(listed[0].hash[0], 3);
-    assert_eq!(listed[2].hash[0], 1);
+    // Oldest-first (FIFO drain), so the first-inserted (hash byte 1) is
+    // first and the last-inserted (hash byte 3) is last.
+    assert_eq!(listed[0].hash[0], 1);
+    assert_eq!(listed[2].hash[0], 3);
 }
 
 #[tokio::test]

@@ -10,9 +10,15 @@ pub const KAS_PAYOUT_CONFIRMATION_DAA: u64 = 100;
 /// Confirmations a non-coinbase treasury coin needs before it is spendable.
 pub const NON_COINBASE_MATURITY_DAA: u64 = 10;
 
-/// Confirmations a coinbase treasury coin (mining reward) needs before it is
-/// spendable. Matches Kaspa mainnet `coinbase_maturity`.
-pub const COINBASE_MATURITY_DAA: u64 = 100;
+/// Confirmations a coinbase treasury coin (mining reward) needs before
+/// it is spendable.
+///
+/// Matches Kaspa consensus `coinbase_maturity` for mainnet and
+/// testnet-10: `BPS(10) × COINBASE_MATURITY_SECONDS(100) = 1000`
+/// DAA-score depth. Spending a coinbase UTXO shallower than this is
+/// rejected by consensus, so selecting one for a payout would produce
+/// an invalid transaction.
+pub const COINBASE_MATURITY_DAA: u64 = 1000;
 
 /// Derived state of a submitted payout transaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,9 +137,12 @@ mod tests {
 
     #[test]
     fn coinbase_needs_deeper_maturity_than_change() {
-        // 50 deep: change (non-coinbase, needs 10) spendable; coinbase (100) not.
+        // 50 deep: change (non-coinbase, needs 10) spendable; coinbase (1000) not.
         assert!(is_spendable(0, false, 50));
         assert!(!is_spendable(0, true, 50));
-        assert!(is_spendable(0, true, 100));
+        // Still immature one short of consensus coinbase maturity.
+        assert!(!is_spendable(0, true, 999));
+        // Spendable exactly at the 1000-DAA coinbase-maturity depth.
+        assert!(is_spendable(0, true, 1000));
     }
 }
