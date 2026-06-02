@@ -26,7 +26,7 @@ use katpool_secrets::TreasurySecret;
 use sqlx::PgPool;
 use tokio::sync::watch;
 use tokio::time;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::client::KaspadClient;
 use crate::confirm::KAS_PAYOUT_CONFIRMATION_DAA;
@@ -196,6 +196,16 @@ impl<C: KaspadClient> PayoutEngine<C> {
         let confirm =
             confirm_cycle(&self.pool, &self.client, &self.treasury_address, &reloaded).await?;
         let status = reconcile_cycle_status(&self.pool, cycle_id).await?;
+
+        if !broadcast.submit_errors.is_empty() {
+            error!(
+                instance = %self.config.instance_id,
+                cycle_id,
+                errors = broadcast.submit_errors.len(),
+                detail = %broadcast.submit_errors.join("; "),
+                "payout broadcast(s) rejected; cycle has unbroadcast batches"
+            );
+        }
 
         info!(
             instance = %self.config.instance_id,

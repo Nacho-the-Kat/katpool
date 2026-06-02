@@ -86,6 +86,7 @@ fn sample_batch() -> (PlannedBatch, ScriptPublicKey) {
         vec![funding_utxo(5_000_000_000, &treasury_script)],
         recipients,
         &treasury_script,
+        &katpool_storagemass::FeeRate::ZERO,
     );
     assert!(result.unpaid.is_empty(), "everything fits");
     assert!(result.deferred_below_floor.is_empty());

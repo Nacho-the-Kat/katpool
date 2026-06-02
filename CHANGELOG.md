@@ -10,7 +10,39 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Added
+
+- **Production-grade network fee policy for KAS payouts** (`FeeRate` in
+  `katpool-storagemass`, ADR-0018). The fee is `feerate × effective_mass`
+  floored at kaspad's minimum relay fee, where `feerate` is pulled live from
+  the node's `get_fee_estimate` **priority bucket** (new
+  `KaspadClient::fee_estimate_sompi_per_gram`) and `effective_mass` is the max
+  over compute/storage/transient mass. A fee-estimate RPC failure is
+  non-fatal — it falls back to the relay-minimum floor so payouts still go
+  out. The relay-fee and dust rules are mirrored verbatim from rusty-kaspa
+  `tn10-toc3` (`MIN_RELAY_TX_FEE_SOMPI_PER_KG = 100_000` sompi/kg). The planner
+  reserves the fee out of treasury change and folds a dust/zero change output
+  into the fee (kaspad rejects dust outputs).
+- **Exact fee sized from the signed transaction** (`sign_batch_with_exact_fee`
+  in `payout-kas`). The authoritative fee is computed from the *signed*
+  transaction's own mass — the exact bytes kaspad validates — so it cannot
+  diverge from mempool policy as mass rules evolve. Signing is in-memory with
+  no external effect; the recorded txid matches the broadcast transaction.
+- **`katpool payout run-now [--dry-run]` CLI subcommand** for operator
+  on-demand payouts. Drives the current DAA-window cycle exactly as one daemon
+  tick would (plan → broadcast → confirm → reconcile), under the shared
+  `payout-kas:kas-leader` advisory lock so it is safe to run alongside a live
+  daemon. `--dry-run` previews (sign + verify) without broadcasting. The
+  binary otherwise runs the full daemon as before (no arguments).
+
 ### Changed
+
+- **tn10 payout cadence and thresholds** (`ops/env/tn10.env`): cycle span set
+  to `216_000` DAA (~6h at tn10's ~10 BPS), KAS payout threshold to 10 KAS
+  (`KATPOOL_PAYOUT_THRESHOLD_SOMPI`), and NACHO minimum to 10 KAS-worth
+  (`KATPOOL_KRC20_MIN_PENDING_SOMPI`). Cadence is DAA-windowed (deterministic,
+  multi-instance-safe), so the span is block-rate-specific; mainnet defaults
+  are a tracked follow-up.
 
 - **Maturity tracker + reward allocation redesigned to a UTXO-anchored,
   two-sweep model** (corrects ADR-0014 against rusty-kaspa `tn10-toc3`
@@ -47,6 +79,21 @@ backward-incompatible ways at every minor bump.
   incorrect model — none are reconcilable with the new anchor).
 
 ### Fixed
+
+- **Live KAS payouts were rejected by kaspad's mempool with
+  `RejectInsufficientFee` and never reached the chain** (ADR-0018). The planner
+  built treasury change as `input_sum − payout_sum`, leaving an implicit
+  **zero fee**; and even once a fee was reserved, the offline transaction shape
+  under-estimated the signed transaction's mass (missing signed-P2PK
+  signature-script length, and a per-input `sig_op_count` of 0 vs the signer's
+  1 — a 1000-mass-per-input undercount for v0 transactions). Observed on the
+  soak as *"transaction has 126400 fees which is under the required amount of
+  203600 for compute mass 2036"*. Fixed by reserving an adaptive fee out of
+  change and sizing the authoritative fee from the signed transaction's exact
+  mass (see Added). First live payout confirmed on-chain: txid
+  `15de9cfb663956017e42b0b83c959d8e7e855cc969ad0c169d78964ccf4d574f` (mass
+  2036, accepted). Submit failures are now surfaced as `ERROR` (per batch and
+  per engine tick) so a stuck cycle is never silent.
 
 - **Maturity tracker logged a spurious `ERROR` and counted a sweep
   error for every freshly-submitted block.** `get_current_block_color`

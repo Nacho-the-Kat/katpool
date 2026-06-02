@@ -23,19 +23,23 @@
 use std::collections::HashMap;
 
 use kaspa_addresses::Address;
-use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionId};
+use kaspa_consensus_core::tx::{PopulatedTransaction, ScriptPublicKey, TransactionId};
 use kaspa_txscript::pay_to_address_script;
 use katpool_db::DbError;
 use katpool_db::repo::payout::{self, Payout};
 use katpool_db::repo::wallet;
 use katpool_domain::BlockHash;
 use katpool_secrets::TreasurySecret;
-use katpool_storagemass::{MassEvaluator, PayoutRecipient, TreasuryUtxo, plan_batches};
+use katpool_storagemass::{
+    FeeRate, MassEvaluationError, MassEvaluator, PayoutRecipient, PlannedBatch, TreasuryUtxo,
+    is_change_dust, plan_batches,
+};
 use sqlx::PgPool;
+use tracing::{error, warn};
 
 use crate::client::KaspadClient;
 use crate::confirm::{ConfirmationInputs, ConfirmationState, classify_confirmation, is_spendable};
-use crate::signer::{SignError, batch_txid, sign_batch};
+use crate::signer::{SignError, SignedBatch, sign_batch};
 
 /// Errors from executing a cycle against live chain state.
 #[derive(Debug, thiserror::Error)]
@@ -51,6 +55,10 @@ pub enum ExecuteError {
     /// Transaction assembly/signing failure.
     #[error(transparent)]
     Sign(#[from] SignError),
+
+    /// Mass evaluation of a signed batch failed (invalid shape).
+    #[error(transparent)]
+    Mass(#[from] MassEvaluationError),
 
     /// A recipient's stored address could not be parsed.
     #[error("invalid recipient address for wallet {wallet_id}: {reason}")]
@@ -187,8 +195,19 @@ pub async fn broadcast_cycle<C: KaspadClient>(
         .collect();
     report.spendable_utxos = utxos.len();
 
+    // Reserve a real network fee out of change so the batch clears kaspad's
+    // minimum-relay-fee check. A fee-estimate RPC failure is non-fatal: fall
+    // back to the relay-minimum floor (feerate 0) so payouts still go out.
+    let fee_rate = match client.fee_estimate_sompi_per_gram().await {
+        Ok(feerate) => FeeRate::from_feerate(feerate),
+        Err(e) => {
+            warn!(error = %e, "fee-estimate RPC failed; using minimum relay fee floor");
+            FeeRate::from_feerate(0.0)
+        }
+    };
+
     let evaluator = MassEvaluator::mainnet();
-    let plan = plan_batches(&evaluator, utxos, recipients, &treasury_script);
+    let plan = plan_batches(&evaluator, utxos, recipients, &treasury_script, &fee_rate);
     report.planned_batches = plan.batches.len();
     report.deferred_below_floor = plan.deferred_below_floor.len();
     report.unpaid = plan.unpaid.len();
@@ -198,8 +217,6 @@ pub async fn broadcast_cycle<C: KaspadClient>(
     }
 
     for batch in &plan.batches {
-        let txid = batch_txid(batch, &treasury_script)?;
-
         // Resolve this batch's payout rows up front (also validates mapping).
         let mut batch_payout_ids: Vec<i64> = Vec::with_capacity(batch.payouts.len());
         for r in &batch.payouts {
@@ -209,9 +226,13 @@ pub async fn broadcast_cycle<C: KaspadClient>(
             batch_payout_ids.push(row.id);
         }
 
-        // Sign first (in-memory, verified) — no external effect on failure.
-        let signed = sign_batch(batch, &treasury_script, secret)?;
-        debug_assert_eq!(signed.txid(), txid);
+        // Sign first (in-memory, verified) — no external effect on failure —
+        // sizing the fee from the *signed* transaction's exact mass so it can
+        // never diverge from what kaspad's mempool charges. The recorded txid
+        // is that of the transaction actually broadcast.
+        let signed =
+            sign_batch_with_exact_fee(batch, &treasury_script, secret, &fee_rate, &evaluator)?;
+        let txid = signed.txid();
 
         if mode.is_dry_run() {
             report.submitted_txids.push(txid);
@@ -229,11 +250,72 @@ pub async fn broadcast_cycle<C: KaspadClient>(
 
         match client.submit_transaction(&signed.tx, false).await {
             Ok(_accepted) => report.submitted_txids.push(txid),
-            Err(e) => report.submit_errors.push(format!("{txid}: {e}")),
+            Err(e) => {
+                // The payout rows are already marked `submitted` (intent), but
+                // the broadcast was rejected — surface it loudly so a stuck
+                // cycle is never silent. confirm_cycle never auto-confirms, so
+                // funds are safe and the batch can be re-broadcast by ops.
+                error!(%txid, payouts = batch_payout_ids.len(), error = %e,
+                    "payout broadcast rejected by kaspad");
+                report.submit_errors.push(format!("{txid}: {e}"));
+            }
         }
     }
 
     Ok(report)
+}
+
+/// Sign a batch, sizing its fee from the **signed** transaction's exact mass.
+///
+/// The offline planner reserves an estimated fee for batch packing, but the
+/// authoritative fee must match what kaspad's mempool charges for the exact
+/// bytes it validates. We sign once to obtain the true mass, recompute the fee
+/// (`feerate × effective_mass`, floored at the minimum relay fee), fold the
+/// difference back into the treasury change output, and re-sign if the change
+/// moved. A change output that would fall to dust is dropped into the fee.
+fn sign_batch_with_exact_fee(
+    batch: &PlannedBatch,
+    treasury_script: &ScriptPublicKey,
+    secret: &TreasurySecret,
+    fee_rate: &FeeRate,
+    evaluator: &MassEvaluator,
+) -> Result<SignedBatch, ExecuteError> {
+    let provisional = sign_batch(batch, treasury_script, secret)?;
+    if !fee_rate.reserves_fee() {
+        return Ok(provisional);
+    }
+
+    let populated = PopulatedTransaction::new(&provisional.tx, provisional.entries.clone());
+    let mass = evaluator.evaluate_populated(&populated)?;
+    let fee = fee_rate.fee_for(&mass);
+
+    let input_sum: u64 = batch.inputs.iter().map(|u| u.entry.amount).sum();
+    let payout_sum: u64 = batch.payouts.iter().map(|p| p.amount_sompi).sum();
+
+    // Cannot cover payouts + fee from this batch's inputs: leave the provisional
+    // tx as-is so the broadcast surfaces the rejection loudly rather than
+    // silently shipping a malformed change. (Fee ≪ any payout, so unreachable
+    // in practice given the planner reserves room.)
+    let Some(mut change) = input_sum
+        .checked_sub(payout_sum)
+        .and_then(|rem| rem.checked_sub(fee))
+    else {
+        return Ok(provisional);
+    };
+    if change != 0 && is_change_dust(change, treasury_script) {
+        change = 0;
+    }
+    if change == batch.change_amount_sompi {
+        return Ok(provisional);
+    }
+
+    let adjusted = PlannedBatch {
+        inputs: batch.inputs.clone(),
+        payouts: batch.payouts.clone(),
+        change_amount_sompi: change,
+        mass: batch.mass,
+    };
+    Ok(sign_batch(&adjusted, treasury_script, secret)?)
 }
 
 /// Poll chain state for every in-flight payout in `cycle` and advance
