@@ -29,8 +29,10 @@
 //! source of truth and only the commit/reveal hashes are written onto the
 //! payout row.
 
+use std::collections::HashSet;
+
 use kaspa_addresses::{Address, Prefix};
-use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionId, TransactionOutpoint};
+use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionId, TransactionOutpoint, UtxoEntry};
 use kaspa_txscript::pay_to_address_script;
 use katpool_db::DbError;
 use katpool_db::repo::payout::{self, Krc20PendingTransfer, Krc20TransferStatus, Payout};
@@ -51,7 +53,8 @@ use crate::plan::{
     CommitRevealConfig, Krc20FeePolicy, PlanError, PlannedCommitReveal, plan_commit_reveal,
 };
 use crate::sign::{
-    COMMIT_P2SH_OUTPUT_INDEX, SignError, commit_txid, reveal_txid, sign_commit, sign_reveal,
+    COMMIT_CHANGE_OUTPUT_INDEX, COMMIT_P2SH_OUTPUT_INDEX, SignError, commit_txid, reveal_txid,
+    sign_commit, sign_reveal,
 };
 
 /// KRC-20 token ticker paid by the NACHO rebate engine.
@@ -106,6 +109,74 @@ impl SettleReport {
             TransferStep::Completed => self.completed += 1,
             TransferStep::CommitPending | TransferStep::RevealPending => self.pending += 1,
             TransferStep::NoChange => {}
+        }
+    }
+}
+
+/// Per-sweep UTXO bookkeeping that lets sibling commits in one [`settle_pending`]
+/// sweep chain off each other instead of colliding on the same treasury coin.
+///
+/// `get_utxos_by_addresses` returns only the **confirmed** UTXO set, so a commit
+/// just broadcast (and still in the mempool) does not yet remove its spent coin
+/// nor surface its change. Planning every fresh commit in a sweep against that
+/// stale snapshot makes the greedy, largest-first funder pick the *same* coin
+/// for all of them — only the first is accepted and the rest are rejected as
+/// double-spends (and then strand on [`Krc20ExecuteError::CommitDrift`]).
+///
+/// Mirroring the KAS planner ([`payout_kas`]'s `plan_batches`), this ledger
+/// removes the inputs each commit consumes and re-injects its change output —
+/// keyed by the **real** signed commit txid, since the KRC-20 signer rejects
+/// planning-virtual inputs — so the next transfer funds from a coherent set.
+/// On a crash mid-sweep the chained change coin stays the largest, so the
+/// resume rebuild re-selects it and reproduces the recorded txid; the existing
+/// drift guard covers the residual window without ever double-spending.
+#[derive(Debug, Default)]
+struct SweepLedger {
+    /// Treasury outpoints already consumed by earlier commits in this sweep.
+    consumed: HashSet<TransactionOutpoint>,
+    /// Change outputs minted by earlier commits this sweep, now spendable.
+    chained: Vec<TreasuryUtxo>,
+}
+
+impl SweepLedger {
+    /// Reconcile a freshly fetched (confirmed-only) UTXO set with this sweep's
+    /// in-flight commits: drop coins already spent, add coins already minted.
+    fn reconcile(&self, utxos: &mut Vec<TreasuryUtxo>) {
+        if self.consumed.is_empty() && self.chained.is_empty() {
+            return;
+        }
+        utxos.retain(|u| !self.consumed.contains(&u.outpoint));
+        utxos.extend(self.chained.iter().cloned());
+    }
+
+    /// Record the inputs a just-signed commit consumed and re-inject its change
+    /// output (if any) so the next transfer in the sweep can chain off it.
+    fn note_commit(
+        &mut self,
+        commit_id: TransactionId,
+        plan: &PlannedCommitReveal,
+        treasury_script: &ScriptPublicKey,
+    ) {
+        for input in &plan.commit_inputs {
+            self.consumed.insert(input.outpoint);
+        }
+        // A chained coin consumed by this commit must not be re-offered.
+        self.chained
+            .retain(|u| !self.consumed.contains(&u.outpoint));
+        if plan.commit_change_sompi > 0 {
+            self.chained.push(TreasuryUtxo {
+                outpoint: TransactionOutpoint {
+                    transaction_id: commit_id,
+                    index: COMMIT_CHANGE_OUTPUT_INDEX,
+                },
+                entry: UtxoEntry {
+                    amount: plan.commit_change_sompi,
+                    script_public_key: treasury_script.clone(),
+                    block_daa_score: 0,
+                    is_coinbase: false,
+                    covenant_id: None,
+                },
+            });
         }
     }
 }
@@ -314,23 +385,37 @@ pub async fn settle_pending<C: KaspadClient + Sync>(
     };
 
     let mut report = SettleReport::default();
+    // Chains sibling commits in this sweep so they fund from disjoint coins
+    // (the mempool snapshot is stale) instead of double-spending one another.
+    let mut ledger = SweepLedger::default();
     for transfer in &transfers {
-        match advance_transfer(
+        match advance_transfer_inner(
             pool,
             client,
             secret,
             treasury_address,
             &fee_rate,
+            &mut ledger,
             transfer,
             mode,
         )
         .await
         {
             Ok(step) => report.record(step),
-            Err(e) => report.errors.push(format!(
-                "krc20 transfer {} (payout {}): {e}",
-                transfer.id, transfer.payout_id
-            )),
+            Err(e) => {
+                // Surface the per-transfer cause: the engine only logs the
+                // aggregate error *count*, so without this the reason is lost.
+                warn!(
+                    transfer_id = transfer.id,
+                    payout_id = transfer.payout_id,
+                    error = %e,
+                    "krc20 transfer settle failed; continuing with the rest"
+                );
+                report.errors.push(format!(
+                    "krc20 transfer {} (payout {}): {e}",
+                    transfer.id, transfer.payout_id
+                ));
+            }
         }
     }
     Ok(report)
@@ -348,6 +433,34 @@ pub async fn advance_transfer<C: KaspadClient + Sync>(
     secret: &TreasurySecret,
     treasury_address: &Address,
     fee_rate: &FeeRate,
+    transfer: &Krc20PendingTransfer,
+    mode: ExecutionMode,
+) -> Result<TransferStep, Krc20ExecuteError> {
+    // A single-transfer advance has no siblings to chain against.
+    advance_transfer_inner(
+        pool,
+        client,
+        secret,
+        treasury_address,
+        fee_rate,
+        &mut SweepLedger::default(),
+        transfer,
+        mode,
+    )
+    .await
+}
+
+/// [`advance_transfer`] with the per-sweep [`SweepLedger`] threaded in so a
+/// fresh commit funds from a set that accounts for siblings already committed
+/// in this sweep (see [`SweepLedger`]).
+#[allow(clippy::too_many_arguments)]
+async fn advance_transfer_inner<C: KaspadClient + Sync>(
+    pool: &PgPool,
+    client: &C,
+    secret: &TreasurySecret,
+    treasury_address: &Address,
+    fee_rate: &FeeRate,
+    ledger: &mut SweepLedger,
     transfer: &Krc20PendingTransfer,
     mode: ExecutionMode,
 ) -> Result<TransferStep, Krc20ExecuteError> {
@@ -394,7 +507,7 @@ pub async fn advance_transfer<C: KaspadClient + Sync>(
     };
 
     match transfer.status {
-        Krc20TransferStatus::Pending => handle_pending(pool, client, &ctx, mode).await,
+        Krc20TransferStatus::Pending => handle_pending(pool, client, &ctx, ledger, mode).await,
         Krc20TransferStatus::CommitSubmitted => {
             handle_commit_submitted(pool, client, &ctx, &payout_row, mode).await
         }
@@ -411,16 +524,25 @@ async fn handle_pending<C: KaspadClient + Sync>(
     pool: &PgPool,
     client: &C,
     ctx: &TransferCtx<'_>,
+    ledger: &mut SweepLedger,
     mode: ExecutionMode,
 ) -> Result<TransferStep, Krc20ExecuteError> {
     // A fresh transfer sizes both fees from the live fee-rate; they are then
     // frozen onto the row so every later reconstruction reproduces this exact
-    // commit/reveal.
-    let plan = build_plan(client, ctx, Krc20FeePolicy::Adaptive(ctx.fee_rate)).await?;
+    // commit/reveal. Fund it from the live spendable set reconciled with this
+    // sweep's in-flight commits, so siblings chain instead of double-spending.
+    let mut utxos = fetch_spendable_utxos(client, ctx.treasury_address).await?;
+    ledger.reconcile(&mut utxos);
+    let plan = plan_from_utxos(ctx, &utxos, Krc20FeePolicy::Adaptive(ctx.fee_rate))?;
     verify_p2sh(ctx, &plan)?;
 
     let signed = sign_commit(&plan, &ctx.treasury_script, ctx.secret)?;
     let commit_id = signed.txid();
+
+    // Chain the consumed inputs + minted change forward so the next transfer in
+    // this sweep funds from a coherent set (applies in dry-run too, so the
+    // rehearsal validates multi-recipient cycles without false contention).
+    ledger.note_commit(commit_id, &plan, &ctx.treasury_script);
 
     if matches!(mode, ExecutionMode::DryRun) {
         return Ok(TransferStep::NoChange);
@@ -501,7 +623,8 @@ async fn handle_commit_submitted<C: KaspadClient + Sync>(
             // fees; only re-broadcast if it reproduces the recorded txid —
             // otherwise treasury UTXOs drifted and a new commit would be a
             // distinct spend.
-            let plan = build_plan(client, ctx, ctx.frozen_policy()?).await?;
+            let utxos = fetch_spendable_utxos(client, ctx.treasury_address).await?;
+            let plan = plan_from_utxos(ctx, &utxos, ctx.frozen_policy()?)?;
             let rebuilt = commit_txid(&plan, &ctx.treasury_script)?;
             if rebuilt != recorded {
                 return Err(Krc20ExecuteError::CommitDrift {
@@ -631,22 +754,28 @@ async fn broadcast_reveal<C: KaspadClient + Sync>(
 
 // ---- helpers --------------------------------------------------------
 
-/// Plan a commit/reveal against the live, spendable treasury UTXO set under
-/// the given fee policy ([`Krc20FeePolicy::Adaptive`] for a fresh transfer,
-/// [`Krc20FeePolicy::Frozen`] to deterministically replay an in-flight one).
-async fn build_plan<C: KaspadClient + Sync>(
+/// Fetch the treasury's live UTXO set, filtered to mature/spendable coins.
+async fn fetch_spendable_utxos<C: KaspadClient + Sync>(
     client: &C,
-    ctx: &TransferCtx<'_>,
-    fee_policy: Krc20FeePolicy,
-) -> Result<PlannedCommitReveal, Krc20ExecuteError> {
+    treasury_address: &Address,
+) -> Result<Vec<TreasuryUtxo>, Krc20ExecuteError> {
     let virtual_daa = client.virtual_daa_score().await?;
-    let snapshots = client.treasury_utxos(ctx.treasury_address).await?;
-    let utxos: Vec<TreasuryUtxo> = snapshots
+    let snapshots = client.treasury_utxos(treasury_address).await?;
+    Ok(snapshots
         .into_iter()
         .filter(|s| is_spendable(s.entry.block_daa_score, s.entry.is_coinbase, virtual_daa))
         .map(TreasuryUtxoSnapshot::into_treasury_utxo)
-        .collect();
+        .collect())
+}
 
+/// Plan a commit/reveal against the supplied spendable treasury UTXO set under
+/// the given fee policy ([`Krc20FeePolicy::Adaptive`] for a fresh transfer,
+/// [`Krc20FeePolicy::Frozen`] to deterministically replay an in-flight one).
+fn plan_from_utxos(
+    ctx: &TransferCtx<'_>,
+    utxos: &[TreasuryUtxo],
+    fee_policy: Krc20FeePolicy,
+) -> Result<PlannedCommitReveal, Krc20ExecuteError> {
     let cfg = CommitRevealConfig {
         commit_amount_sompi: ctx.commit_amount_sompi,
         fee_policy,
@@ -654,7 +783,7 @@ async fn build_plan<C: KaspadClient + Sync>(
     let evaluator = MassEvaluator::mainnet();
     let plan = plan_commit_reveal(
         &evaluator,
-        &utxos,
+        utxos,
         &ctx.treasury_script,
         &ctx.xonly,
         &ctx.inscription,
