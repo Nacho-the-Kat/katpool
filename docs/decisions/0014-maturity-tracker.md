@@ -207,7 +207,8 @@ restarts) and over `CancellationToken` (we already depend on `tokio`).
 - Allocation is anchored on realised, exact, exactly-once reward — no
   attribution guesswork, and DAG re-orgs are handled by construction.
 - Block lifecycle and money are decoupled: a telemetry bug cannot
-  mis-pay, and an allocation bug cannot corrupt lifecycle state.
+  cause an incorrect payout, and an allocation bug cannot corrupt
+  lifecycle state.
 - The full two-sweep state machine has deterministic coverage against
   the in-memory fake (12 tracker tests, 9 allocation-engine tests).
 - Oldest-first FIFO drain cannot head-of-line block.
