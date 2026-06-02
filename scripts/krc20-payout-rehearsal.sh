@@ -26,7 +26,8 @@
 #   - KATPOOL_KRC20_MIN_PENDING_SOMPI  coarse eligibility filter
 #   - KATPOOL_KRC20_MIN_NACHO_BASE_UNITS dust gate (NACHO base units)
 #   - KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI commit P2SH lock amount
-#   - KATPOOL_KRC20_COMMIT_FEE_SOMPI / KATPOOL_KRC20_REVEAL_FEE_SOMPI fees
+#     (commit/reveal fees are adaptive + frozen per-transfer, ADR-0019; there
+#      are no fixed-fee env knobs)
 #   - KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA cycle DAA span (default 86_400)
 #   - KATPOOL_KRC20_BATCH_LIMIT        recipients/transfers per tick
 #   - KATPOOL_KRC20_REHEARSAL_BIN      path to the binary. Default:

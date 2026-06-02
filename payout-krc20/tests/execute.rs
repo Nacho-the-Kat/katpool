@@ -37,7 +37,7 @@ use payout_kas::{
 };
 use payout_krc20::{
     DEFAULT_COMMIT_AMOUNT_SOMPI, Krc20Transfer, TransferStep, advance_transfer,
-    build_transfer_inscription, commit_address, commit_script_public_key,
+    build_transfer_inscription, commit_address, commit_script_public_key, settle_pending,
 };
 use secp256k1::Keypair;
 use testcontainers::ContainerAsync;
@@ -46,6 +46,7 @@ use testcontainers_modules::postgres::Postgres;
 
 const TREASURY_HEX: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const RECIPIENT_HEX: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+const RECIPIENT2_HEX: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 const NACHO_AMOUNT: i64 = 123_456;
 
 // ---- harness --------------------------------------------------------
@@ -612,4 +613,118 @@ async fn dry_run_plans_but_records_nothing_and_broadcasts_nothing() {
         mock.submitted_ids().is_empty(),
         "dry-run broadcasts nothing"
     );
+}
+
+/// Seed a wallet + KRC-20 cycle + payout + pending transfer for an arbitrary
+/// recipient key, in a caller-chosen DAA window (so two transfers can live in
+/// distinct cycles yet be swept together).
+async fn seed_transfer_for(
+    pool: &sqlx::PgPool,
+    recipient_hex: &str,
+    daa_start: u64,
+    daa_end: u64,
+) -> (i64, Address) {
+    let recipient = mainnet_address(recipient_hex);
+    let wallet_addr = WalletAddress::new(recipient.to_string()).expect("wallet addr");
+    let w = wallet::ensure(pool, &wallet_addr, "mainnet")
+        .await
+        .expect("wallet");
+    let cycle = payout::create_cycle(
+        pool,
+        PayoutKind::Krc20Nacho,
+        DaaScore::new(daa_start),
+        DaaScore::new(daa_end),
+    )
+    .await
+    .expect("cycle");
+    let p = payout::insert_payout(pool, cycle.id, w.id, 500_000_000)
+        .await
+        .expect("payout");
+    let transfer = Krc20Transfer::new("NACHO", NACHO_AMOUNT.to_string(), recipient.to_string());
+    let redeem = build_transfer_inscription(&xonly(TREASURY_HEX), &transfer).expect("redeem");
+    let p2sh = commit_address(&redeem, Prefix::Mainnet).expect("p2sh addr");
+    payout::insert_krc20_pending(
+        pool,
+        p.id,
+        i64::try_from(DEFAULT_COMMIT_AMOUNT_SOMPI).expect("fits"),
+        NACHO_AMOUNT,
+        &p2sh.to_string(),
+    )
+    .await
+    .expect("pending");
+    (p.id, recipient)
+}
+
+/// Two pending transfers swept together must fund from *disjoint* coins even
+/// when only one treasury UTXO exists: the second commit chains off the first
+/// commit's change output instead of re-selecting the same (still-confirmed)
+/// coin, which kaspad would reject as a double-spend.
+#[tokio::test]
+async fn sweep_chains_sibling_commits_off_a_single_coin() {
+    let (pool, _ctr) = fresh_pool().await;
+    let (payout_a, _ra) = seed_transfer_for(&pool, RECIPIENT_HEX, 1_000, 2_000).await;
+    let (payout_b, _rb) = seed_transfer_for(&pool, RECIPIENT2_HEX, 3_000, 4_000).await;
+    let (secret, treasury_addr) = treasury();
+    let treasury_script = pay_to_address_script(&treasury_addr);
+
+    // A single dominant treasury coin funds the whole sweep.
+    let mock = MockKaspad::default();
+    mock.set_daa(1_000);
+    mock.set_utxos(
+        &treasury_addr,
+        vec![funding(10_000_000_000, &treasury_script)],
+    );
+
+    let report = settle_pending(
+        &pool,
+        &mock,
+        &secret,
+        &treasury_addr,
+        100,
+        ExecutionMode::Live,
+    )
+    .await
+    .expect("sweep");
+
+    assert_eq!(report.commits_broadcast, 2, "both commits broadcast");
+    assert!(report.errors.is_empty(), "no double-spend rejection");
+
+    // Submission order follows transfer id, so [0] is the first commit.
+    let submitted = mock.submitted.lock().unwrap().clone();
+    assert_eq!(submitted.len(), 2, "exactly the two commits hit the wire");
+    let commit_a = &submitted[0];
+    let commit_b = &submitted[1];
+
+    let a_inputs: HashSet<TransactionOutpoint> = commit_a
+        .inputs
+        .iter()
+        .map(|i| i.previous_outpoint)
+        .collect();
+    let b_inputs: HashSet<TransactionOutpoint> = commit_b
+        .inputs
+        .iter()
+        .map(|i| i.previous_outpoint)
+        .collect();
+    assert!(
+        a_inputs.is_disjoint(&b_inputs),
+        "sibling commits must not share an input (no double-spend)"
+    );
+
+    // The first commit consumes the original coin and emits change at index 1;
+    // the second commit spends exactly that change output.
+    let original = TransactionOutpoint {
+        transaction_id: TransactionId::from_bytes([7_u8; 32]),
+        index: 0,
+    };
+    assert!(a_inputs.contains(&original), "first commit spends the coin");
+    let chained = TransactionOutpoint {
+        transaction_id: commit_a.id(),
+        index: 1,
+    };
+    assert!(
+        b_inputs.contains(&chained),
+        "second commit chains off the first commit's change output"
+    );
+
+    let _ = (payout_a, payout_b);
 }

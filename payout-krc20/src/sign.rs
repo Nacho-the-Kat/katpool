@@ -50,6 +50,14 @@ use crate::plan::PlannedCommitReveal;
 /// The planner always emits the commit output first, change (if any) second.
 pub const COMMIT_P2SH_OUTPUT_INDEX: u32 = 0;
 
+/// Output index of the treasury change output within the commit transaction.
+///
+/// Present only when `commit_change_sompi` is non-zero (the commit output is
+/// always first, change second). The settle sweep re-injects this output as a
+/// spendable coin so sibling transfers chain off it instead of colliding on
+/// the same treasury UTXO.
+pub const COMMIT_CHANGE_OUTPUT_INDEX: u32 = 1;
+
 /// Errors from assembling, signing, or verifying a commit/reveal pair.
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {

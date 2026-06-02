@@ -107,6 +107,27 @@ backward-incompatible ways at every minor bump.
 
 ### Fixed
 
+- **KRC-20 commits in one settle sweep double-spent each other when the
+  treasury held too few coins.** `get_utxos_by_addresses` returns only the
+  *confirmed* UTXO set, so a commit just broadcast (still in the mempool) does
+  not yet remove its spent coin nor surface its change. Planning every fresh
+  commit in a sweep against that stale snapshot made the greedy, largest-first
+  funder pick the **same** coin for all of them — only the first was accepted
+  and the rest were rejected as double-spends, then stranded permanently on
+  `CommitDrift`. The settle sweep now threads a per-sweep UTXO ledger that
+  removes each commit's consumed inputs and re-injects its change output —
+  keyed by the **real** signed commit txid, since the KRC-20 signer rejects
+  planning-virtual inputs — so sibling transfers chain off one another instead
+  of colliding (mirrors the KAS `plan_batches` chaining). Applies in dry-run
+  too, so the Runbook-19 rehearsal now validates multi-recipient cycles.
+  Verified live on tn10: two commit/reveal pairs accepted on L1 from a single
+  dominant treasury coin (commits `eb6ddd03…`/`13abf205…`, reveals
+  `8dec3c0e…`/`c847fa15…`).
+- **KRC-20 per-transfer settle errors were counted but never logged**, so the
+  cause of a non-zero `settle_errors` tick was invisible in the journal. The
+  sweep now emits a `WARN` per failed transfer (transfer id, payout id, and the
+  error) before continuing with the rest.
+
 - **Live KAS payouts were rejected by kaspad's mempool with
   `RejectInsufficientFee` and never reached the chain** (ADR-0018). The planner
   built treasury change as `input_sum − payout_sum`, leaving an implicit
