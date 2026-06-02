@@ -43,6 +43,7 @@ lcov.info
 /tests/fuzz/artifacts/
 /pipeline-evidence/
 /payout-evidence/
+/api-evidence/
 
 # SBOM / security artifacts (built on demand in CI)
 /sbom/

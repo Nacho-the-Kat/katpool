@@ -26,9 +26,6 @@ workspace = true
 # the corresponding dep below.
 [package.metadata.cargo-machete]
 ignored = [
-    # Phase 6 scaffold dep — listed here so Phase 6's PR can drop
-    # the entry it activates without touching the rest.
-    "api",
     # Phase 7 telemetry/metrics/config — currently no direct
     # use; wired in Phase 7's main composition.
     "katpool-config",

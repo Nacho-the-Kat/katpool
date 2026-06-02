@@ -278,6 +278,49 @@ pub async fn mark_orphaned<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
+/// Recent blocks across all statuses, newest-first, keyset-paginated.
+///
+/// Pass `before_id = None` for the first page; for the next page pass
+/// the smallest `id` from the previous page. Keyset (not offset)
+/// pagination is stable under concurrent inserts and rides the primary
+/// key index. `limit` is the caller's page size (the API caps it).
+pub async fn list_recent<'e, E: PgExecutor<'e>>(
+    executor: E,
+    limit: i64,
+    before_id: Option<i64>,
+) -> Result<Vec<Block>, DbError> {
+    sqlx::query_as::<_, Block>(
+        "SELECT id, hash, finder_wallet_id, finder_worker_id, daa_score, blue_score, nonce,
+                status, found_at, submitted_at, confirmed_at, matured_at,
+                miner_reward_sompi, correlation_id
+           FROM block
+          WHERE ($2::bigint IS NULL OR id < $2)
+          ORDER BY id DESC
+          LIMIT $1",
+    )
+    .bind(limit)
+    .bind(before_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// Count blocks grouped by lifecycle status. Only statuses with ≥ 1
+/// row appear; the caller zero-fills the rest. Drives the pool-stats
+/// block-lifecycle breakdown.
+pub async fn count_by_status<'e, E: PgExecutor<'e>>(
+    executor: E,
+) -> Result<Vec<(BlockStatus, i64)>, DbError> {
+    sqlx::query_as::<_, (BlockStatus, i64)>(
+        "SELECT status, count(*)::bigint
+           FROM block
+          GROUP BY status",
+    )
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
 /// List blocks in any of the listed statuses, **oldest-first**.
 ///
 /// A bounded-`limit` sweep drains the backlog FIFO rather than starving

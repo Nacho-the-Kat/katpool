@@ -58,13 +58,30 @@
 //! - `KATPOOL_SHARES_PER_MIN`        default 20 (vardiff retarget setpoint;
 //!   ignored when `KATPOOL_VAR_DIFF=false`)
 //! - `KATPOOL_PROM_PORT`             default empty (disabled)
-//! - `KATPOOL_HEALTH_CHECK_PORT`     default empty (disabled)
+//! - `KATPOOL_HEALTH_CHECK_PORT`     **no-op in the unified runtime** — it is
+//!   carried into `BridgeServerConfig.health_check_port` for the standalone
+//!   bridge binary but `listen_and_serve_with_events` never serves it here.
+//!   Liveness/readiness come from the API on `KATPOOL_API_PORT` (ADR-0021).
 //! - `KATPOOL_MATURITY_POLL_SECS`    default 15
 //! - `KATPOOL_COINBASE_MATURITY`     default 1000 (DAA-score depth)
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
 //!   for M4 replay-determinism rehearsal
+//!
+//! Public read-only HTTP API (Phase 6 — opt-in, ADR-0021):
+//! - `KATPOOL_API_PORT`              bind address `host:port` (e.g.
+//!   `127.0.0.1:8080`); empty = disabled. Serves the unversioned `/health`
+//!   `/ready` `/started` probes plus the versioned `/api/v1` read-only data
+//!   surface. `/ready` is DB-reachable AND kaspad-synced; the kaspad-sync
+//!   signal reuses the maturity tracker's existing poll (no second gRPC
+//!   connection), and `/started` latches once the first sweep observes it.
+//! - `KATPOOL_API_RATE_PER_SECOND`   default 5  (per-IP sustained refill)
+//! - `KATPOOL_API_RATE_BURST`        default 20 (per-IP burst capacity)
+//! - `KATPOOL_API_REQUEST_TIMEOUT_SECS`  default 5
+//! - `KATPOOL_API_POOL_CACHE_TTL_SECS`   default 10
+//! - `KATPOOL_API_WALLET_CACHE_TTL_SECS` default 5
+//! - `KATPOOL_API_CORS_ALLOW_ORIGIN` default empty (no CORS layer installed)
 //!
 //! KAS payout engine (M4.7 — opt-in, dry-run by default):
 //! - `KATPOOL_PAYOUT_ENABLED`        default `false` (engine off)
@@ -101,11 +118,13 @@
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use api::{ApiConfig, AppState, ReadinessHandle};
 use kaspa_addresses::{Address, Prefix};
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::notify::mode::NotificationMode;
@@ -255,6 +274,33 @@ async fn main() -> Result<()> {
         cfg.maturity,
         cfg.instance_id.clone(),
     );
+
+    // ---- public read-only API (Phase 6, opt-in) --------------------
+    // Env-gated like the prom exporter (ADR-0021 A1). When enabled it owns
+    // the `/health` `/ready` `/started` probes and the `/api/v1` surface.
+    // Readiness reuses work the runtime already does: DB reachability from a
+    // periodic `SELECT 1`, and kaspad-sync mirrored from the maturity
+    // tracker's existing poll via a `watch` channel — so the API opens no
+    // second gRPC connection. The tracker keeps the observer end; we keep
+    // `tracker` shadowed with it attached only when the API is on.
+    let tracker = if let Some(api_addr) = cfg.api_bind {
+        let readiness = ReadinessHandle::new();
+        let (sync_tx, sync_rx) = watch::channel(false);
+        api::spawn_db_readiness_probe(db.clone(), readiness.clone());
+        spawn_readiness_bridge(sync_rx, readiness.clone());
+        let state = AppState::new(db.clone(), readiness, cfg.api_config.clone());
+        tokio::spawn(async move {
+            if let Err(e) = api::serve_on(api_addr, state).await {
+                error!(error = %e, "public API server exited with error");
+            }
+        });
+        info!(addr = %api_addr, "public read-only API enabled");
+        tracker.with_sync_observer(sync_tx)
+    } else {
+        info!("public read-only API disabled (set KATPOOL_API_PORT to enable)");
+        tracker
+    };
+
     let consumer = EventConsumer::new(
         db.clone(),
         ConsumerConfig::new(cfg.instance_id.clone(), cfg.network.clone())
@@ -727,6 +773,12 @@ struct RuntimeConfig {
     network: String,
     /// When set, append one serde-json `PoolEvent` per line to this path.
     event_record_path: Option<String>,
+    /// Bind address for the public read-only API (`KATPOOL_API_PORT`).
+    /// `None` disables the API (mirrors the prom exporter's env gate).
+    api_bind: Option<SocketAddr>,
+    /// API knobs (rate limit, cache TTLs, timeout, CORS). Parsed
+    /// unconditionally; only consumed when `api_bind` is `Some`.
+    api_config: ApiConfig,
     /// Whether the KAS payout engine runs in this process.
     payout_enabled: bool,
     /// Payout engine knobs (parsed unconditionally; only consumed when
@@ -837,6 +889,20 @@ impl RuntimeConfig {
         let network = resolve_network(&pool_addresses)?;
         let event_record_path = optional("KATPOOL_EVENT_RECORD_PATH");
 
+        // Public read-only API (Phase 6). `KATPOOL_API_PORT` is a full bind
+        // address (`host:port`), mirroring `KATPOOL_PROM_PORT`; empty disables.
+        let api_bind = optional("KATPOOL_API_PORT")
+            .map(|s| {
+                s.parse::<SocketAddr>().map_err(|e| {
+                    anyhow::anyhow!(
+                        "KATPOOL_API_PORT=`{s}`: {e} (expected host:port, e.g. 127.0.0.1:8080)"
+                    )
+                })
+            })
+            .transpose()?;
+        let api_config =
+            ApiConfig::from_env().map_err(|e| anyhow::anyhow!("API configuration: {e}"))?;
+
         let payout_enabled = optional_bool("KATPOOL_PAYOUT_ENABLED")?.unwrap_or(false);
         let payout_dry_run = optional_bool("KATPOOL_PAYOUT_DRY_RUN")?.unwrap_or(true);
         let payout_poll_secs = optional_u64("KATPOOL_PAYOUT_POLL_SECS")?.unwrap_or(60);
@@ -880,6 +946,8 @@ impl RuntimeConfig {
             broadcast_capacity,
             network,
             event_record_path,
+            api_bind,
+            api_config,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
                 coinbase_maturity,
@@ -983,6 +1051,28 @@ fn optional_usize(var: &str) -> Result<Option<usize>> {
 /// [`accountant::consumer::VALID_NETWORKS`] (matching the DB CHECK
 /// constraint) so a misconfiguration fails fast on startup instead
 /// of being discovered at the first `wallet::ensure` call.
+/// Mirror the maturity tracker's kaspad-reachability signal into the API
+/// [`ReadinessHandle`].
+///
+/// Each sweep publishes `true`/`false` on `sync_rx`; this task forwards that to
+/// `kaspad_synced` and latches `started` the first time reachability is
+/// observed. It exits when the tracker (the sender) is gone. This is the
+/// "reuse existing kaspad polling, no second connection" wiring from ADR-0021.
+fn spawn_readiness_bridge(mut sync_rx: watch::Receiver<bool>, readiness: ReadinessHandle) {
+    tokio::spawn(async move {
+        loop {
+            let synced = *sync_rx.borrow_and_update();
+            readiness.set_kaspad_synced(synced);
+            if synced {
+                readiness.mark_started();
+            }
+            if sync_rx.changed().await.is_err() {
+                break;
+            }
+        }
+    });
+}
+
 /// Append-only NDJSON capture of every `PoolEvent` on the bus.
 fn spawn_event_recorder(mut rx: broadcast::Receiver<PoolEvent>, path: String) {
     tokio::spawn(async move {

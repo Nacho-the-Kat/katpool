@@ -111,6 +111,11 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "limit", "timeout"] }
+# Per-IP HTTP rate limiting (GCRA token bucket). 0.8 tracks axum 0.8 / tower 0.5
+# / http 1 / thiserror 2 — the exact stack this workspace pins (ADR-0021).
+tower_governor = { version = "0.8", features = ["axum"] }
+# Bounded in-memory TTL cache for the read-only API's hot aggregates (ADR-0021).
+moka = { version = "0.12", features = ["future"] }
 # Metrics
 prometheus = "0.14"
 # Configuration

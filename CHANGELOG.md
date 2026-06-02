@@ -12,6 +12,34 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Public read-only HTTP API** (`api` crate, embedded in the `katpool`
+  runtime behind `KATPOOL_API_PORT`; ADR-0021). An env-gated `axum` task —
+  spawned exactly like the prom exporter, empty port = disabled — exposing the
+  unversioned `/health` `/ready` `/started` probes plus a versioned `/api/v1`
+  read-only data surface for a future dashboard: pool aggregates
+  (`/pool/stats`, `/pool/hashrate`, `/pool/hashrate/history`, `/pool/blocks`,
+  `/pool/payouts`) and per-wallet views (`/balance/:address`,
+  `/miners/:address` + `/workers`/`/hashrate/history`/`/payouts`/`/rejects`,
+  `/full_rebate/:address`). It is **read-only and secret-free by
+  construction** (reads PostgreSQL only; never links the payout/secret crates)
+  and carries the threat-model's Phase 6 DoS controls: per-IP rate limiting
+  (`tower-governor` GCRA, `KATPOOL_API_RATE_*`), a bounded `moka` TTL cache
+  (`KATPOOL_API_*_CACHE_TTL_SECS`), a hard per-request timeout layered over the
+  DB `statement_timeout` (503 on timeout), a bounded request body, optional
+  CORS (`KATPOOL_API_CORS_ALLOW_ORIGIN`), and address redaction in every
+  log/trace. Integer money amounts (sompi, NACHO base units) serialize as
+  decimal **strings** so a JavaScript dashboard never loses precision above
+  2^53; hashrate stays a JSON number; timestamps are RFC3339 UTC; list
+  endpoints use keyset (`before_id`) pagination and time-series take a fixed
+  `bucket` enum (`1m`/`5m`/`1h`/`1d`) with server-enforced span/point caps.
+  Errors share one shape `{ "error": { "code", "message" } }`. `/ready` is
+  DB-reachable AND kaspad-synced and `/started` latches the first observed
+  sync; the kaspad-sync signal **reuses the maturity tracker's existing poll**
+  (new `MaturityTracker::with_sync_observer`, no second gRPC connection).
+  Covered by `insta` wire-contract snapshots, testcontainer endpoint tests
+  (200/400/404/readiness), and a real-listener 429 rate-limit test; new
+  read-only `katpool-db` repo functions back the new endpoints, each with its
+  own testcontainer coverage.
 - **Production-grade network fee policy for KAS payouts** (`FeeRate` in
   `katpool-storagemass`, ADR-0018). The fee is `feerate × effective_mass`
   floored at kaspad's minimum relay fee, where `feerate` is pulled live from
@@ -58,6 +86,14 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **`KATPOOL_HEALTH_CHECK_PORT` documented as a no-op in the unified runtime**
+  (ADR-0021 E1). The runtime still carries it into
+  `BridgeServerConfig.health_check_port` for the standalone bridge binary, but
+  `listen_and_serve_with_events` never served it here (the #54 `prom_port`
+  class of latent bug). Liveness/readiness now come from the API's
+  `/health` `/ready` `/started` on `KATPOOL_API_PORT`; the dead knob is kept
+  and clearly documented rather than removed, to avoid a surprising config
+  change to existing deployments.
 - **Payout cadence and threshold defaults** now match the decided policy for
   both networks: cycle span `216_000` DAA (~6h at 10 BPS — tn10 and mainnet
   both run 10 BPS since Crescendo), KAS payout threshold 10 KAS
