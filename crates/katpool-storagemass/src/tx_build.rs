@@ -22,7 +22,7 @@ pub const SIGNED_P2PK_SIG_SCRIPT_LEN: usize = 66;
 
 /// Construct a populated transaction for mass checking.
 ///
-/// Inputs carry a placeholder `signature_script` of [`SIGNED_P2PK_SIG_SCRIPT_LEN`]
+/// Inputs carry a placeholder `signature_script` of `SIGNED_P2PK_SIG_SCRIPT_LEN`
 /// bytes so compute and transient mass match the signed transaction; the bytes
 /// are never broadcast (the executor re-signs from the unsigned structure).
 #[must_use]
