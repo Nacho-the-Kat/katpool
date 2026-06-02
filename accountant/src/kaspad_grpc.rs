@@ -6,9 +6,17 @@
 //! - [`KaspadClient::get_virtual_daa_score`] → [`RpcApi::get_block_dag_info`]
 //!   (`virtual_daa_score`).
 //! - [`KaspadClient::get_block_color`] → [`RpcApi::get_current_block_color`].
-//!   `Ok` carries the GHOSTDAG colour; `RpcError::MergerNotFound`
-//!   (the block is not yet merged into the sink's past, or kaspad has
-//!   not seen it) maps to [`BlockColor::NotYetMerged`].
+//!   `Ok` carries the GHOSTDAG colour; the "block not yet merged into the
+//!   sink's past" condition (or a hash kaspad has not seen) maps to
+//!   [`BlockColor::NotYetMerged`]. Server-side this is
+//!   `RpcError::MergerNotFound`, but the kaspa gRPC client erases the
+//!   typed variant — every wire error is rebuilt as
+//!   `RpcError::General(message)` (rusty-kaspa
+//!   `rpc/grpc/core/src/convert/error.rs` → `RpcError::from(String)`),
+//!   so [`is_merger_not_found`] also matches the message form. Treating
+//!   this as `NotYetMerged` rather than a transport error keeps the
+//!   tracker's sweep error counter and ERROR log clean for what is an
+//!   expected, self-resolving state of a freshly submitted block.
 //! - [`KaspadClient::get_pool_coinbase_utxos`] → [`RpcApi::get_utxos_by_addresses`]
 //!   for the configured pool address(es), keeping only coinbase UTXOs.
 //!
@@ -90,7 +98,7 @@ impl KaspadClient for KaspadGrpcClient {
             } else {
                 BlockColor::Red
             }),
-            Err(RpcError::MergerNotFound(_)) => {
+            Err(e) if is_merger_not_found(&e) => {
                 debug!(hash = %hash, "kaspad reports block not yet merged");
                 Ok(BlockColor::NotYetMerged)
             }
@@ -110,6 +118,29 @@ impl KaspadClient for KaspadGrpcClient {
 
 fn map_rpc_error_to_transport(err: &RpcError) -> KaspadError {
     KaspadError::Transport(format!("{err}"))
+}
+
+/// Hash-independent fragment of `RpcError::MergerNotFound`'s Display
+/// (`"Block {hash} doesn't have any merger block."`). Pinned to the
+/// upstream message by `merger_not_found_fragment_matches_upstream` so a
+/// reword in rusty-kaspa fails our test rather than silently resurrecting
+/// the noisy transport-error path.
+const MERGER_NOT_FOUND_FRAGMENT: &str = "doesn't have any merger block";
+
+/// Whether an `RpcError` is kaspad's "this block is not yet merged into
+/// the sink's past" signal from `get_current_block_color`.
+///
+/// In-process this is the typed `RpcError::MergerNotFound`, but the kaspa
+/// gRPC client collapses every server error into
+/// `RpcError::General(message)` (the typed variant never survives the
+/// wire), so we also match the stable message fragment. Anything else is
+/// a real failure the caller should surface.
+fn is_merger_not_found(err: &RpcError) -> bool {
+    match err {
+        RpcError::MergerNotFound(_) => true,
+        RpcError::General(msg) => msg.contains(MERGER_NOT_FOUND_FRAGMENT),
+        _ => false,
+    }
 }
 
 /// Pure function: keep only the coinbase UTXOs from a
@@ -197,5 +228,37 @@ mod tests {
     fn empty_when_no_coinbase() {
         let entries = vec![entry(1, 1, 0, false, TXID_A)];
         assert!(coinbase_utxos_from_entries(&entries).is_empty());
+    }
+
+    #[test]
+    fn merger_not_found_fragment_matches_upstream() {
+        // Couple our message fragment to kaspad's actual Display so an
+        // upstream reword breaks this test instead of silently routing
+        // not-yet-merged blocks back through the transport-error path.
+        let hash = KaspaHash::from_str(TXID_A).expect("hex");
+        let typed = RpcError::MergerNotFound(hash);
+        assert!(typed.to_string().contains(MERGER_NOT_FOUND_FRAGMENT));
+    }
+
+    #[test]
+    fn is_merger_not_found_matches_typed_and_grpc_general() {
+        let hash = KaspaHash::from_str(TXID_A).expect("hex");
+        let typed = RpcError::MergerNotFound(hash);
+        assert!(is_merger_not_found(&typed), "typed variant (in-process)");
+
+        // The gRPC client reconstructs server errors as General(message).
+        let over_wire = RpcError::General(typed.to_string());
+        assert!(
+            is_merger_not_found(&over_wire),
+            "General message (over gRPC)"
+        );
+    }
+
+    #[test]
+    fn is_merger_not_found_rejects_unrelated_errors() {
+        assert!(!is_merger_not_found(&RpcError::General(
+            "some other failure".to_owned()
+        )));
+        assert!(!is_merger_not_found(&RpcError::NotImplemented));
     }
 }
