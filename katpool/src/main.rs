@@ -71,9 +71,9 @@
 //! - `KATPOOL_PAYOUT_DRY_RUN`        default `true` (sign+verify only;
 //!   set `false` to broadcast real transactions)
 //! - `KATPOOL_PAYOUT_POLL_SECS`      default 60
-//! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (~daily cadence;
-//!   must exceed the confirmation depth)
-//! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 5 KAS
+//! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `216_000` (~6h at 10 BPS;
+//!   block-rate-specific, must exceed the confirmation depth)
+//! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 10 KAS
 //! - Treasury key source (one of, in precedence order):
 //!   `KATPOOL_TREASURY_KEY_PATH` (raw 32-byte hex file, testnet
 //!   rehearsal) else `KATPOOL_TREASURY_CREDENTIAL` (systemd
@@ -86,9 +86,9 @@
 //! - `KATPOOL_KRC20_PAYOUT_DRY_RUN`        default `true` (settle records +
 //!   broadcasts nothing; never credits)
 //! - `KATPOOL_KRC20_PAYOUT_POLL_SECS`      default 60
-//! - `KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (must exceed the
-//!   confirmation depth)
-//! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 1 KAS (coarse pre-filter)
+//! - `KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA` default `216_000` (~6h at 10 BPS;
+//!   block-rate-specific, must exceed the confirmation depth)
+//! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 10 KAS (coarse pre-filter)
 //! - `KATPOOL_KRC20_MIN_NACHO_BASE_UNITS`  default 1 NACHO (dust gate)
 //! - `KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI`   default 0.2 KAS (commit P2SH lock)
 //! - `KATPOOL_KRC20_COMMIT_FEE_SOMPI` / `..._REVEAL_FEE_SOMPI` default 0.01 KAS
@@ -769,7 +769,7 @@ impl Krc20RuntimeConfig {
             poll_interval: Duration::from_secs(
                 optional_u64("KATPOOL_KRC20_PAYOUT_POLL_SECS")?.unwrap_or(60),
             ),
-            cycle_span_daa: optional_u64("KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400),
+            cycle_span_daa: optional_u64("KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(216_000),
             min_pending_sompi: optional_i64("KATPOOL_KRC20_MIN_PENDING_SOMPI")?
                 .unwrap_or(DEFAULT_MIN_PENDING_SOMPI),
             min_nacho_base_units: optional_u128("KATPOOL_KRC20_MIN_NACHO_BASE_UNITS")?
@@ -832,7 +832,7 @@ impl RuntimeConfig {
         let payout_dry_run = optional_bool("KATPOOL_PAYOUT_DRY_RUN")?.unwrap_or(true);
         let payout_poll_secs = optional_u64("KATPOOL_PAYOUT_POLL_SECS")?.unwrap_or(60);
         let payout_cycle_span_daa =
-            optional_u64("KATPOOL_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400);
+            optional_u64("KATPOOL_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(216_000);
         let payout_threshold_sompi = optional_i64("KATPOOL_PAYOUT_THRESHOLD_SOMPI")?
             .unwrap_or(DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI);
         let key_source = optional("KATPOOL_TREASURY_KEY_PATH").map_or_else(

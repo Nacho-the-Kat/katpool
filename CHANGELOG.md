@@ -37,12 +37,18 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
-- **tn10 payout cadence and thresholds** (`ops/env/tn10.env`): cycle span set
-  to `216_000` DAA (~6h at tn10's ~10 BPS), KAS payout threshold to 10 KAS
-  (`KATPOOL_PAYOUT_THRESHOLD_SOMPI`), and NACHO minimum to 10 KAS-worth
-  (`KATPOOL_KRC20_MIN_PENDING_SOMPI`). Cadence is DAA-windowed (deterministic,
-  multi-instance-safe), so the span is block-rate-specific; mainnet defaults
-  are a tracked follow-up.
+- **Payout cadence and threshold defaults** now match the decided policy for
+  both networks: cycle span `216_000` DAA (~6h at 10 BPS — tn10 and mainnet
+  both run 10 BPS since Crescendo), KAS payout threshold 10 KAS
+  (`KATPOOL_PAYOUT_THRESHOLD_SOMPI`), and NACHO minimum 10 KAS-worth
+  (`KATPOOL_KRC20_MIN_PENDING_SOMPI`). These are now the built-in binary
+  defaults (`DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI`, `DEFAULT_MIN_PENDING_SOMPI`,
+  and the `cycle_span_daa` fallback), replacing the stale 1-BPS-era `86_400`
+  span / 5 KAS / 1 KAS defaults, and are also set explicitly in both
+  `ops/env/tn10.env` and `ops/env/mainnet.env.example`. Cadence is DAA-windowed
+  (deterministic, multi-instance-safe), so the span is block-rate-specific; a
+  network not running 10 BPS must recompute it. Mid-window ad-hoc top-ups are
+  explicitly out of scope (ADR-0018).
 
 - **Maturity tracker + reward allocation redesigned to a UTXO-anchored,
   two-sweep model** (corrects ADR-0014 against rusty-kaspa `tn10-toc3`

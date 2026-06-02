@@ -101,6 +101,14 @@ payout threshold is operator-tunable; tn10 runs **10 KAS**
 (`KATPOOL_PAYOUT_THRESHOLD_SOMPI`), NACHO **10 KAS-worth**
 (`KATPOOL_KRC20_MIN_PENDING_SOMPI`).
 
+**Mainnet uses the identical defaults.** Mainnet has run 10 BPS since the
+Crescendo hardfork (mainnet v1.0.0, 2025-05-05), so the same `216_000` DAA span
+yields the same 6h cadence and the same 10 KAS thresholds. These values are now
+the **built-in binary defaults** (`216_000` DAA span, `1_000_000_000` sompi for
+both the KAS threshold and the NACHO `min_pending`), so a deployment that does
+not override them via env inherits the decided policy rather than a stale
+1-BPS-era cadence. The env files set them explicitly for documentation.
+
 On-demand payouts are served by a new CLI subcommand,
 `katpool payout run-now [--dry-run]`, which drives the **current** window's
 cycle exactly as one daemon tick would (plan → broadcast → confirm →
@@ -108,9 +116,11 @@ reconcile), under the shared `payout-kas:kas-leader` advisory lock so only one
 driver acts at a time. It deliberately does **not** open a second ad-hoc cycle
 mid-window: KAS eligibility nets only `confirmed` payouts (a deliberate,
 tested invariant — *"submitted but not confirmed — still fully payable"*), so a
-parallel off-schedule cycle would double-pay in-flight balances. Reversing that
-invariant (netting non-failed payouts) is the prerequisite for true mid-window
-top-ups and is deferred to its own decision.
+parallel off-schedule cycle would double-pay in-flight balances. **Mid-window
+ad-hoc top-ups are explicitly out of scope** (operator decision): `run-now`
+always drives the current window's single cycle. Balances that accrue
+mid-window are paid by the next window (or sooner if the operator lowers the
+span); they are never lost.
 
 ## Decision Outcome
 
@@ -128,12 +138,13 @@ new double-pay surface.
 - Positive: rejections are now loud; a stuck cycle is observable immediately.
 - Positive: operators can pay on demand without waiting for the window.
 - Negative: the 6h cadence is expressed in DAA, so the span must be recomputed
-  for any network whose block rate differs from tn10's ~10 BPS. Mitigation:
-  documented in `ops/env` and the binary's module docs; mainnet defaults are a
-  tracked follow-up.
+  for any network whose block rate differs from 10 BPS. Mitigation: documented
+  in `ops/env` and the binary's module docs. tn10 and mainnet both run 10 BPS,
+  so both share the `216_000` default; only a differently-paced network needs a
+  recompute.
 - Negative: `run-now` cannot pay balances that accrued mid-window (one cycle per
-  window). Mitigation: lower the span for a faster cadence, or take up the
-  deferred eligibility-invariant change for true ad-hoc top-ups.
+  window) — accepted by design (mid-window top-ups are out of scope).
+  Mitigation: lower the span for a faster cadence.
 
 ### Confirmation
 
@@ -173,5 +184,7 @@ new double-pay surface.
 - Mirrored consensus rules: rusty-kaspa
   `mining/src/mempool/check_transaction_standard.rs`,
   `mining/src/mempool/config.rs` (tag `tn10-toc3`).
-- Deferred follow-ups: mainnet cadence/threshold defaults; KAS eligibility
-  netting of in-flight (non-failed) payouts to enable mid-window ad-hoc cycles.
+- Resolved: mainnet uses the same cadence/threshold as tn10 (both 10 BPS); these
+  are now the built-in binary defaults (operator decision, 2026-06-01).
+- Out of scope (operator decision): mid-window ad-hoc top-ups / netting in-flight
+  (non-failed) payouts.
