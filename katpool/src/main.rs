@@ -110,7 +110,7 @@ use kaspa_addresses::{Address, Prefix};
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::notify::mode::NotificationMode;
 use kaspa_stratum_bridge::{
-    BridgeConfig as BridgeServerConfig, KaspaApi, listen_and_serve_with_events,
+    BridgeConfig as BridgeServerConfig, KaspaApi, listen_and_serve_with_events, prom,
 };
 use katpool_db::{PoolConfig, build_pool};
 use katpool_domain::PoolEvent;
@@ -430,6 +430,24 @@ async fn main() -> Result<()> {
         listen_and_serve_with_events(bridge_config, bridge_api, bridge_concrete, Some(bridge_tx))
             .await
     });
+
+    // Export Prometheus metrics when KATPOOL_PROM_PORT is set. The unified
+    // runtime must start this itself — unlike the standalone bridge binary,
+    // `listen_and_serve_with_events` does not. `start_prom_server` also runs
+    // `init_metrics()`; without it every bridge `record_*` call is a no-op, so
+    // this is what activates the anti-abuse counters as well as the exporter.
+    if cfg.prom_port.is_empty() {
+        info!("prometheus metrics disabled (set KATPOOL_PROM_PORT to enable)");
+    } else {
+        let prom_port = cfg.prom_port.clone();
+        let prom_instance = cfg.instance_id.clone();
+        info!(port = %prom_port, "prometheus metrics server enabled");
+        tokio::spawn(async move {
+            if let Err(e) = prom::start_prom_server(&prom_port, &prom_instance).await {
+                error!("prometheus metrics server error: {e}");
+            }
+        });
+    }
 
     info!("subsystems running; awaiting shutdown signal");
 
