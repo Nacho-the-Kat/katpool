@@ -31,12 +31,13 @@ use katpool_db::repo::wallet;
 use katpool_db::{PoolConfig, build_pool, migrate};
 use katpool_domain::{DaaScore, WalletAddress};
 use katpool_secrets::{TreasurySecret, from_hex};
+use katpool_storagemass::FeeRate;
 use payout_kas::{
     ExecutionMode, KAS_PAYOUT_CONFIRMATION_DAA, KaspadClient, KaspadError, TreasuryUtxoSnapshot,
 };
 use payout_krc20::{
-    DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_FEE_SOMPI, Krc20FeeConfig, Krc20Transfer, TransferStep,
-    advance_transfer, build_transfer_inscription, commit_address, commit_script_public_key,
+    DEFAULT_COMMIT_AMOUNT_SOMPI, Krc20Transfer, TransferStep, advance_transfer,
+    build_transfer_inscription, commit_address, commit_script_public_key,
 };
 use secp256k1::Keypair;
 use testcontainers::ContainerAsync;
@@ -283,11 +284,10 @@ fn coin_for(
     }
 }
 
-const fn fees() -> Krc20FeeConfig {
-    Krc20FeeConfig {
-        commit_fee_sompi: DEFAULT_FEE_SOMPI,
-        reveal_fee_sompi: DEFAULT_FEE_SOMPI,
-    }
+/// Relay-floor fee policy for the first (pending) plan; the resolved fees are
+/// then frozen onto the row and replayed on every later step.
+fn fee_rate() -> FeeRate {
+    FeeRate::from_feerate(0.0)
 }
 
 // ---- tests ----------------------------------------------------------
@@ -314,7 +314,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -339,7 +339,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -356,7 +356,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -378,7 +378,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -399,7 +399,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -419,7 +419,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -438,7 +438,7 @@ async fn drives_pending_through_completed_and_is_idempotent() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -474,7 +474,7 @@ async fn crash_before_broadcast_rebroadcasts_the_same_commit() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -502,7 +502,7 @@ async fn crash_before_broadcast_rebroadcasts_the_same_commit() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -537,7 +537,7 @@ async fn utxo_drift_refuses_to_broadcast_a_divergent_commit() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -557,7 +557,7 @@ async fn utxo_drift_refuses_to_broadcast_a_divergent_commit() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::Live,
     )
@@ -594,7 +594,7 @@ async fn dry_run_plans_but_records_nothing_and_broadcasts_nothing() {
         &mock,
         &secret,
         &treasury_addr,
-        fees(),
+        &fee_rate(),
         &t,
         ExecutionMode::DryRun,
     )

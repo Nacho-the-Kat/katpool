@@ -56,10 +56,6 @@ pub struct RehearsalParams {
     pub min_nacho_base_units: u128,
     /// KAS-sompi locked into each commit P2SH output.
     pub commit_amount_sompi: u64,
-    /// Commit transaction fee (sompi).
-    pub commit_fee_sompi: u64,
-    /// Reveal transaction fee (sompi).
-    pub reveal_fee_sompi: u64,
     /// DAA width of the payout cycle window.
     pub cycle_span_daa: u64,
     /// Virtual DAA score observed at plan time.
@@ -113,8 +109,9 @@ impl RehearsalEvidence<'_> {
                 // u128 may exceed JSON's safe-integer range; emit as string.
                 "min_nacho_base_units": self.params.min_nacho_base_units.to_string(),
                 "commit_amount_sompi": self.params.commit_amount_sompi,
-                "commit_fee_sompi": self.params.commit_fee_sompi,
-                "reveal_fee_sompi": self.params.reveal_fee_sompi,
+                // Commit/reveal network fees are sized adaptively from the node
+                // fee-rate at settle time (floored at the relay minimum) and
+                // frozen per-transfer; not a rehearsal parameter.
                 "cycle_span_daa": self.params.cycle_span_daa,
                 "virtual_daa": self.params.virtual_daa,
             },
@@ -320,6 +317,8 @@ mod tests {
             nacho_amount: 200_000_000,
             p2sh_address: "kaspatest:pqexample".to_owned(),
             status: Krc20TransferStatus::Pending,
+            commit_fee_sompi: None,
+            reveal_fee_sompi: None,
             created_at: Utc.with_ymd_and_hms(2026, 5, 31, 12, 0, 1).unwrap(),
             updated_at: Utc.with_ymd_and_hms(2026, 5, 31, 12, 0, 1).unwrap(),
         }
@@ -365,8 +364,6 @@ mod tests {
             min_pending_sompi: 100_000_000,
             min_nacho_base_units: 100_000_000,
             commit_amount_sompi: 20_000_000,
-            commit_fee_sompi: 1_000_000,
-            reveal_fee_sompi: 1_000_000,
             cycle_span_daa: 86_400,
             virtual_daa: 12_345,
         };
