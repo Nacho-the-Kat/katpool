@@ -13,7 +13,7 @@
 //!   typed variant — every wire error is rebuilt as
 //!   `RpcError::General(message)` (rusty-kaspa
 //!   `rpc/grpc/core/src/convert/error.rs` → `RpcError::from(String)`),
-//!   so [`is_merger_not_found`] also matches the message form. Treating
+//!   so `is_merger_not_found` also matches the message form. Treating
 //!   this as `NotYetMerged` rather than a transport error keeps the
 //!   tracker's sweep error counter and ERROR log clean for what is an
 //!   expected, self-resolving state of a freshly submitted block.
