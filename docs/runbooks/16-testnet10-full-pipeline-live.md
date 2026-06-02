@@ -27,8 +27,8 @@ What this exercises that runbook 15 (M3c) did not:
   accountant.
 - `EventConsumer::run` against real-rate event flow.
 - `WindowAggregator::close_window` against real shares.
-- `AllocationEngine::allocate_matured_block` against real
-  miners + a real reward.
+- `AllocationEngine::allocate_coinbase_reward` against real
+  miners + a real matured coinbase UTXO.
 
 ## Preconditions
 

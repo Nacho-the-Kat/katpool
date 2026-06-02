@@ -17,8 +17,8 @@ use std::time::Duration;
 use katpool_db::repo::block::BlockStatus;
 use katpool_db::repo::payout::{Krc20TransferStatus, PayoutCycleStatus, PayoutKind, PayoutStatus};
 use katpool_db::repo::{
-    block, connection_session, nacho_rebate, payout, pool_meta, share_allocation, share_window,
-    treasury, wallet, worker,
+    block, coinbase_reward, connection_session, nacho_rebate, payout, pool_meta, share_allocation,
+    share_window, treasury, wallet, worker,
 };
 use katpool_db::{PoolConfig, build_pool, migrate};
 use katpool_domain::{BlockHash, CorrelationId, DaaScore, WalletAddress, WorkerName};
@@ -262,9 +262,17 @@ async fn share_window_unique_constraint_rejects_duplicates() {
 
 // ---- share_allocation -----------------------------------------------
 
+/// Build the full lifecycle fixture used by the share-allocation
+/// tests: a matured `block` row (telemetry) plus the matured
+/// `coinbase_reward` row that PROP allocation now anchors on. Returns
+/// `(block_id, coinbase_reward_id, wallet_id)`.
 async fn make_matured_block(
     pool: &sqlx::PgPool,
-) -> (katpool_db::repo::BlockId, katpool_db::repo::WalletId) {
+) -> (
+    katpool_db::repo::BlockId,
+    katpool_db::repo::CoinbaseRewardId,
+    katpool_db::repo::WalletId,
+) {
     let w = wallet::ensure(pool, &sample_wallet_addr(), "mainnet")
         .await
         .expect("wallet");
@@ -284,19 +292,22 @@ async fn make_matured_block(
     .await
     .expect("insert block");
     block::mark_submitted(pool, hash).await.expect("submit");
-    block::mark_confirmed_blue(pool, hash, 1)
+    block::mark_confirmed_blue(pool, hash, Some(1))
         .await
         .expect("confirm");
     block::mark_matured(pool, hash, 5_000_000_000)
         .await
         .expect("mature");
-    (id, w.id)
+    let (reward_id, _) = coinbase_reward::ensure(pool, &[7_u8; 32], 0, 5_000_000_000, 1)
+        .await
+        .expect("coinbase reward");
+    (id, reward_id, w.id)
 }
 
 #[tokio::test]
 async fn share_allocation_balance_check_enforced() {
     let (pool, _ctr) = fresh_pool().await;
-    let (block_id, wallet_id) = make_matured_block(&pool).await;
+    let (_block_id, reward_id, wallet_id) = make_matured_block(&pool).await;
 
     // Unbalanced row — client-side rejection before SQL.
     let bad = share_allocation::NewAllocation {
@@ -311,7 +322,7 @@ async fn share_allocation_balance_check_enforced() {
         applied_rebate_bps: 3_300,
         applied_tier: share_allocation::DbWalletTier::Standard,
     };
-    let err = share_allocation::insert_batch(&pool, block_id, &[bad])
+    let err = share_allocation::insert_batch(&pool, reward_id, &[bad])
         .await
         .expect_err("client-side balance check");
     let msg = format!("{err:?}");
@@ -321,7 +332,7 @@ async fn share_allocation_balance_check_enforced() {
 #[tokio::test]
 async fn share_allocation_insert_batch_round_trip() {
     let (pool, _ctr) = fresh_pool().await;
-    let (block_id, wallet_id_a) = make_matured_block(&pool).await;
+    let (_block_id, reward_id, wallet_id_a) = make_matured_block(&pool).await;
 
     let w2 = wallet::ensure(&pool, &second_wallet_addr(), "mainnet")
         .await
@@ -360,16 +371,16 @@ async fn share_allocation_insert_batch_round_trip() {
         },
     ];
 
-    let inserted = share_allocation::insert_batch(&pool, block_id, &rows)
+    let inserted = share_allocation::insert_batch(&pool, reward_id, &rows)
         .await
         .expect("insert batch");
     assert_eq!(inserted, 2);
 
-    let listed = share_allocation::list_for_block(&pool, block_id)
+    let listed = share_allocation::list_for_reward(&pool, reward_id)
         .await
         .expect("list");
     assert_eq!(listed.len(), 2);
-    // list_for_block is weight DESC, so wallet_id_a (60) comes before w2 (40).
+    // list_for_reward is weight DESC, so wallet_id_a (60) comes before w2 (40).
     assert_eq!(listed[0].wallet_id, wallet_id_a);
 
     let total = listed.iter().map(|a| a.gross_share_sompi).sum::<i64>();
@@ -385,16 +396,16 @@ async fn share_allocation_insert_batch_round_trip() {
 async fn share_allocation_db_check_constraint_rejects_unbalanced_directly() {
     // Bypass our client-side guard to confirm the DB CHECK still bites.
     let (pool, _ctr) = fresh_pool().await;
-    let (block_id, wallet_id) = make_matured_block(&pool).await;
+    let (_block_id, reward_id, wallet_id) = make_matured_block(&pool).await;
 
     let err = sqlx::query(
         "INSERT INTO share_allocation
-            (block_id, wallet_id, weight, window_total,
+            (coinbase_reward_id, wallet_id, weight, window_total,
              gross_share_sompi, pool_fee_sompi, nacho_accrual_sompi, net_payout_sompi,
              applied_topline_bps, applied_rebate_bps, applied_tier)
          VALUES ($1, $2, 1.0, 1.0, 1000, 1, 1, 1, 75, 3300, 'standard')",
     )
-    .bind(block_id.0)
+    .bind(reward_id.0)
     .bind(wallet_id.0)
     .execute(&pool)
     .await
@@ -759,7 +770,7 @@ async fn krc20_payout_unique_per_payout() {
 #[tokio::test]
 async fn kas_eligible_wallets_subtracts_confirmed_kas_payouts() {
     let (pool, _ctr) = fresh_pool().await;
-    let (block_id, wallet_id) = make_matured_block(&pool).await;
+    let (_block_id, reward_id, wallet_id) = make_matured_block(&pool).await;
 
     let row = share_allocation::NewAllocation {
         wallet_id,
@@ -773,7 +784,7 @@ async fn kas_eligible_wallets_subtracts_confirmed_kas_payouts() {
         applied_rebate_bps: 3_300,
         applied_tier: share_allocation::DbWalletTier::Standard,
     };
-    share_allocation::insert_batch(&pool, block_id, &[row])
+    share_allocation::insert_batch(&pool, reward_id, &[row])
         .await
         .expect("alloc");
 
@@ -843,7 +854,7 @@ async fn block_status_filter_with_extras() {
     // Sanity-check that `block::list_by_status` works for the new
     // workflow (planned + matured for the accountant's view).
     let (pool, _ctr) = fresh_pool().await;
-    let (block_id, _wallet_id) = make_matured_block(&pool).await;
+    let (block_id, _reward_id, _wallet_id) = make_matured_block(&pool).await;
     let matured = block::list_by_status(&pool, &[BlockStatus::Matured], 5)
         .await
         .expect("list");

@@ -207,18 +207,22 @@ pub async fn mark_submitted<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
-/// Advance the block to `confirmed_blue`, recording the `kaspad`-
-/// provided `blue_score`.
+/// Advance the block to `confirmed_blue`.
+///
+/// `blue_score` is optional telemetry: callers that have a
+/// kaspad-provided blue score pass `Some(_)`; the maturity tracker
+/// (which decides blueness via GHOSTDAG colour, not blue score) passes
+/// `None` and leaves any existing value untouched.
 pub async fn mark_confirmed_blue<'e, E: PgExecutor<'e>>(
     executor: E,
     hash: BlockHash,
-    blue_score: i64,
+    blue_score: Option<i64>,
 ) -> Result<(), DbError> {
     sqlx::query(
         "
         UPDATE block
            SET status = 'confirmed_blue',
-               blue_score = $2,
+               blue_score = COALESCE($2, blue_score),
                confirmed_at = COALESCE(confirmed_at, now())
          WHERE hash = $1
            AND status IN ('submitted_to_node', 'confirmed_blue')
@@ -274,7 +278,13 @@ pub async fn mark_orphaned<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
-/// List recent blocks in any of the listed statuses. Newest-first.
+/// List blocks in any of the listed statuses, **oldest-first**.
+///
+/// A bounded-`limit` sweep drains the backlog FIFO rather than starving
+/// older blocks behind a churn of newer ones. The maturity tracker
+/// resolves every `submitted_to_node` block it sees to a terminal state
+/// (`confirmed_blue` or `orphaned`), so oldest-first selection cannot
+/// head-of-line block.
 pub async fn list_by_status<'e, E: PgExecutor<'e>>(
     executor: E,
     statuses: &[BlockStatus],
@@ -286,7 +296,7 @@ pub async fn list_by_status<'e, E: PgExecutor<'e>>(
                 miner_reward_sompi, correlation_id
            FROM block
           WHERE status = ANY($1)
-          ORDER BY found_at DESC
+          ORDER BY found_at ASC
           LIMIT $2",
     )
     .bind(statuses)

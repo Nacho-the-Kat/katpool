@@ -10,6 +10,51 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Changed
+
+- **Maturity tracker + reward allocation redesigned to a UTXO-anchored,
+  two-sweep model** (corrects ADR-0014 against rusty-kaspa `tn10-toc3`
+  consensus). The previous model matured a *found block* and parsed
+  **that block's own coinbase** for the reward, gated maturity on a
+  100-blue-score depth, and used `is_chain_block` for confirmation —
+  all three wrong against consensus, and the cause of the stalled
+  tracker (legitimately-blue blocks stranded in `submitted_to_node`).
+  Each sweep now runs two independent, idempotent passes:
+  - **Block-lifecycle telemetry** resolves every `submitted_to_node`
+    block to a terminal state by **GHOSTDAG colour**
+    (`get_current_block_color`): `confirmed_blue` (blue), `orphaned`
+    (red), or stays pending until it ages out past coinbase-maturity
+    depth. Drives no money. `block::list_by_status` is now oldest-first
+    (FIFO) so a bounded sweep cannot head-of-line block.
+  - **Coinbase-reward allocation** takes the **coinbase UTXO set
+    credited to the pool address** (`get_utxos_by_addresses`, requires
+    kaspad `--utxoindex`) as ground truth for realised reward. Each
+    UTXO matured to `virtual_daa_score ≥ block_daa_score + 1000` is
+    recorded in the new `coinbase_reward` table (anchored by outpoint →
+    exactly-once) and allocated over the PROP window ending at its DAA
+    score.
+  - `KaspadClient` trait surface changed from
+    `{get_virtual_blue_score, get_block}` to `{get_virtual_daa_score,
+    get_block_color, get_pool_coinbase_utxos}`.
+  - `AllocationEngine::allocate_matured_block(hash, …)` →
+    `allocate_coinbase_reward(reward_id, …)`, gated on
+    `coinbase_reward.allocated_at` (audit subject `coinbase_reward`).
+  - `MaturityConfig.maturity_depth` (100) → `coinbase_maturity` (1000
+    DAA); env var `KATPOOL_MATURITY_DEPTH` → `KATPOOL_COINBASE_MATURITY`.
+- **DB migration** `coinbase_reward_anchor`: adds the `coinbase_reward`
+  table and re-anchors `share_allocation` from `block_id` to
+  `coinbase_reward_id` (clears prior allocations produced under the
+  incorrect model — none are reconcilable with the new anchor).
+
+### Fixed
+
+- **Treasury coinbase-coin maturity gate corrected from 100 → 1000 DAA**
+  (`payout-kas` `COINBASE_MATURITY_DAA`). Consensus `coinbase_maturity`
+  is 1000 DAA on mainnet and tn10; the old value let `is_spendable`
+  select a coinbase UTXO 100–999 DAA deep, which would build a
+  consensus-rejected immature-coinbase payout transaction. Same
+  root-cause defect as the maturity-tracker correction above.
+
 ### Added
 
 - Phase 5 milestone 5.6 (M5.6): KRC-20 NACHO **payout dry-run rehearsal**

@@ -1,77 +1,43 @@
 //! Block maturity tracker.
 //!
-//! Polls Kaspa's DAG state and drives the `block` table's
-//! lifecycle from `submitted_to_node` through `confirmed_blue`
-//! to `matured` (or `orphaned`, on DAG re-org).
+//! Drives two independent, idempotent concerns each sweep:
 //!
-//! ## Architecture
+//! 1. **Block lifecycle telemetry.** For every `submitted_to_node`
+//!    block, ask kaspad for its GHOSTDAG colour and transition it to a
+//!    terminal state: `confirmed_blue` (accepted blue → the pool earned
+//!    its reward) or `orphaned` (merged red, or never merged after the
+//!    coinbase-maturity depth → no reward). This is operator-facing
+//!    telemetry only; it does **not** drive money.
 //!
-//! The tracker is structured as a single polling loop that wakes
-//! every `MaturityConfig::poll_interval` and reads (a) the current
-//! virtual blue score from kaspad, (b) the set of blocks the
-//! accountant has previously written in
-//! `submitted_to_node` / `confirmed_blue` states. For each block
-//! it derives the next state transition deterministically.
+//! 2. **Coinbase-reward allocation.** Scan the coinbase UTXOs credited
+//!    to the pool address. Each one that has reached consensus
+//!    coinbase-maturity (`virtual_daa_score ≥ utxo.block_daa_score +
+//!    coinbase_maturity`) is recorded in `coinbase_reward` (idempotent
+//!    by outpoint) and handed to the [`AllocationEngine`] for PROP
+//!    distribution over the DAA window ending at the UTXO's
+//!    `block_daa_score`. The UTXO set is the ground truth for realised
+//!    reward, so DAG re-orgs need no special handling: a reward that
+//!    re-orgs out before maturity simply never appears.
 //!
-//! kaspad access goes through the [`KaspadClient`] trait, not
-//! directly through `kaspa_grpc_client`. Two reasons:
+//! ## Why colour, not `is_chain_block`
 //!
-//! 1. **Testability.** The state-machine logic is the bulk of
-//!    the code, but it depends on live DAG state. Stubbing
-//!    kaspad behind a trait lets the test suite cover every
-//!    transition path deterministically (against an in-memory
-//!    fake) without standing up a real kaspad-tn10 instance.
-//! 2. **Phased delivery.** This PR (Phase 3 M3b) ships the
-//!    state machine + stub. The real gRPC-backed
-//!    `KaspadGrpcClient` impl lands in M3c so that the kaspad
-//!    integration surface (reward extraction from coinbase tx,
-//!    reconnect / timeout policy, etc.) gets its own focused
-//!    review.
+//! A block's reward is paid only if it is **blue** (in some chain
+//! block's blue mergeset), which `RpcApi::get_current_block_color`
+//! reports directly. `is_chain_block` (selected-parent-chain
+//! membership) is a far narrower set and is *not* the reward
+//! condition — using it strands almost every rewarded block. See
+//! ADR-0014.
 //!
-//! ## State transitions
+//! ## Why the UTXO set, not the block's own coinbase
 //!
-//! ```text
-//!     ┌── submitted_to_node ──┐
-//!     │                       │
-//!     ▼                       ▼
-//!  (block in DAG)         (block not in DAG yet)
-//!     │                       │
-//!     ├── is_blue ──┐         └── leave; retry next cycle
-//!     │             │
-//!     ▼             ▼
-//! confirmed_blue   (red — never appeared in selected chain)
-//!     │                       │
-//!     ▼                       ▼
-//!  (still blue?)            orphaned
-//!     │
-//!     ├── yes  + (vbs − blue_score ≥ maturity_depth) → matured
-//!     │   (triggers AllocationEngine, hands off the reward)
-//!     │
-//!     ├── yes  + (insufficient depth) → leave; retry
-//!     │
-//!     └── no                                       → orphaned
-//! ```
+//! A block B's own coinbase pays the miners of the blocks **B merges**,
+//! not B itself; B's reward is paid in the coinbase of the later chain
+//! block that merges B. The only exact, attribution-free source of "the
+//! pool was paid N sompi" is the coinbase UTXO credited to the pool
+//! address. See ADR-0014.
 //!
-//! The `matured` and `orphaned` states are terminal; the tracker
-//! only acts on rows in `submitted_to_node` and `confirmed_blue`.
-//!
-//! ## Window-size policy
-//!
-//! Each matured block triggers a PROP allocation over a DAA
-//! window ending at the block's `daa_score`. The window's
-//! `daa_start` is `block.daa_score − cfg.window_daa_span`.
-//! Default span is 600 DAA scores (one minute at 10 BPS
-//! post-Crescendo, ten minutes pre-Crescendo). See ADR-0014.
-//!
-//! ## Reward extraction
-//!
-//! The tracker calls [`KaspadClient::get_block`] which returns
-//! a `BlockInfo` carrying `coinbase_reward_sompi`. The trait
-//! deliberately does NOT expose the raw coinbase transaction —
-//! the only thing downstream code cares about is the pool's
-//! receivable sompi. Concrete `KaspadClient` impls own the
-//! parsing logic and the pool-address-recognition policy (M3c
-//! work).
+//! kaspad access goes through the [`KaspadClient`] trait so the
+//! sweep logic is unit-testable against an in-memory fake.
 
 #![allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 
@@ -80,30 +46,33 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use katpool_db::DbError;
-use katpool_db::repo::block::{self, Block, BlockStatus};
+use katpool_db::repo::block::{self, Block, BlockStatus, EnsureOutcome};
+use katpool_db::repo::coinbase_reward::{self, CoinbaseReward};
 use katpool_domain::{BlockHash, DaaScore};
 use sqlx::PgPool;
 use tokio::sync::watch;
 use tokio::time;
 use tracing::{debug, error, info, warn};
 
-use crate::allocation::{AllocationEngine, AllocationEngineError};
+use crate::allocation::{AllocationEngine, AllocationEngineError, AllocationOutcome};
 
 /// Default polling interval between sweeps.
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(15);
 
-/// Default coinbase maturity depth in blue blocks. Matches the
-/// post-Crescendo Kaspa convention of `kaspa_consensus_core::config::params::Params::coinbase_maturity = 100`.
-pub const DEFAULT_MATURITY_DEPTH: u64 = 100;
+/// Default coinbase maturity in DAA-score depth.
+///
+/// Matches `kaspa_consensus_core` for mainnet and testnet-10:
+/// `BlockrateParams::coinbase_maturity = BPS(10) × COINBASE_MATURITY_SECONDS(100) = 1000`.
+/// A coinbase UTXO is spendable when
+/// `virtual_daa_score ≥ utxo.block_daa_score + coinbase_maturity`.
+pub const DEFAULT_COINBASE_MATURITY: u64 = 1000;
 
 /// Default DAA-window span for PROP allocation, in DAA scores.
-/// 600 DAA ≈ 60 seconds at 10 BPS post-Crescendo (≈ 10 minutes
-/// pre-Crescendo). See ADR-0014.
+/// 600 DAA ≈ 60 seconds at 10 BPS. See ADR-0014.
 pub const DEFAULT_WINDOW_DAA_SPAN: u64 = 600;
 
-/// Default per-cycle batch limit on blocks transitioned.
-/// Bounds the tail latency of any single sweep against a
-/// pathological backlog.
+/// Default per-sweep batch limit (block transitions + reward
+/// allocations). Bounds tail latency against a pathological backlog.
 pub const DEFAULT_BATCH_SIZE: i64 = 200;
 
 /// Errors surfaced by the [`KaspadClient`] trait.
@@ -119,52 +88,57 @@ pub enum KaspadError {
     Malformed(String),
 }
 
-/// Snapshot of one block's DAG status, derived from kaspad.
+/// GHOSTDAG colour of a block relative to the current virtual chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BlockInfo {
-    /// The block hash (echoed back from the lookup).
-    pub hash: BlockHash,
-    /// Blue score the block appeared at. `0` if `is_blue == false`.
-    pub blue_score: u64,
-    /// Whether the block currently belongs to the selected
-    /// (blue) chain. A `false` here for a previously-blue block
-    /// signals an orphan via DAG re-org.
-    pub is_blue: bool,
-    /// Sum of the coinbase transaction's outputs that pay the
-    /// pool's mining address(es). Computed by the `KaspadClient`
-    /// implementation; opaque to the tracker.
-    pub coinbase_reward_sompi: i64,
-    /// Block's DAA score. Used to compute the PROP window.
-    pub daa_score: u64,
+pub enum BlockColor {
+    /// Merged as blue by a chain block → the pool earned its reward.
+    Blue,
+    /// Merged as red → no reward.
+    Red,
+    /// Not yet merged into the sink's past (kaspad returns
+    /// `MergerNotFound`). Includes hashes kaspad has not seen.
+    NotYetMerged,
+}
+
+/// One coinbase UTXO credited to the pool address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CoinbaseUtxo {
+    /// 32-byte coinbase transaction id of the outpoint.
+    pub transaction_id: [u8; 32],
+    /// Output index within the coinbase transaction.
+    pub index: u32,
+    /// UTXO value in sompi.
+    pub amount_sompi: u64,
+    /// DAA score of the block that created the UTXO (the accepting
+    /// chain block). Drives both the maturity gate and the PROP window.
+    pub block_daa_score: u64,
 }
 
 /// Minimal kaspad surface the maturity tracker needs.
 #[async_trait]
 pub trait KaspadClient: Send + Sync + 'static {
-    /// Current virtual chain tip blue score.
-    async fn get_virtual_blue_score(&self) -> Result<u64, KaspadError>;
+    /// Current virtual DAA score (used for the coinbase-maturity gate).
+    async fn get_virtual_daa_score(&self) -> Result<u64, KaspadError>;
 
-    /// Look up one block's DAG status. `Ok(None)` means kaspad
-    /// has never seen the hash *or* the block has been pruned —
-    /// the tracker treats both identically (keep retrying for
-    /// `submitted_to_node`; transition `confirmed_blue` to
-    /// `orphaned` after a grace period the caller decides).
-    async fn get_block(&self, hash: BlockHash) -> Result<Option<BlockInfo>, KaspadError>;
+    /// GHOSTDAG colour of one block relative to the current sink.
+    async fn get_block_color(&self, hash: BlockHash) -> Result<BlockColor, KaspadError>;
+
+    /// Coinbase UTXOs currently credited to the pool address(es).
+    /// Non-coinbase UTXOs are filtered out by the implementation.
+    async fn get_pool_coinbase_utxos(&self) -> Result<Vec<CoinbaseUtxo>, KaspadError>;
 }
 
 /// Runtime knobs for the tracker.
 #[derive(Debug, Clone, Copy)]
 pub struct MaturityConfig {
-    /// Sweep cadence. Operator can lower this for sub-minute
-    /// allocation latency; defaults to 15 s as a compromise
-    /// between latency and kaspad load.
+    /// Sweep cadence. Defaults to 15 s.
     pub poll_interval: Duration,
-    /// How many blue blocks deep before a block matures.
-    pub maturity_depth: u64,
-    /// DAA-score span of the PROP window that ends at the
-    /// matured block.
+    /// Coinbase maturity in DAA-score depth (consensus parameter).
+    pub coinbase_maturity: u64,
+    /// DAA-score span of the PROP window that ends at the matured
+    /// reward's `block_daa_score`.
     pub window_daa_span: u64,
-    /// Max blocks transitioned per sweep (bounds tail latency).
+    /// Max block transitions and reward allocations per sweep.
     pub batch_size: i64,
 }
 
@@ -172,7 +146,7 @@ impl Default for MaturityConfig {
     fn default() -> Self {
         Self {
             poll_interval: DEFAULT_POLL_INTERVAL,
-            maturity_depth: DEFAULT_MATURITY_DEPTH,
+            coinbase_maturity: DEFAULT_COINBASE_MATURITY,
             window_daa_span: DEFAULT_WINDOW_DAA_SPAN,
             batch_size: DEFAULT_BATCH_SIZE,
         }
@@ -184,15 +158,20 @@ impl Default for MaturityConfig {
 pub struct SweepStats {
     /// Blocks transitioned `submitted_to_node → confirmed_blue`.
     pub confirmed_blue: u64,
-    /// Blocks transitioned `confirmed_blue → matured`. Each one
-    /// triggered an `AllocationEngine` call.
-    pub matured: u64,
-    /// Blocks transitioned to `orphaned`.
+    /// Blocks transitioned to `orphaned` (red, or never merged within
+    /// the maturity depth).
     pub orphaned: u64,
-    /// Blocks the tracker examined but couldn't yet act on
-    /// (kaspad hasn't seen them or they're not deep enough).
-    pub still_waiting: u64,
-    /// Per-block errors that didn't kill the sweep.
+    /// `submitted_to_node` blocks not yet resolvable (not yet merged
+    /// and still within the maturity depth).
+    pub blocks_waiting: u64,
+    /// Matured coinbase UTXOs newly recorded in `coinbase_reward`.
+    pub rewards_discovered: u64,
+    /// Coinbase rewards allocated to contributing wallets this sweep.
+    pub rewards_allocated: u64,
+    /// Coinbase rewards finalised with no contributing wallets
+    /// (retained by the pool).
+    pub rewards_empty: u64,
+    /// Per-item errors that didn't kill the sweep.
     pub errors: u64,
 }
 
@@ -224,32 +203,50 @@ impl MaturityTracker {
         }
     }
 
-    /// One sweep over the active block set. Public for tests; the
-    /// production wiring uses [`Self::run_loop`].
+    /// One sweep: block-lifecycle telemetry, then coinbase-reward
+    /// allocation. Public for tests; production wiring uses
+    /// [`Self::run_loop`].
     #[allow(clippy::cognitive_complexity)]
     pub async fn run_once(&self) -> Result<SweepStats, TrackerError> {
-        let virtual_blue_score = self
+        let virtual_daa_score = self
             .kaspad
-            .get_virtual_blue_score()
+            .get_virtual_daa_score()
             .await
             .map_err(TrackerError::Kaspad)?;
-        debug!(instance = %self.instance_id, virtual_blue_score, "tracker sweep start");
+        debug!(instance = %self.instance_id, virtual_daa_score, "tracker sweep start");
 
+        let mut stats = SweepStats::default();
+        self.sweep_blocks(virtual_daa_score, &mut stats).await?;
+        self.sweep_rewards(virtual_daa_score, &mut stats).await?;
+
+        info!(
+            instance = %self.instance_id,
+            virtual_daa_score,
+            ?stats,
+            "tracker sweep done"
+        );
+        Ok(stats)
+    }
+
+    /// Resolve `submitted_to_node` blocks to a terminal lifecycle state.
+    async fn sweep_blocks(
+        &self,
+        virtual_daa_score: u64,
+        stats: &mut SweepStats,
+    ) -> Result<(), TrackerError> {
         let active = block::list_by_status(
             &self.db,
-            &[BlockStatus::SubmittedToNode, BlockStatus::ConfirmedBlue],
+            &[BlockStatus::SubmittedToNode],
             self.cfg.batch_size,
         )
         .await
         .map_err(TrackerError::Db)?;
 
-        let mut stats = SweepStats::default();
         for blk in active {
-            match self.process_block(&blk, virtual_blue_score).await {
+            match self.process_submitted(&blk, virtual_daa_score).await {
                 Ok(BlockOutcome::ConfirmedBlue) => stats.confirmed_blue += 1,
-                Ok(BlockOutcome::Matured) => stats.matured += 1,
                 Ok(BlockOutcome::Orphaned) => stats.orphaned += 1,
-                Ok(BlockOutcome::StillWaiting) => stats.still_waiting += 1,
+                Ok(BlockOutcome::StillWaiting) => stats.blocks_waiting += 1,
                 Err(e) => {
                     stats.errors += 1;
                     let hash_hex = hex::encode(&blk.hash);
@@ -262,18 +259,155 @@ impl MaturityTracker {
                 }
             }
         }
-
-        info!(
-            instance = %self.instance_id,
-            virtual_blue_score,
-            ?stats,
-            "tracker sweep done"
-        );
-        Ok(stats)
+        Ok(())
     }
 
-    /// Run the sweep on a fixed interval until `shutdown`
-    /// fires. Designed to be `tokio::spawn`-ed.
+    async fn process_submitted(
+        &self,
+        blk: &Block,
+        virtual_daa_score: u64,
+    ) -> Result<BlockOutcome, TrackerError> {
+        let hash = bytes_to_hash(&blk.hash).ok_or(TrackerError::Malformed {
+            reason: "block.hash is not 32 bytes",
+        })?;
+
+        match self
+            .kaspad
+            .get_block_color(hash)
+            .await
+            .map_err(TrackerError::Kaspad)?
+        {
+            BlockColor::Blue => {
+                block::mark_confirmed_blue(&self.db, hash, None)
+                    .await
+                    .map_err(TrackerError::Db)?;
+                info!(instance = %self.instance_id, hash = %hash, "block confirmed blue");
+                Ok(BlockOutcome::ConfirmedBlue)
+            }
+            BlockColor::Red => {
+                block::mark_orphaned(&self.db, hash)
+                    .await
+                    .map_err(TrackerError::Db)?;
+                warn!(instance = %self.instance_id, hash = %hash, "block orphaned (merged red)");
+                Ok(BlockOutcome::Orphaned)
+            }
+            BlockColor::NotYetMerged => {
+                // Age out blocks that never merged within the maturity
+                // depth: an honest block is merged (blue or red) well
+                // before this, so a block still unmerged this deep is
+                // lost. Without this, a permanently-unmerged block would
+                // sit in `submitted_to_node` forever.
+                let block_daa = blk.daa_score as u64;
+                if virtual_daa_score >= block_daa.saturating_add(self.cfg.coinbase_maturity) {
+                    block::mark_orphaned(&self.db, hash)
+                        .await
+                        .map_err(TrackerError::Db)?;
+                    warn!(
+                        instance = %self.instance_id,
+                        hash = %hash,
+                        block_daa,
+                        virtual_daa_score,
+                        "block orphaned (never merged within maturity depth)"
+                    );
+                    Ok(BlockOutcome::Orphaned)
+                } else {
+                    Ok(BlockOutcome::StillWaiting)
+                }
+            }
+        }
+    }
+
+    /// Discover matured coinbase UTXOs and allocate any not yet done.
+    async fn sweep_rewards(
+        &self,
+        virtual_daa_score: u64,
+        stats: &mut SweepStats,
+    ) -> Result<(), TrackerError> {
+        let utxos = self
+            .kaspad
+            .get_pool_coinbase_utxos()
+            .await
+            .map_err(TrackerError::Kaspad)?;
+
+        // Record every matured UTXO (idempotent by outpoint).
+        for utxo in &utxos {
+            if !is_mature(
+                virtual_daa_score,
+                utxo.block_daa_score,
+                self.cfg.coinbase_maturity,
+            ) {
+                continue;
+            }
+            let Ok(amount) = i64::try_from(utxo.amount_sompi) else {
+                stats.errors += 1;
+                error!(
+                    instance = %self.instance_id,
+                    amount = utxo.amount_sompi,
+                    "coinbase UTXO amount exceeds i64 range; skipping"
+                );
+                continue;
+            };
+            match coinbase_reward::ensure(
+                &self.db,
+                &utxo.transaction_id,
+                utxo.index,
+                amount,
+                utxo.block_daa_score,
+            )
+            .await
+            {
+                Ok((_, EnsureOutcome::Inserted)) => stats.rewards_discovered += 1,
+                Ok((_, EnsureOutcome::AlreadyExisted)) => {}
+                Err(e) => {
+                    stats.errors += 1;
+                    error!(
+                        instance = %self.instance_id,
+                        error = %e,
+                        "recording coinbase reward failed; continuing sweep"
+                    );
+                }
+            }
+        }
+
+        // Allocate any unallocated rewards (all recorded rewards are
+        // matured by construction).
+        let pending = coinbase_reward::list_unallocated(&self.db, self.cfg.batch_size)
+            .await
+            .map_err(TrackerError::Db)?;
+        for reward in pending {
+            match self.allocate_reward(&reward).await {
+                Ok(AllocationOutcome::Allocated { .. }) => stats.rewards_allocated += 1,
+                Ok(AllocationOutcome::NoContributingWallets { .. }) => stats.rewards_empty += 1,
+                Ok(AllocationOutcome::AlreadyAllocated) => {}
+                Err(e) => {
+                    stats.errors += 1;
+                    error!(
+                        instance = %self.instance_id,
+                        reward_id = reward.id.0,
+                        error = %e,
+                        "allocating coinbase reward failed; continuing sweep"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn allocate_reward(
+        &self,
+        reward: &CoinbaseReward,
+    ) -> Result<AllocationOutcome, TrackerError> {
+        let daa = reward.block_daa_score as u64;
+        let daa_end = DaaScore::new(daa);
+        let daa_start = DaaScore::new(daa.saturating_sub(self.cfg.window_daa_span));
+        self.engine
+            .allocate_coinbase_reward(reward.id, reward.amount_sompi, daa_start, daa_end)
+            .await
+            .map_err(TrackerError::Engine)
+    }
+
+    /// Run the sweep on a fixed interval until `shutdown` fires.
+    /// Designed to be `tokio::spawn`-ed.
     pub async fn run_loop(self, mut shutdown: watch::Receiver<bool>) -> Result<(), TrackerError> {
         let mut interval = time::interval(self.cfg.poll_interval);
         // Skip the immediate tick so the first sweep happens after
@@ -289,125 +423,35 @@ impl MaturityTracker {
                 }
                 _ = interval.tick() => {
                     if let Err(e) = self.run_once().await {
-                        // A whole-sweep error (e.g. kaspad
-                        // transport down) is logged but doesn't
-                        // kill the loop — the next interval tick
-                        // retries.
+                        // A whole-sweep error (e.g. kaspad transport
+                        // down) is logged but doesn't kill the loop —
+                        // the next interval tick retries.
                         warn!(instance = %self.instance_id, error = %e, "tracker sweep failed; will retry");
                     }
                 }
             }
         }
     }
+}
 
-    async fn process_block(
-        &self,
-        blk: &Block,
-        virtual_blue_score: u64,
-    ) -> Result<BlockOutcome, TrackerError> {
-        let hash = bytes_to_hash(&blk.hash).ok_or_else(|| TrackerError::Malformed {
-            reason: "block.hash is not 32 bytes",
-        })?;
-
-        match blk.status {
-            BlockStatus::SubmittedToNode => self.process_submitted(hash, blk).await,
-            BlockStatus::ConfirmedBlue => {
-                self.process_confirmed_blue(hash, blk, virtual_blue_score)
-                    .await
-            }
-            BlockStatus::Found | BlockStatus::Matured | BlockStatus::Orphaned => {
-                Ok(BlockOutcome::StillWaiting)
-            }
-        }
-    }
-
-    async fn process_submitted(
-        &self,
-        hash: BlockHash,
-        _blk: &Block,
-    ) -> Result<BlockOutcome, TrackerError> {
-        let Some(info) = self
-            .kaspad
-            .get_block(hash)
-            .await
-            .map_err(TrackerError::Kaspad)?
-        else {
-            // kaspad doesn't know the block yet — retry next sweep.
-            return Ok(BlockOutcome::StillWaiting);
-        };
-        if !info.is_blue {
-            // Block reached kaspad but isn't on the selected chain
-            // yet. Could become blue with a reorg. Leave alone.
-            return Ok(BlockOutcome::StillWaiting);
-        }
-        block::mark_confirmed_blue(&self.db, hash, info.blue_score as i64)
-            .await
-            .map_err(TrackerError::Db)?;
-        info!(instance = %self.instance_id, hash = %hash, blue_score = info.blue_score, "block confirmed blue");
-        Ok(BlockOutcome::ConfirmedBlue)
-    }
-
-    async fn process_confirmed_blue(
-        &self,
-        hash: BlockHash,
-        blk: &Block,
-        virtual_blue_score: u64,
-    ) -> Result<BlockOutcome, TrackerError> {
-        let Some(info) = self
-            .kaspad
-            .get_block(hash)
-            .await
-            .map_err(TrackerError::Kaspad)?
-        else {
-            // Previously-blue block no longer present in DAG → orphan.
-            block::mark_orphaned(&self.db, hash)
-                .await
-                .map_err(TrackerError::Db)?;
-            warn!(instance = %self.instance_id, hash = %hash, "block orphaned (no longer in DAG)");
-            return Ok(BlockOutcome::Orphaned);
-        };
-        if !info.is_blue {
-            // Reorged out of the selected chain.
-            block::mark_orphaned(&self.db, hash)
-                .await
-                .map_err(TrackerError::Db)?;
-            warn!(
-                instance = %self.instance_id,
-                hash = %hash,
-                old_blue_score = blk.blue_score,
-                "block orphaned (reorged to red)"
-            );
-            return Ok(BlockOutcome::Orphaned);
-        }
-        // Still blue — check depth.
-        if virtual_blue_score < info.blue_score
-            || virtual_blue_score - info.blue_score < self.cfg.maturity_depth
-        {
-            return Ok(BlockOutcome::StillWaiting);
-        }
-        // Matured. Hand off to the allocation engine.
-        let daa_end = DaaScore::new(info.daa_score);
-        let daa_start = DaaScore::new(info.daa_score.saturating_sub(self.cfg.window_daa_span));
-        let outcome = self
-            .engine
-            .allocate_matured_block(hash, info.coinbase_reward_sompi, daa_start, daa_end)
-            .await
-            .map_err(TrackerError::Engine)?;
-        info!(
-            instance = %self.instance_id,
-            hash = %hash,
-            reward = info.coinbase_reward_sompi,
-            allocation = ?outcome,
-            "block matured + allocated"
-        );
-        Ok(BlockOutcome::Matured)
+/// Whether a coinbase UTXO has reached consensus coinbase-maturity.
+#[must_use]
+pub const fn is_mature(
+    virtual_daa_score: u64,
+    block_daa_score: u64,
+    coinbase_maturity: u64,
+) -> bool {
+    // virtual_daa_score >= block_daa_score + coinbase_maturity, written
+    // to avoid overflow on adversarial inputs.
+    match virtual_daa_score.checked_sub(block_daa_score) {
+        Some(depth) => depth >= coinbase_maturity,
+        None => false,
     }
 }
 
 #[derive(Debug)]
 enum BlockOutcome {
     ConfirmedBlue,
-    Matured,
     Orphaned,
     StillWaiting,
 }
@@ -434,10 +478,13 @@ pub enum TrackerError {
 }
 
 const fn bytes_to_hash(bytes: &[u8]) -> Option<BlockHash> {
+    // `block.hash` is exactly 32 bytes (schema CHECK), but guard
+    // defensively. `first_chunk` avoids slice indexing in const.
     if bytes.len() != 32 {
         return None;
     }
-    let mut arr = [0u8; 32];
-    arr.copy_from_slice(bytes);
-    Some(BlockHash::from_bytes(arr))
+    match bytes.first_chunk::<32>() {
+        Some(arr) => Some(BlockHash::from_bytes(*arr)),
+        None => None,
+    }
 }
