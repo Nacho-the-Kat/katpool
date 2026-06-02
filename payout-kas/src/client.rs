@@ -73,6 +73,14 @@ pub trait KaspadClient: Send + Sync {
         allow_orphan: bool,
     ) -> Result<TransactionId, KaspadError>;
 
+    /// Current top-priority network fee-rate in `sompi/gram`.
+    ///
+    /// Returns the `get_fee_estimate` priority-bucket feerate (sub-second DAG
+    /// inclusion). The planner multiplies it by transaction mass and floors at
+    /// the mempool minimum relay fee to size each payout's fee, so a payout is
+    /// never rejected for insufficient fee.
+    async fn fee_estimate_sompi_per_gram(&self) -> Result<f64, KaspadError>;
+
     /// Whether `txid` is currently in the mempool (still pending inclusion).
     ///
     /// Implementations MUST treat transport errors as `false`: the executor
@@ -160,6 +168,16 @@ impl KaspadClient for GrpcKaspadClient {
             .submit_transaction(RpcTransaction::from(tx), allow_orphan)
             .await
             .map_err(rpc_err)
+    }
+
+    async fn fee_estimate_sompi_per_gram(&self) -> Result<f64, KaspadError> {
+        Ok(self
+            .inner
+            .get_fee_estimate()
+            .await
+            .map_err(rpc_err)?
+            .priority_bucket
+            .feerate)
     }
 
     async fn transaction_in_mempool(&self, txid: TransactionId) -> Result<bool, KaspadError> {

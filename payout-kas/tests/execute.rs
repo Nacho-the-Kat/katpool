@@ -205,6 +205,9 @@ impl KaspadClient for MockKaspad {
     async fn transaction_in_mempool(&self, txid: TransactionId) -> Result<bool, KaspadError> {
         Ok(self.mempool.lock().unwrap().contains(&txid.as_bytes()))
     }
+    async fn fee_estimate_sompi_per_gram(&self) -> Result<f64, KaspadError> {
+        Ok(1.0)
+    }
 }
 
 fn funding(

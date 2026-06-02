@@ -25,6 +25,20 @@
 //! a `tokio::sync::watch::Receiver<bool>` propagated from the
 //! signal task.
 //!
+//! ## Commands
+//!
+//! Invoked with no arguments the binary runs the full daemon above. It also
+//! accepts an operator on-demand payout subcommand:
+//!
+//! - `katpool payout run-now [--dry-run]` — drive a single KAS payout cycle
+//!   synchronously (plan → broadcast → confirm → reconcile), then exit. It
+//!   reads the same environment configuration as the daemon (including
+//!   `KATPOOL_PAYOUT_DRY_RUN`) and acquires the shared `payout-kas:kas-leader`
+//!   advisory lock, so it is safe to run while the daemon is live — only one
+//!   cycle driver acts at a time. `--dry-run` forces sign+verify without
+//!   broadcasting regardless of the env setting.
+//! - `katpool --help` — print usage.
+//!
 //! ## Configuration (env-var only in M3d; YAML in Phase 7)
 //!
 //! Required:
@@ -57,9 +71,9 @@
 //! - `KATPOOL_PAYOUT_DRY_RUN`        default `true` (sign+verify only;
 //!   set `false` to broadcast real transactions)
 //! - `KATPOOL_PAYOUT_POLL_SECS`      default 60
-//! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (~daily cadence;
-//!   must exceed the confirmation depth)
-//! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 5 KAS
+//! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `216_000` (~6h at 10 BPS;
+//!   block-rate-specific, must exceed the confirmation depth)
+//! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 10 KAS
 //! - Treasury key source (one of, in precedence order):
 //!   `KATPOOL_TREASURY_KEY_PATH` (raw 32-byte hex file, testnet
 //!   rehearsal) else `KATPOOL_TREASURY_CREDENTIAL` (systemd
@@ -72,9 +86,9 @@
 //! - `KATPOOL_KRC20_PAYOUT_DRY_RUN`        default `true` (settle records +
 //!   broadcasts nothing; never credits)
 //! - `KATPOOL_KRC20_PAYOUT_POLL_SECS`      default 60
-//! - `KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA` default `86_400` (must exceed the
-//!   confirmation depth)
-//! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 1 KAS (coarse pre-filter)
+//! - `KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA` default `216_000` (~6h at 10 BPS;
+//!   block-rate-specific, must exceed the confirmation depth)
+//! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 10 KAS (coarse pre-filter)
 //! - `KATPOOL_KRC20_MIN_NACHO_BASE_UNITS`  default 1 NACHO (dust gate)
 //! - `KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI`   default 0.2 KAS (commit P2SH lock)
 //! - `KATPOOL_KRC20_COMMIT_FEE_SOMPI` / `..._REVEAL_FEE_SOMPI` default 0.01 KAS
@@ -102,7 +116,7 @@ use katpool_domain::PoolEvent;
 use katpool_secrets::{load_from_path, load_from_systemd_credential};
 use payout_kas::{
     DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, ExecutionMode, GrpcKaspadClient, PayoutEngine,
-    PayoutEngineConfig,
+    PayoutEngineConfig, TickOutcome,
 };
 use payout_krc20::{
     BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
@@ -135,7 +149,21 @@ async fn main() -> Result<()> {
         .with_target(true)
         .init();
 
+    let arg_list: Vec<String> = std::env::args().skip(1).collect();
+    let command = parse_args(&arg_list).context("parsing arguments")?;
+    if command == Command::Help {
+        print_usage();
+        return Ok(());
+    }
+
     let cfg = RuntimeConfig::from_env().context("loading runtime config")?;
+
+    // Operator on-demand payout: drive one cycle synchronously and exit,
+    // never starting the long-running subsystems.
+    if let Command::PayoutRunNow { dry_run } = command {
+        return run_payout_now(&cfg, dry_run).await;
+    }
+
     info!(
         instance = %cfg.instance_id,
         kaspad = %cfg.kaspad_url,
@@ -465,6 +493,177 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// CLI command selected from process arguments.
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    /// Run the full pool runtime (default; no arguments).
+    Daemon,
+    /// Trigger a single KAS payout cycle synchronously, then exit.
+    PayoutRunNow {
+        /// Force dry-run (sign + verify only) regardless of `KATPOOL_PAYOUT_DRY_RUN`.
+        dry_run: bool,
+    },
+    /// Print usage and exit.
+    Help,
+}
+
+/// Parse process arguments (excluding `argv[0]`) into a [`Command`].
+///
+/// Kept dependency-free and pure so it is exhaustively unit-testable. The
+/// daemon is the default so the systemd unit (which passes no arguments)
+/// is unaffected.
+fn parse_args(args: &[String]) -> Result<Command> {
+    let mut iter = args.iter().map(String::as_str);
+    match iter.next() {
+        None => Ok(Command::Daemon),
+        Some("-h" | "--help" | "help") => Ok(Command::Help),
+        Some("payout") => match iter.next() {
+            Some("run-now") => {
+                let mut dry_run = false;
+                for arg in iter {
+                    match arg {
+                        "--dry-run" => dry_run = true,
+                        other => anyhow::bail!("unknown flag for `payout run-now`: {other}"),
+                    }
+                }
+                Ok(Command::PayoutRunNow { dry_run })
+            }
+            Some(other) => {
+                anyhow::bail!("unknown `payout` subcommand: {other} (expected `run-now`)")
+            }
+            None => anyhow::bail!("`payout` requires a subcommand (e.g. `run-now`)"),
+        },
+        Some(other) => anyhow::bail!("unknown command: {other} (try `--help`)"),
+    }
+}
+
+// Help text is operator-facing and must reach the terminal regardless of the
+// tracing filter, so stdout is correct here (unlike runtime diagnostics).
+#[allow(clippy::print_stdout)]
+fn print_usage() {
+    println!(
+        "katpool — Kaspa mining pool runtime\n\n\
+         USAGE:\n  \
+         katpool                          Run the full pool daemon (default)\n  \
+         katpool payout run-now [--dry-run]\n                                   \
+         Drive one KAS payout cycle now, then exit\n  \
+         katpool --help                   Show this help\n\n\
+         Configuration is environment-variable driven (see the module docs and\n\
+         ops/env/<network>.env). `payout run-now` honours the same settings as\n\
+         the daemon — including KATPOOL_PAYOUT_DRY_RUN — and coordinates with a\n\
+         running daemon through the shared payout leader lock, so only one cycle\n\
+         driver acts at a time. Pass `--dry-run` to preview without broadcasting."
+    );
+}
+
+/// Operator on-demand payout: drive the current DAA-window cycle exactly as a
+/// single daemon tick would (plan → broadcast → confirm → reconcile), under the
+/// shared `payout-kas:kas-leader` advisory lock, then exit.
+///
+/// Safe to invoke while the daemon runs: the advisory lock guarantees only one
+/// cycle driver acts at a time. If the daemon is mid-tick the lock is briefly
+/// retried before giving up.
+async fn run_payout_now(cfg: &RuntimeConfig, force_dry_run: bool) -> Result<()> {
+    let db = build_pool(&PoolConfig {
+        url: cfg.database_url.clone(),
+        min_connections: 1,
+        max_connections: 4,
+        application_name: format!("katpool-payout-run-now[{}]", cfg.instance_id),
+        ..PoolConfig::production("placeholder".to_owned())
+    })
+    .await
+    .context("opening Postgres pool")?;
+
+    let treasury_address = cfg
+        .pool_addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("KATPOOL_POOL_ADDRESS is empty"))?;
+
+    let secret = match &cfg.payout.key_source {
+        KeySource::File(path) => load_from_path(path)
+            .with_context(|| format!("loading treasury key from {}", path.display()))?,
+        KeySource::SystemdCredential(name) => load_from_systemd_credential(name)
+            .with_context(|| format!("loading treasury credential `{name}`"))?,
+    };
+
+    let client = GrpcKaspadClient::connect(cfg.kaspad_url.clone())
+        .await
+        .context("payout-kas kaspad gRPC connect")?;
+
+    let mode = if force_dry_run || cfg.payout.dry_run {
+        ExecutionMode::DryRun
+    } else {
+        ExecutionMode::Live
+    };
+
+    let engine = PayoutEngine::new(
+        db,
+        client,
+        secret,
+        treasury_address.clone(),
+        PayoutEngineConfig {
+            instance_id: cfg.instance_id.clone(),
+            poll_interval: cfg.payout.poll_interval,
+            cycle_span_daa: cfg.payout.cycle_span_daa,
+            threshold_sompi: cfg.payout.threshold_sompi,
+            mode,
+            lock_namespace: "payout-kas:kas-leader".to_owned(),
+        },
+    )
+    .context("building payout engine")?;
+
+    info!(
+        dry_run = mode.is_dry_run(),
+        threshold_sompi = cfg.payout.threshold_sompi,
+        cycle_span_daa = cfg.payout.cycle_span_daa,
+        treasury = %treasury_address,
+        "payout run-now: driving current cycle"
+    );
+
+    // The daemon may hold the leader lock mid-tick; retry briefly before failing.
+    let mut attempt = 0_u32;
+    let report = loop {
+        attempt += 1;
+        match engine.run_once().await.context("payout run-now tick")? {
+            TickOutcome::Ran(report) => break report,
+            TickOutcome::SkippedNotLeader if attempt < 10 => {
+                warn!(attempt, "payout leader lock held elsewhere; retrying in 1s");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            TickOutcome::SkippedNotLeader => {
+                anyhow::bail!("another instance holds the payout leader lock; try again shortly");
+            }
+        }
+    };
+
+    let broadcast = &report.broadcast;
+    info!(
+        cycle_id = report.cycle_id,
+        status = ?report.status,
+        dry_run = mode.is_dry_run(),
+        planned_batches = broadcast.planned_batches,
+        submitted_payouts = broadcast.submitted_payouts,
+        accepted = report.confirm.accepted,
+        confirmed = report.confirm.confirmed,
+        deferred_below_floor = broadcast.deferred_below_floor,
+        unpaid = broadcast.unpaid,
+        "payout run-now complete"
+    );
+    if !broadcast.submit_errors.is_empty() {
+        error!(
+            errors = broadcast.submit_errors.len(),
+            detail = %broadcast.submit_errors.join("; "),
+            "payout run-now: broadcast(s) rejected"
+        );
+        anyhow::bail!(
+            "{} payout broadcast(s) were rejected",
+            broadcast.submit_errors.len()
+        );
+    }
+    Ok(())
+}
+
 async fn sigterm() {
     #[cfg(unix)]
     {
@@ -570,7 +769,7 @@ impl Krc20RuntimeConfig {
             poll_interval: Duration::from_secs(
                 optional_u64("KATPOOL_KRC20_PAYOUT_POLL_SECS")?.unwrap_or(60),
             ),
-            cycle_span_daa: optional_u64("KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400),
+            cycle_span_daa: optional_u64("KATPOOL_KRC20_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(216_000),
             min_pending_sompi: optional_i64("KATPOOL_KRC20_MIN_PENDING_SOMPI")?
                 .unwrap_or(DEFAULT_MIN_PENDING_SOMPI),
             min_nacho_base_units: optional_u128("KATPOOL_KRC20_MIN_NACHO_BASE_UNITS")?
@@ -633,7 +832,7 @@ impl RuntimeConfig {
         let payout_dry_run = optional_bool("KATPOOL_PAYOUT_DRY_RUN")?.unwrap_or(true);
         let payout_poll_secs = optional_u64("KATPOOL_PAYOUT_POLL_SECS")?.unwrap_or(60);
         let payout_cycle_span_daa =
-            optional_u64("KATPOOL_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(86_400);
+            optional_u64("KATPOOL_PAYOUT_CYCLE_SPAN_DAA")?.unwrap_or(216_000);
         let payout_threshold_sompi = optional_i64("KATPOOL_PAYOUT_THRESHOLD_SOMPI")?
             .unwrap_or(DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI);
         let key_source = optional("KATPOOL_TREASURY_KEY_PATH").map_or_else(
@@ -840,4 +1039,61 @@ fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
         );
     }
     Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Command, parse_args};
+
+    fn args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn no_args_runs_daemon() {
+        assert_eq!(parse_args(&args(&[])).ok(), Some(Command::Daemon));
+    }
+
+    #[test]
+    fn help_flags_request_usage() {
+        for flag in ["-h", "--help", "help"] {
+            assert_eq!(parse_args(&args(&[flag])).ok(), Some(Command::Help));
+        }
+    }
+
+    #[test]
+    fn payout_run_now_defaults_to_live() {
+        assert_eq!(
+            parse_args(&args(&["payout", "run-now"])).ok(),
+            Some(Command::PayoutRunNow { dry_run: false })
+        );
+    }
+
+    #[test]
+    fn payout_run_now_accepts_dry_run_flag() {
+        assert_eq!(
+            parse_args(&args(&["payout", "run-now", "--dry-run"])).ok(),
+            Some(Command::PayoutRunNow { dry_run: true })
+        );
+    }
+
+    #[test]
+    fn unknown_payout_subcommand_errors() {
+        assert!(parse_args(&args(&["payout", "bogus"])).is_err());
+    }
+
+    #[test]
+    fn payout_without_subcommand_errors() {
+        assert!(parse_args(&args(&["payout"])).is_err());
+    }
+
+    #[test]
+    fn unknown_flag_for_run_now_errors() {
+        assert!(parse_args(&args(&["payout", "run-now", "--wat"])).is_err());
+    }
+
+    #[test]
+    fn unknown_top_level_command_errors() {
+        assert!(parse_args(&args(&["frobnicate"])).is_err());
+    }
 }

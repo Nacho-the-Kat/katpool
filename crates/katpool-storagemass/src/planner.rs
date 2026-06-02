@@ -10,6 +10,7 @@ use kaspa_consensus_core::tx::{
 };
 
 use crate::evaluator::{MassEvaluator, TxMass};
+use crate::fee::{FeeRate, is_change_dust};
 use crate::tx_build::build_populated;
 use crate::types::{
     PLANNING_VIRTUAL_TXID_BYTES, PayoutRecipient, PlanBatchesResult, PlannedBatch, TreasuryUtxo,
@@ -19,12 +20,17 @@ use crate::types::{
 const MAX_OUTPUTS_PER_INPUT: usize = 10;
 
 /// Partition recipients, sort funding set, and greedily pack mass-valid batches.
+///
+/// `fee_rate` reserves the on-chain network fee out of each batch's change so
+/// the resulting transaction clears kaspad's minimum-relay-fee check. Pass
+/// [`FeeRate::ZERO`] for shape-only planning that must not alter amounts.
 #[must_use]
 pub fn plan_batches(
     evaluator: &MassEvaluator,
     mut utxos: Vec<TreasuryUtxo>,
     recipients: Vec<PayoutRecipient>,
     change_script: &ScriptPublicKey,
+    fee_rate: &FeeRate,
 ) -> PlanBatchesResult {
     let (mut payable, deferred_below_floor) = partition_by_floor(recipients);
     sort_utxos_desc(&mut utxos);
@@ -32,7 +38,8 @@ pub fn plan_batches(
 
     let mut batches = Vec::new();
     while !payable.is_empty() && !utxos.is_empty() {
-        let Some(batch) = build_one_batch(evaluator, &utxos, &payable, change_script) else {
+        let Some(batch) = build_one_batch(evaluator, &utxos, &payable, change_script, fee_rate)
+        else {
             break;
         };
         remove_consumed(&mut utxos, &batch.inputs);
@@ -86,6 +93,7 @@ fn build_one_batch(
     utxos: &[TreasuryUtxo],
     recipients: &[PayoutRecipient],
     change_script: &ScriptPublicKey,
+    fee_rate: &FeeRate,
 ) -> Option<PlannedBatch> {
     let max_inputs = utxos.len();
     let mut input_count = 1;
@@ -94,8 +102,14 @@ fn build_one_batch(
         let inputs = utxos.get(..input_count)?;
         let input_sum: u64 = inputs.iter().map(|u| u.entry.amount).sum();
 
-        let selected =
-            greedy_recipients_for_inputs(evaluator, inputs, input_sum, recipients, change_script)?;
+        let selected = greedy_recipients_for_inputs(
+            evaluator,
+            inputs,
+            input_sum,
+            recipients,
+            change_script,
+            fee_rate,
+        )?;
 
         if selected.is_empty() {
             input_count += 1;
@@ -111,7 +125,6 @@ fn build_one_batch(
             continue;
         }
 
-        let change_amount = input_sum - payout_sum;
         let payout_refs: Vec<&PayoutRecipient> = selected
             .iter()
             .filter_map(|&idx| recipients.get(idx))
@@ -121,26 +134,55 @@ fn build_one_batch(
             continue;
         }
 
-        if let Some(mass) = evaluate_shape(
-            evaluator,
-            inputs,
-            &payout_refs,
-            change_script,
-            change_amount,
-        ) {
-            let payouts: Vec<PayoutRecipient> = selected
-                .iter()
-                .filter_map(|&idx| recipients.get(idx).cloned())
-                .collect();
-            return Some(PlannedBatch {
-                inputs: inputs.to_vec(),
-                payouts,
-                change_amount_sompi: change_amount,
-                mass,
-            });
+        // Size the fee from the pre-fee shape (mass is insensitive to the
+        // change *value*, only its presence), then reserve it from change.
+        let gross_change = input_sum - payout_sum;
+        let Some(gross_mass) =
+            evaluate_shape(evaluator, inputs, &payout_refs, change_script, gross_change)
+        else {
+            input_count += 1;
+            continue;
+        };
+        let fee = if fee_rate.reserves_fee() {
+            fee_rate.fee_for(&gross_mass)
+        } else {
+            0
+        };
+        if payout_sum.saturating_add(fee) > input_sum {
+            // Not enough to cover payouts plus the network fee; widen inputs.
+            input_count += 1;
+            continue;
         }
+        let change_amount = input_sum - payout_sum - fee;
 
-        input_count += 1;
+        // Drop a zero or dust change output (its value is absorbed into the
+        // fee); kaspad rejects dust outputs. Re-measure the no-change shape so
+        // the recorded mass matches what is actually signed.
+        let drop_change = fee_rate.reserves_fee()
+            && (change_amount == 0 || is_change_dust(change_amount, change_script));
+        let (final_change, mass) = if drop_change {
+            if let Some(mass) = evaluate_shape(evaluator, inputs, &payout_refs, change_script, 0) {
+                (0, mass)
+            } else {
+                input_count += 1;
+                continue;
+            }
+        } else {
+            // A kept change output: reserving the fee only lowers its value,
+            // which does not move mass, so reuse the measured shape.
+            (change_amount, gross_mass)
+        };
+
+        let payouts: Vec<PayoutRecipient> = selected
+            .iter()
+            .filter_map(|&idx| recipients.get(idx).cloned())
+            .collect();
+        return Some(PlannedBatch {
+            inputs: inputs.to_vec(),
+            payouts,
+            change_amount_sompi: final_change,
+            mass,
+        });
     }
 
     None
@@ -153,6 +195,7 @@ fn greedy_recipients_for_inputs(
     input_sum: u64,
     recipients: &[PayoutRecipient],
     change_script: &ScriptPublicKey,
+    fee_rate: &FeeRate,
 ) -> Option<Vec<usize>> {
     let max_outputs = inputs.len().saturating_mul(MAX_OUTPUTS_PER_INPUT).max(1);
 
@@ -179,7 +222,18 @@ fn greedy_recipients_for_inputs(
             continue;
         }
         let change = input_sum - candidate_sum;
-        if evaluate_shape(evaluator, inputs, &payout_refs, change_script, change).is_some() {
+        let Some(mass) = evaluate_shape(evaluator, inputs, &payout_refs, change_script, change)
+        else {
+            continue;
+        };
+        // Only accept this recipient if the inputs still cover the network fee
+        // for the resulting shape; otherwise the batch could not be broadcast.
+        let fee = if fee_rate.reserves_fee() {
+            fee_rate.fee_for(&mass)
+        } else {
+            0
+        };
+        if candidate_sum.saturating_add(fee) <= input_sum {
             selected = candidate;
         }
     }

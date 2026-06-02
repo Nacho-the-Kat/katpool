@@ -23,10 +23,11 @@
 //!
 //! [ADR-0016]: ../../../docs/decisions/0016-krc20-payout-conversion-and-floor-price.md
 
-/// Default minimum pending rebate (KAS-sompi) for a wallet to be selected
-/// for a NACHO cycle. Operator-tunable; a coarse pre-filter ahead of the
-/// per-amount dust gate. `1 KAS = 100_000_000 sompi`.
-pub const DEFAULT_MIN_PENDING_SOMPI: i64 = 100_000_000;
+/// Default minimum pending rebate for a NACHO cycle (10 KAS-worth).
+///
+/// In KAS-sompi; the coarse pre-filter for wallet selection ahead of the
+/// per-amount dust gate. Operator-tunable. `1 KAS = 100_000_000 sompi`.
+pub const DEFAULT_MIN_PENDING_SOMPI: i64 = 1_000_000_000;
 
 /// Default minimum NACHO base-units actually worth a reveal transaction
 /// (dust gate). `1 NACHO = 10^8 base units`. Amounts below this stay

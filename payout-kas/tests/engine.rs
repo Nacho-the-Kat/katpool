@@ -222,6 +222,9 @@ impl KaspadClient for MockKaspad {
             .unwrap()
             .contains(&txid.as_bytes()))
     }
+    async fn fee_estimate_sompi_per_gram(&self) -> Result<f64, KaspadError> {
+        Ok(1.0)
+    }
 }
 
 fn funding(amount: u64, script: &ScriptPublicKey) -> TreasuryUtxoSnapshot {

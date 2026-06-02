@@ -328,8 +328,8 @@ pub async fn set_cycle_totals<'e, E: PgExecutor<'e>>(
 
 // ---- payout ops -----------------------------------------------------
 
-/// Default minimum payable balance for a KAS payout (5 KAS).
-pub const DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI: i64 = 500_000_000;
+/// Default minimum payable balance for a KAS payout (10 KAS).
+pub const DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI: i64 = 1_000_000_000;
 
 /// Wallet eligible for a KAS payout at the configured threshold.
 #[derive(Debug, Clone, sqlx::FromRow)]
