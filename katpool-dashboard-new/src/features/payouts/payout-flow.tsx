@@ -18,7 +18,12 @@ export function PayoutFlow() {
   const { data, isLoading, isError, refetch } = usePayoutCycles(WINDOW);
 
   const series = useMemo<SeriesDef[]>(() => {
-    const cycles = [...(data?.cycles ?? [])].reverse(); // oldest → newest
+    // Only settled cycles represent value actually distributed. Planned,
+    // broadcasting, and failed cycles are excluded so the cumulative outflow
+    // never overstates what miners have been paid.
+    const cycles = [...(data?.cycles ?? [])]
+      .filter((c) => c.status === "settled" && c.settled_at != null)
+      .reverse(); // oldest → newest
     let kas = 0;
     let nacho = 0;
     const kasPts: { t: string; v: number }[] = [];

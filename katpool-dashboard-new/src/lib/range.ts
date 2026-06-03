@@ -43,15 +43,25 @@ export const RANGE_LABELS: Record<RangeKey, string> = {
   "1y": "1Y",
 };
 
+const BUCKET_SECONDS: Record<BucketToken, number> = {
+  "1m": 60,
+  "5m": 300,
+  "1h": 3600,
+  "1d": 86_400,
+};
+
 /**
- * Resolve a range key to API params. `to` is now (rounded to the bucket so
- * the cache key is stable across rapid refetches); `from = to - span`.
+ * Resolve a range key to API params. `to` is now **rounded down to the bucket
+ * boundary** so the cache key is stable across rapid refetches and identical
+ * across components requesting the same range (e.g. the hero sparkline and the
+ * hashrate panel dedupe to a single fetch); `from = to - span`.
  */
 export function resolveRange(key: RangeKey): ResolvedRange {
   const span = SECONDS[key];
   const bucket = bucketFor(key);
-  const now = Date.now();
-  const to = new Date(now).toISOString();
-  const from = new Date(now - span * 1000).toISOString();
+  const bucketMs = BUCKET_SECONDS[bucket] * 1000;
+  const toMs = Math.floor(Date.now() / bucketMs) * bucketMs;
+  const to = new Date(toMs).toISOString();
+  const from = new Date(toMs - span * 1000).toISOString();
   return { from, to, bucket, windowSecs: span };
 }

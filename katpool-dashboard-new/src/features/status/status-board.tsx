@@ -91,8 +91,8 @@ export function StatusBoard() {
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
           <Metric label="Last block found" value={lastBlockAge} />
           <Metric
-            label="Blocks matured"
-            value={stats.data ? formatNumber(stats.data.blocks.matured) : "—"}
+            label="Blocks found"
+            value={stats.data ? formatCompact(stats.data.blocks.found) : "—"}
           />
           <Metric
             label="Active miners"

@@ -65,8 +65,15 @@ export function OverviewHero() {
   const poolHs = stats.data?.hashrate_hs ?? null;
   const netHs = network.data?.network_hashrate_hs ?? 0;
   const netShare = poolHs != null && netHs > 0 ? (poolHs / netHs) * 100 : null;
+  // Only surface a network share when it's physically plausible. A pool cannot
+  // exceed the network it mines; an implausible (>100%) ratio means the network
+  // context and pool estimate are momentarily out of step (e.g. a lagging
+  // testnet difficulty), so we fall back to the descriptive line rather than
+  // print an alarming ">100%".
   const shareLabel =
-    netShare == null ? null : netShare > 100 ? ">100%" : `${netShare.toFixed(netShare < 1 ? 3 : 2)}%`;
+    netShare == null || netShare > 100
+      ? null
+      : `${netShare.toFixed(netShare < 1 ? 3 : 2)}%`;
 
   const loading = stats.isLoading;
   const netLoading = network.isLoading;
@@ -134,8 +141,8 @@ export function OverviewHero() {
                 loading={loading}
               />
               <HeroStat
-                label="Blocks matured"
-                value={stats.data ? formatNumber(stats.data.blocks.matured) : null}
+                label="Blocks found"
+                value={stats.data ? formatCompact(stats.data.blocks.found) : null}
                 loading={loading}
               />
               <HeroStat
