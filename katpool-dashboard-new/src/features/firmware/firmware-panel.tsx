@@ -18,17 +18,17 @@ export function FirmwarePanel() {
     () =>
       (data?.entries ?? []).map((e) => ({
         name: e.app ?? "Unknown client",
-        value: e.workers,
+        value: e.sessions,
       })),
     [data],
   );
 
-  const totalWorkers = useMemo(() => items.reduce((sum, i) => sum + i.value, 0), [items]);
+  const totalSessions = useMemo(() => items.reduce((sum, i) => sum + i.value, 0), [items]);
 
   return (
     <Panel
       title="Miner software"
-      description="Workers by reported stratum user-agent (last 24h)"
+      description="Sessions by reported stratum user-agent (last 24h)"
     >
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
@@ -43,9 +43,9 @@ export function FirmwarePanel() {
       ) : (
         <DonutChart
           data={items}
-          valueFormatter={(v) => `${formatNumber(v)} workers`}
-          centerValue={formatNumber(totalWorkers)}
-          centerLabel="workers"
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "session" : "sessions"}`}
+          centerValue={formatNumber(totalSessions)}
+          centerLabel={totalSessions === 1 ? "session" : "sessions"}
           height={300}
         />
       )}

@@ -24,14 +24,14 @@ export function GeoPanel() {
     () =>
       (data?.entries ?? []).slice(0, TOP_N).map((e) => ({
         label: `${flagEmoji(e.country)}  ${countryName(e.country)}`,
-        value: e.workers,
+        value: e.sessions,
       })),
     [data],
   );
 
   const countries = data?.entries.length ?? 0;
   const description = countries
-    ? `Workers across ${formatNumber(countries)} ${countries === 1 ? "country" : "countries"} (last 24h)`
+    ? `Sessions across ${formatNumber(countries)} ${countries === 1 ? "country" : "countries"} (last 24h)`
     : "Miner countries (last 24h)";
 
   return (
@@ -49,7 +49,7 @@ export function GeoPanel() {
       ) : (
         <HBarChart
           data={bars}
-          valueFormatter={(v) => `${formatNumber(v)} workers`}
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "session" : "sessions"}`}
           colorIndex={2}
           height={Math.max(220, bars.length * 44)}
         />

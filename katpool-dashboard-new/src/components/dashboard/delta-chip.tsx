@@ -39,7 +39,7 @@ export function DeltaChip({
       )}
     >
       {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-      {formatPercent(Math.abs(value))}
+      {formatPercent(value)}
     </span>
   );
 }
