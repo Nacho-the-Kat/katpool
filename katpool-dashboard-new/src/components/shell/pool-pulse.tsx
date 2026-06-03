@@ -9,7 +9,7 @@ export function PoolPulse() {
   const { data, isLoading, isError } = usePoolStats();
 
   return (
-    <div className="mt-4 rounded-xl border border-border bg-muted/30 p-3">
+    <div className="mt-4 rounded-xl border border-border bg-elevated/60 p-3 elevation-1">
       <div className="flex items-center gap-2">
         <span className="relative flex size-2">
           <span

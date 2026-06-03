@@ -30,7 +30,7 @@ export function Sparkline({
           data,
           smooth: true,
           showSymbol: false,
-          lineStyle: { width: 2, color },
+          lineStyle: { width: 2, color, shadowColor: withAlpha(color, 0.4), shadowBlur: 6 },
           areaStyle: {
             color: {
               type: "linear",
