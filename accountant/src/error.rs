@@ -79,7 +79,7 @@ pub enum EventError {
 
     /// A `SessionClosed` event carried a `remote_ip` that didn't parse
     /// as an IP address. Recoverable: log + metric, skip persistence.
-    #[error("session close had unparseable remote_ip `{ip}`")]
+    #[error("session close had unparsable remote_ip `{ip}`")]
     SessionBadIp {
         /// The raw value the bridge sent.
         ip: String,

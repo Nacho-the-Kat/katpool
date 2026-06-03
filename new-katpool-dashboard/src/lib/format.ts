@@ -16,8 +16,8 @@ export function formatHashrate(hs: number, digits = 2): string {
 }
 
 /** Convert a Kaspa-API hashrate (TH/s) to H/s for unit-consistent display. */
-export function networkHashrateToHs(ths: number): number {
-  return ths * 1e12;
+export function networkHashrateToHs(teraHashes: number): number {
+  return teraHashes * 1e12;
 }
 
 /** Compact integer/decimal with thousands separators. */
