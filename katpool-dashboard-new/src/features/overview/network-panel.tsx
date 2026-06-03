@@ -14,12 +14,10 @@ import {
 
 function Stat({ label, value, extra }: { label: string; value: string; extra?: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/20 p-3">
+    <div className="bg-card px-4 py-3">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <div className="mt-1 flex items-center gap-2">
-        <p className="text-lg font-semibold tnum">{value}</p>
-        {extra}
-      </div>
+      <p className="mt-1 truncate text-base font-semibold metric">{value}</p>
+      {extra ? <div className="mt-1.5">{extra}</div> : null}
     </div>
   );
 }
@@ -41,7 +39,7 @@ export function NetworkPanel() {
       ) : isLoading || !data ? (
         <LoadingRows rows={4} />
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
           <Stat label="Network hashrate" value={formatHashrate(data.network_hashrate_hs)} />
           <Stat label="Difficulty" value={formatCompact(data.difficulty)} />
           <Stat
@@ -54,7 +52,14 @@ export function NetworkPanel() {
             value={formatUsd(data.prices.nacho_usd)}
             extra={<DeltaChip value={data.prices.nacho_change_24h} />}
           />
-          <Stat label="KAS market cap" value={formatUsd(data.prices.kas_market_cap_usd)} />
+          <Stat
+            label="KAS market cap"
+            value={
+              data.prices.kas_market_cap_usd != null
+                ? `$${formatCompact(data.prices.kas_market_cap_usd)}`
+                : "—"
+            }
+          />
           <Stat label="Block reward" value={`${data.block_reward_kas.toFixed(2)} KAS`} />
           <Stat label="Circulating supply" value={`${formatCompact(data.circulating_supply_kas)} KAS`} />
           <Stat
@@ -62,12 +67,14 @@ export function NetworkPanel() {
             value={halvingIn ?? "—"}
             extra={
               data.next_halving ? (
-                <span className="text-xs text-muted-foreground">→ {data.next_halving.reward_kas.toFixed(2)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  → {data.next_halving.reward_kas.toFixed(2)}
+                </span>
               ) : undefined
             }
           />
           {data.degraded.length > 0 ? (
-            <p className="col-span-2 text-xs text-warning">
+            <p className="col-span-2 bg-card px-4 py-2 text-xs text-warning">
               Some sources are temporarily unavailable ({data.degraded.join(", ")}).
             </p>
           ) : null}

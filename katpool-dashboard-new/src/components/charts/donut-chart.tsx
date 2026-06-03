@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
+import { chartTooltip } from "./theme";
 
 export interface DonutDatum {
   name: string;
@@ -29,15 +30,15 @@ export function DonutChart({
   const tokens = useChartTokens();
 
   const option = useMemo<EChartsCoreOption>(() => {
+    const single = data.length === 1;
     return {
-      animationDuration: 600,
+      animationDuration: 700,
+      animationEasing: "cubicOut" as const,
       color: tokens.series,
       tooltip: {
         trigger: "item",
-        backgroundColor: tokens.tooltipBg,
-        borderColor: tokens.border,
-        textStyle: { color: tokens.text, fontSize: 12 },
         valueFormatter: (v: unknown) => valueFormatter(Number(v)),
+        ...chartTooltip(tokens),
       },
       legend: {
         type: "scroll",
@@ -45,6 +46,9 @@ export function DonutChart({
         right: 8,
         top: "middle",
         textStyle: { color: tokens.muted, fontSize: 12 },
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 12,
         icon: "roundRect",
       },
       graphic:
@@ -80,12 +84,17 @@ export function DonutChart({
       series: [
         {
           type: "pie",
-          radius: ["58%", "82%"],
+          radius: ["62%", "84%"],
           center: ["32%", "50%"],
           avoidLabelOverlap: true,
-          itemStyle: { borderColor: tokens.tooltipBg, borderWidth: 2, borderRadius: 6 },
+          // A single category reads as one continuous ring — no seam.
+          itemStyle: {
+            borderColor: tokens.card,
+            borderWidth: single ? 0 : 2,
+            borderRadius: single ? 0 : 6,
+          },
           label: { show: false },
-          emphasis: { scaleSize: 6 },
+          emphasis: { scaleSize: 6, itemStyle: { shadowBlur: 16, shadowColor: "rgba(0,0,0,0.25)" } },
           data: data.map((d) => ({ name: d.name, value: d.value })),
         },
       ],

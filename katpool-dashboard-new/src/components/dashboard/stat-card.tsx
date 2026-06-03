@@ -1,10 +1,10 @@
 "use client";
 
 import { type ReactNode } from "react";
-import { motion } from "framer-motion";
 import { Info } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Reveal } from "./reveal";
 import { CountUp } from "./count-up";
 import { DeltaChip } from "./delta-chip";
 import { Sparkline } from "./sparkline";
@@ -24,6 +24,8 @@ interface StatCardProps {
   colorIndex?: number;
   hint?: string;
   loading?: boolean;
+  /** Stagger position within a row. */
+  index?: number;
   className?: string;
 }
 
@@ -40,23 +42,35 @@ export function StatCard({
   colorIndex = 0,
   hint,
   loading = false,
+  index = 0,
   className,
 }: StatCardProps) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
-    >
-      <Card className={cn("relative overflow-hidden p-5", className)}>
+    <Reveal index={index} className="h-full">
+      <Card
+        className={cn(
+          "group relative flex h-full flex-col overflow-hidden p-5 transition-[transform,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:elevation-2",
+          className,
+        )}
+      >
+        {/* hover sheen */}
+        <div className="pointer-events-none absolute -right-8 -top-10 size-28 rounded-full bg-primary/10 opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100" />
+
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            {icon}
+          <div className="flex items-center gap-2 text-[0.8125rem] font-medium text-muted-foreground">
+            {icon ? (
+              <span className="grid size-6 place-items-center rounded-md bg-muted/60 text-muted-foreground">
+                {icon}
+              </span>
+            ) : null}
             <span>{label}</span>
             {hint ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button aria-label={`About ${label}`} className="text-muted-foreground/70 hover:text-foreground">
+                  <button
+                    aria-label={`About ${label}`}
+                    className="text-muted-foreground/60 transition-colors hover:text-foreground"
+                  >
                     <Info className="size-3.5" />
                   </button>
                 </TooltipTrigger>
@@ -67,21 +81,25 @@ export function StatCard({
           {delta !== undefined ? <DeltaChip value={delta} invert={invertDelta} /> : null}
         </div>
 
-        <div className="mt-3 flex items-end gap-1.5">
+        <div className="mt-3 flex flex-1 items-end gap-1.5">
           {loading || value == null ? (
-            <Skeleton className="h-8 w-28" />
+            <Skeleton className="h-9 w-28" />
           ) : (
-            <CountUp value={value} format={format} className="text-3xl font-semibold tracking-tight tnum" />
+            <CountUp
+              value={value}
+              format={format}
+              className="text-[1.75rem] font-semibold leading-none metric"
+            />
           )}
-          {unit ? <span className="pb-1 text-sm text-muted-foreground">{unit}</span> : null}
+          {unit ? <span className="pb-0.5 text-sm text-muted-foreground">{unit}</span> : null}
         </div>
 
         {spark && spark.length > 1 ? (
-          <div className="mt-3 -mb-1">
+          <div className="mt-4 -mb-1">
             <Sparkline data={spark} colorIndex={colorIndex} />
           </div>
         ) : null}
       </Card>
-    </motion.div>
+    </Reveal>
   );
 }

@@ -10,6 +10,7 @@ export interface ChartTokens {
   grid: string;
   tooltipBg: string;
   border: string;
+  card: string;
 }
 
 function read(name: string, fallback: string): string {
@@ -32,6 +33,7 @@ function snapshot(): ChartTokens {
     grid: read("--grid", "rgba(255,255,255,0.08)"),
     tooltipBg: read("--popover", "#1c2230"),
     border: read("--border", "rgba(255,255,255,0.1)"),
+    card: read("--card", "#1c2230"),
   };
 }
 

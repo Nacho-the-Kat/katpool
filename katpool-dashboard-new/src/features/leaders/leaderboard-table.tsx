@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { Trophy } from "lucide-react";
 import { Panel } from "@/components/dashboard/panel";
 import { RangeToggle } from "@/components/dashboard/range-toggle";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
@@ -46,7 +47,11 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
         </div>
       ) : entries.length === 0 ? (
         <div className="p-5">
-          <EmptyState title="No active miners" description="The leaderboard fills as miners submit shares." />
+          <EmptyState
+            icon={<Trophy className="size-6" />}
+            title="No active miners yet"
+            description="The leaderboard fills the moment miners start submitting shares to the pool."
+          />
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -62,7 +67,7 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
             </thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.address} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                <tr key={e.address} className="border-b border-border/50 transition-colors hover:bg-muted/40">
                   <td className={cn("px-5 py-3 font-semibold tnum", RANK_ACCENT[e.rank - 1] ?? "text-muted-foreground")}>
                     {e.rank}
                   </td>
@@ -81,7 +86,7 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
                     <div className="flex items-center justify-end gap-2">
                       <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
                         <div
-                          className="h-full rounded-full bg-primary"
+                          className="h-full rounded-full bg-gradient-to-r from-primary/70 to-primary"
                           style={{ width: `${Math.min(e.pool_share * 100, 100).toFixed(1)}%` }}
                         />
                       </div>
