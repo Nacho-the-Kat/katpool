@@ -30,6 +30,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+# Docker auto-sets HOSTNAME to the container ID; Next's standalone server uses
+# `process.env.HOSTNAME || '0.0.0.0'`, so it would otherwise bind ONLY that
+# single container-IP interface and be unreachable by Railway's healthcheck and
+# private network. Bind the IPv6 wildcard, which Node opens dual-stack
+# (IPv4 + IPv6), satisfying Railway's IPv4 healthcheck and IPv6 private
+# networking alike (Railway's documented recommendation).
+ENV HOSTNAME="::"
 
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
