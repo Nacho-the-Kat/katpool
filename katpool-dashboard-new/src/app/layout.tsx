@@ -9,8 +9,10 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 const POOL_NAME = process.env.NEXT_PUBLIC_POOL_NAME ?? "katpool";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: `${POOL_NAME} — Kaspa Mining Pool`,
     template: `%s · ${POOL_NAME}`,
@@ -21,14 +23,21 @@ export const metadata: Metadata = {
   openGraph: {
     title: `${POOL_NAME} — Kaspa Mining Pool`,
     description: "Real-time pool analytics: hashrate, blocks, payouts, and miner insights.",
+    siteName: POOL_NAME,
     type: "website",
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${POOL_NAME} — Kaspa Mining Pool`,
+    description: "Real-time pool analytics: hashrate, blocks, payouts, and miner insights.",
   },
   robots: { index: true, follow: true },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#16191f" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e12" },
     { media: "(prefers-color-scheme: light)", color: "#fafbfc" },
   ],
 };
