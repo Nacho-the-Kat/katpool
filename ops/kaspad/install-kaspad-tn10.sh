@@ -18,18 +18,15 @@
 set -euo pipefail
 
 # ---------- Pinned upstream release ----------------------------------
-# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v1.3.0-toc.5
-# Toccata pre-activation pre-release (the upstream Toccata line moved from
-# the `tn10-toc{N}` naming to versioned `v1.3.0-toc.{N}` tags). testnet-10
-# already activated Toccata under tn10-toc3 (DAA 476,232,000, 2026-05-28);
-# this is a newer Toccata build of the same activated network, also used
-# for mainnet pre-activation sanity testing. The node is network-agnostic
-# (network selected by the unit's --testnet --netsuffix=10 flags). NOTE:
-# the node DB upgrade is one-way — a v1.3.0-toc.5 datadir cannot be opened
-# by an earlier build; rollback means resync (Runbook 13). Bumping these
-# two constants is the only change required to track a future toc release.
-TN10_RELEASE_TAG=v1.3.0-toc.5
-TN10_LINUX_SHA256=40f5bb6baac0cf79892927084d58e72d09471b045487a2d828de955a1bbb661d
+# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/tn10-toc3
+# This release scheduled the Toccata ZK hardening hardfork at testnet-10
+# DAA score 476,232,000 (activated 2026-05-28 ~16:00 UTC). It changes the
+# SMT/seqcommit computation, so a tn10-toc2 node cannot complete IBD
+# against the post-activation network (peers reject its pruning-point SMT
+# with `seq_commit mismatch`). Bumping these two constants is the only
+# change required to track a future tn10-toc{N}.
+TN10_RELEASE_TAG=tn10-toc3
+TN10_LINUX_SHA256=3804314f478e5f8c853e86745c8324f644d906f6d719360648641574bf9dc391
 TN10_LINUX_ZIP=rusty-kaspa-${TN10_RELEASE_TAG}-linux-amd64.zip
 TN10_DOWNLOAD_URL=https://github.com/kaspanet/rusty-kaspa/releases/download/${TN10_RELEASE_TAG}/${TN10_LINUX_ZIP}
 
