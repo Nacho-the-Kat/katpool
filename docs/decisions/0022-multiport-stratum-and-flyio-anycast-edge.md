@@ -26,12 +26,12 @@ Two facts from that map create the problem:
    `listen_and_serve_with_events` call.
 2. **Legacy geo edge** is 7 regional **fly.io** thin TCP forwarders
    (`na-west`, `na-east`, `eu`, `ap`, `hkg`, `sa`, `au` — all `.xyz`),
-   each exposing all 8 ports and forwarding to origin `kas.katpool.xyz`.
+   each exposing all 8 ports and forwarding to origin `kas.katpool.com`.
    [ADR-0005](0005-netcup-vps-railway-edge.md) chose **Railway TCP
    proxy** for the new edge — but Railway assigns an immutable,
    Railway-chosen proxy port and
    [cannot expose a chosen port](https://station.railway.com/questions/railway-tcp-proxy-port-d05d9190)
-   like `7777`. A miner dialing `eu.katpool.xyz:7777` cannot be served.
+   like `7777`. A miner dialing `eu.katpool.com:7777` cannot be served.
 
 The new pool keeps **variable difficulty**; legacy ports must become
 *starting-difficulty seeds only* (a start, never a floor/ceiling —
@@ -146,7 +146,7 @@ PROXY headers **only** from the fly forwarder egress, enforced by
 those ports. (WireGuard peering was considered as a hardened variant and
 deferred.) PROXY parsing is gated to trusted sources; a PROXY header
 from a non-allowlisted peer is rejected. **All public hostnames —
-including the origin name `kas.katpool.xyz` — resolve to the fly edge**,
+including the origin name `kas.katpool.com` — resolve to the fly edge**,
 so every miner connection arrives PROXY-fronted and the origin runs a
 single uniform code path (the raw origin stratum ports are never the
 miner-facing entry point in production). The bridge's PROXY parsing is
@@ -239,5 +239,5 @@ sets it on.
   PROXY protocol spec:
   <https://www.haproxy.org/download/2.9/doc/proxy-protocol.txt>.
 - Resolved (2026-06-02): fly→origin trust = nftables allowlist +
-  PROXY-required (WireGuard deferred); `kas.katpool.xyz` resolves to the
+  PROXY-required (WireGuard deferred); `kas.katpool.com` resolves to the
   edge (uniform PROXY path).

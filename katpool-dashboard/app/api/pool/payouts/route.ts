@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const page = parseInt(searchParams.get('page') || '1');
     const perPage = parseInt(searchParams.get('perPage') || '500');
 
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
     // Build URL with pagination parameters
     const url = new URL(`${baseUrl}/api/pool/payouts`);
     url.searchParams.set('page', page.toString());

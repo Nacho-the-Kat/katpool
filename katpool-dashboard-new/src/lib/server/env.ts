@@ -13,7 +13,7 @@ function required(key: string, fallback?: string): string {
 export const serverEnv = {
   /** katpool v1 API base (no trailing slash). */
   katpoolApiBaseUrl: () =>
-    required("KATPOOL_API_BASE_URL", "https://kas.katpool.xyz/api/v1").replace(/\/+$/, ""),
+    required("KATPOOL_API_BASE_URL", "https://kas.katpool.com/api/v1").replace(/\/+$/, ""),
 
   /** Kaspa public REST API base. */
   kaspaApiBaseUrl: () =>

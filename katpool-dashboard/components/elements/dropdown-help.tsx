@@ -77,7 +77,7 @@ export default function DropdownHelp({ align }: {
               </MenuItem>
               {/*<MenuItem as="li">
                 {({ active }) => (
-                  <Link className={`font-medium text-sm flex items-center py-1 px-3 ${active ? 'text-primary-600 dark:text-primary-400' : 'text-primary-500'}`} href="https://ticket.katpool.xyz">
+                  <Link className={`font-medium text-sm flex items-center py-1 px-3 ${active ? 'text-primary-600 dark:text-primary-400' : 'text-primary-500'}`} href="https://ticket.katpool.com">
                     <svg className="w-3 h-3 fill-current text-primary-500 shrink-0 mr-2" viewBox="0 0 16 16">
                       <path d="M1.5 3A1.5 1.5 0 0 0 0 4.5V6a.5.5 0 0 0 .5.5 1.5 1.5 0 1 1 0 3 .5.5 0 0 0-.5.5v1.5A1.5 1.5 0 0 0 1.5 13h13a1.5 1.5 0 0 0 1.5-1.5V10a.5.5 0 0 0-.5-.5 1.5 1.5 0 0 1 0-3A.5.5 0 0 0 16 6V4.5A1.5 1.5 0 0 0 14.5 3z"/>
                     </svg>

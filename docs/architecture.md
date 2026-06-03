@@ -213,7 +213,7 @@ alert rule embeds a runbook URL.
   unprivileged uid). See [`custody.md`](custody.md).
 - **Railway TCP edge**: three minimal-resource services in
   us-east, eu-west, ap-southeast. CNAME records on
-  `kas.katpool.xyz`, `kas-eu.katpool.xyz`, `kas-ap.katpool.xyz`.
+  `kas.katpool.com`, `kas-eu.katpool.com`, `kas-ap.katpool.com`.
 - **Railway observability**: one project hosting the LGTM stack and
   the canary miner. Cross-service traffic is free within Railway.
 - **Backups**: Backblaze B2, pgBackRest streaming WAL, weekly

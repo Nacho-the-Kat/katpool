@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const traceId = headersList.get('x-trace-id') || 'unknown';
   try {
     
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
 
     const { searchParams } = new URL(request.url);
     const page = searchParams.get('page') || '1';
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     // Sort by timestamp (newest first)
     blocks.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-    // const blockdetails = await fetch('http://kas.katpool.xyz:8080/api/pool/blockdetails', {
+    // const blockdetails = await fetch('http://kas.katpool.com:8080/api/pool/blockdetails', {
     //   cache: 'no-store',
     // }).then(res => res.json());
     // const formattedBlocks = blocks.map(block => {

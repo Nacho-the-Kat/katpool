@@ -124,7 +124,7 @@ export default function Resources() {
               {category && (
                 <a
                   className={`block relative before:content-[''] before:bg-gray-800 before:absolute before:-z-10 before:inset-0 p-6 group ${!['1'].includes(category) && 'hidden'}`}
-                  href="https://ticket.katpool.xyz"
+                  href="https://ticket.katpool.com"
                   target="_blank"
                   rel="noopener noreferrer"
                 >

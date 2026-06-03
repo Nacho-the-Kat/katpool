@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Trophy } from "lucide-react";
+import { ArrowRight, Trophy } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/dashboard/panel";
 import { RangeToggle } from "@/components/dashboard/range-toggle";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
@@ -51,6 +52,15 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
             icon={<Trophy className="size-6" />}
             title="No active miners yet"
             description="The leaderboard fills the moment miners start submitting shares to the pool."
+            action={
+              !compact ? (
+                <Button asChild size="sm">
+                  <Link href="/start">
+                    Start mining <ArrowRight className="size-3.5" />
+                  </Link>
+                </Button>
+              ) : null
+            }
           />
         </div>
       ) : (

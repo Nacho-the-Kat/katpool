@@ -98,13 +98,13 @@ const POOL_PORTS: PortConfig[] = [
 ]
 
 const LOCATIONS: Location[] = [
-  { name: 'North America West', domain: 'na-west.katpool.xyz', city: 'San Francisco', country: 'USA', latitude: 37.7749, longitude: -122.4194 },
-  { name: 'North America East', domain: 'na-east.katpool.xyz', city: 'New York City', country: 'USA', latitude: 40.7128, longitude: -74.0060 },
-  { name: 'Europe', domain: 'eu.katpool.xyz', city: 'Frankfurt', country: 'Germany', latitude: 50.1109, longitude: 8.6821 },
-  { name: 'Asia', domain: 'ap.katpool.xyz', city: 'Singapore', country: 'Singapore', latitude: 1.3521, longitude: 103.8198 },
-  { name: 'Oceania', domain: 'au.katpool.xyz', city: 'Sydney', country: 'Australia', latitude: -33.8688, longitude: 151.2093 },
-  { name: 'South America', domain: 'sa.katpool.xyz', city: 'São Paulo', country: 'Brazil', latitude: -23.5505, longitude: -46.6333 },
-  { name: 'China', domain: 'hkg.katpool.xyz', city: 'Hong Kong', country: 'China', latitude: 22.3193, longitude: 114.1694 }
+  { name: 'North America West', domain: 'na-west.katpool.com', city: 'San Francisco', country: 'USA', latitude: 37.7749, longitude: -122.4194 },
+  { name: 'North America East', domain: 'na-east.katpool.com', city: 'New York City', country: 'USA', latitude: 40.7128, longitude: -74.0060 },
+  { name: 'Europe', domain: 'eu.katpool.com', city: 'Frankfurt', country: 'Germany', latitude: 50.1109, longitude: 8.6821 },
+  { name: 'Asia', domain: 'ap.katpool.com', city: 'Singapore', country: 'Singapore', latitude: 1.3521, longitude: 103.8198 },
+  { name: 'Oceania', domain: 'au.katpool.com', city: 'Sydney', country: 'Australia', latitude: -33.8688, longitude: 151.2093 },
+  { name: 'South America', domain: 'sa.katpool.com', city: 'São Paulo', country: 'Brazil', latitude: -23.5505, longitude: -46.6333 },
+  { name: 'China', domain: 'hkg.katpool.com', city: 'Hong Kong', country: 'China', latitude: 22.3193, longitude: 114.1694 }
 ]
 
 // Function to calculate distance between two points using Haversine formula

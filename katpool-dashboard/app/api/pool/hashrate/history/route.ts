@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const recentStart = end - (2 * 60 * 60); // Last 2 hours
     const historicalStart = end - (days * 24 * 60 * 60);
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
 
     // Fetch recent data with fine granularity
     const recentUrl = new URL(`${baseUrl}/api/v1/query_range`);

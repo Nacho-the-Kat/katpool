@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       throw new Error('Invalid time range');
     }
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
 
     const { days, recentStepMinutes, historicalStepHours } = TIME_RANGES[range];
     const endTime = Math.floor(Date.now() / 1000);

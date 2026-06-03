@@ -3,7 +3,7 @@
 ## Supported versions
 
 This repository is the rebuild of the production Kaspa mining pool at
-`kas.katpool.xyz`. Until Phase 10 cutover, the previous-generation pool
+`kas.katpool.com`. Until Phase 10 cutover, the previous-generation pool
 (at the legacy `Nacho-the-Kat/katpool-app` repository) is the production
 deployment and receives security fixes there. After cutover, this
 repository becomes the sole supported version and the legacy pool is

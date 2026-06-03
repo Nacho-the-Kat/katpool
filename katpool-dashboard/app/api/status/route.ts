@@ -30,7 +30,7 @@ const MOCK_ERROR_DATA = {
 
 export async function GET() {
   try {
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
     const res = await fetch(`${baseUrl}/health`);
     if (!res.ok) {
       return NextResponse.json(MOCK_ERROR_DATA);

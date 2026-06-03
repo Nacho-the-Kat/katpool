@@ -29,15 +29,15 @@ miner ──TCP:7777──▶ fly anycast (nearest region)
 
 | Hostname | Region | fly code |
 |---|---|---|
-| `na-west.katpool.xyz` | California | `sjc` |
-| `na-east.katpool.xyz` | Virginia | `iad` |
-| `eu.katpool.xyz` | Germany | `fra` |
-| `ap.katpool.xyz` | Singapore | `sin` |
-| `hkg.katpool.xyz` | Hong Kong | `hkg` |
-| `sa.katpool.xyz` | Brazil | `gru` |
-| `au.katpool.xyz` | Australia | `syd` |
+| `na-west.katpool.com` | California | `sjc` |
+| `na-east.katpool.com` | Virginia | `iad` |
+| `eu.katpool.com` | Germany | `fra` |
+| `ap.katpool.com` | Singapore | `sin` |
+| `hkg.katpool.com` | Hong Kong | `hkg` |
+| `sa.katpool.com` | Brazil | `gru` |
+| `au.katpool.com` | Australia | `syd` |
 
-`kas.katpool.xyz` (origin name) and all `*.katpool.com` mirrors also
+`kas.katpool.com` (origin name) and all `*.katpool.com` mirrors also
 resolve to the anycast IP — every miner connection arrives PROXY-fronted
 (uniform path; ADR-0022).
 
@@ -51,7 +51,7 @@ fly apps create katpool-edge
 
 # 2. Point the forwarder at the origin (a name that resolves to the
 #    NetCup origin's REAL IP — never the anycast/public name, or you loop).
-fly secrets set KATPOOL_ORIGIN_HOST=kas-origin.katpool.xyz
+fly secrets set KATPOOL_ORIGIN_HOST=kas-origin.katpool.com
 
 # 3. Dedicated anycast IPv4 (raw TCP fails on fly's shared IPv4) + v6.
 fly ips allocate-v4
@@ -115,7 +115,7 @@ Point every hostname's `A`/`AAAA` at the anycast IPs from `fly ips list`:
 
 - `.xyz`: `kas`, `na-west`, `na-east`, `eu`, `ap`, `hkg`, `sa`, `au`.
 - `.com`: the same set, mirrored (new in the rebuild; backward-compat).
-- `kas-origin.katpool.xyz` ⇒ the NetCup origin's real IP (forwarder
+- `kas-origin.katpool.com` ⇒ the NetCup origin's real IP (forwarder
   target only; not advertised to miners).
 
 ## Validation

@@ -16,7 +16,7 @@ export async function GET(request: Request) {
 
   try {
     // Fetch config to get nftAllowedTicks array
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
     const configResponse = await fetch(`${baseUrl}/config`, {
       method: 'GET',
       headers: {

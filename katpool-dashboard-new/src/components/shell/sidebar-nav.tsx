@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 import { NAV_ITEMS } from "./nav";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,28 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           ? pathname === item.href
           : pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
+
+        if (item.cta) {
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "group mb-2 flex items-center gap-2.5 rounded-lg border px-3 py-2 text-sm font-semibold transition-all duration-200",
+                active
+                  ? "border-primary/60 bg-primary text-primary-foreground shadow-[0_0_18px_-2px_var(--primary)]"
+                  : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:shadow-[0_0_18px_-4px_var(--primary)]",
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              {item.label}
+              <ArrowRight className="ml-auto size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </Link>
+          );
+        }
+
         return (
           <Link
             key={item.href}
