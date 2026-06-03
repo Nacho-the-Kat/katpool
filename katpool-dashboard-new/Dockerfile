@@ -12,6 +12,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* values are inlined into the client bundle at build time, so
+# they must be present during `npm run build`. Railway exposes service
+# variables as build args only when declared with ARG (per its Dockerfile
+# docs); promote them to ENV so Next picks them up. Server-only vars
+# (KATPOOL_API_BASE_URL, KASPA_API_BASE_URL, COINGECKO_*) are read at runtime
+# and intentionally NOT baked here.
+ARG NEXT_PUBLIC_EXPLORER_BASE_URL
+ARG NEXT_PUBLIC_POOL_NAME
+ENV NEXT_PUBLIC_EXPLORER_BASE_URL=$NEXT_PUBLIC_EXPLORER_BASE_URL
+ENV NEXT_PUBLIC_POOL_NAME=$NEXT_PUBLIC_POOL_NAME
 RUN npm run build
 
 # ---- runner: minimal runtime image --------------------------------------
