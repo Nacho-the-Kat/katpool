@@ -7,6 +7,7 @@
 //!
 //! - `GET /health` / `/ready` / `/started` — liveness / readiness / startup.
 //! - `GET /api/v1/pool/{stats,hashrate,hashrate/history,blocks,payouts}`.
+//! - `GET /api/v1/pool/{leaderboard,miners/history,firmware}`.
 //! - `GET /api/v1/balance/{address}`.
 //! - `GET /api/v1/miners/{address}`, `.../workers`, `.../hashrate/history`,
 //!   `.../payouts`, `.../rejects`.
@@ -77,6 +78,12 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/pool/blocks", get(handlers::pool::blocks))
         .route("/pool/payouts", get(handlers::pool::payouts))
+        .route("/pool/leaderboard", get(handlers::pool::leaderboard))
+        .route(
+            "/pool/miners/history",
+            get(handlers::pool::active_miners_history),
+        )
+        .route("/pool/firmware", get(handlers::pool::firmware))
         .route("/balance/{address}", get(handlers::miner::balance))
         .route("/miners/{address}", get(handlers::miner::profile))
         .route("/miners/{address}/workers", get(handlers::miner::workers))

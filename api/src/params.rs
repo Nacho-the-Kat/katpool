@@ -76,6 +76,28 @@ pub fn window(params: &WindowParams) -> Result<Duration, ApiError> {
     }
 }
 
+/// `?window=&limit=` for the leaderboard (a windowed, top-N read).
+#[derive(Debug, Default, Deserialize)]
+pub struct LeaderboardParams {
+    /// Window length in seconds (same bounds as [`WindowParams`]).
+    pub window: Option<u64>,
+    /// Number of ranked entries; clamped to `[1, MAX_PAGE_SIZE]`.
+    pub limit: Option<i64>,
+}
+
+/// Resolve the leaderboard window (default/capped like [`window`]) and a
+/// clamped entry limit.
+pub fn leaderboard(params: &LeaderboardParams) -> Result<(Duration, i64), ApiError> {
+    let win = window(&WindowParams {
+        window: params.window,
+    })?;
+    let limit = params
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    Ok((win, limit))
+}
+
 /// Keyset pagination query: `?limit=&before=`.
 #[derive(Debug, Default, Deserialize)]
 pub struct PageParams {

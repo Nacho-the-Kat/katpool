@@ -13,10 +13,11 @@ use chrono::{DateTime, Utc};
 use insta::assert_json_snapshot;
 
 use api::models::{
-    BalanceResponse, BlockCounts, BlockView, BlocksPage, CycleView, CyclesPage, FullRebateResponse,
-    HashrateHistory, HashratePointView, KasBalanceView, MinerPayoutView, MinerPayoutsPage,
-    MinerProfile, NachoRebateView, PayoutTotals, PoolStats, RejectReasonCount, RejectsResponse,
-    TreasuryView, WorkerView, WorkersResponse,
+    ActiveMinersHistory, ActiveMinersPointView, BalanceResponse, BlockCounts, BlockView,
+    BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, FullRebateResponse,
+    HashrateHistory, HashratePointView, KasBalanceView, LeaderboardEntryView, LeaderboardResponse,
+    MinerPayoutView, MinerPayoutsPage, MinerProfile, NachoRebateView, PayoutTotals, PoolStats,
+    RejectReasonCount, RejectsResponse, TreasuryView, WorkerView, WorkersResponse,
 };
 use api::money::KasAmount;
 
@@ -211,6 +212,77 @@ fn hashrate_history_wire() {
             HashratePointView {
                 bucket_start: ts("2026-01-02T01:00:00Z"),
                 hashrate_hs: 2.0e9,
+            },
+        ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn leaderboard_wire() {
+    let resp = LeaderboardResponse {
+        window_secs: 3_600,
+        entries: vec![
+            LeaderboardEntryView {
+                rank: 1,
+                address: ADDR.to_owned(),
+                network: "mainnet".to_owned(),
+                accepted_shares: 4_096,
+                hashrate_hs: 1.2e12,
+                pool_share: 0.62,
+            },
+            LeaderboardEntryView {
+                rank: 2,
+                address: ADDR.to_owned(),
+                network: "mainnet".to_owned(),
+                accepted_shares: 2_048,
+                hashrate_hs: 6.0e11,
+                pool_share: 0.31,
+            },
+        ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn active_miners_history_wire() {
+    let resp = ActiveMinersHistory {
+        from: ts("2026-01-02T00:00:00Z"),
+        to: ts("2026-01-02T02:00:00Z"),
+        bucket: "1h",
+        points: vec![
+            ActiveMinersPointView {
+                bucket_start: ts("2026-01-02T00:00:00Z"),
+                miners: 12,
+            },
+            ActiveMinersPointView {
+                bucket_start: ts("2026-01-02T01:00:00Z"),
+                miners: 17,
+            },
+        ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn firmware_breakdown_wire() {
+    let resp = FirmwareBreakdown {
+        window_secs: 86_400,
+        entries: vec![
+            FirmwareEntryView {
+                app: Some("IceRiverMiner/1.2.0".to_owned()),
+                workers: 8,
+                sessions: 11,
+            },
+            FirmwareEntryView {
+                app: Some("GodMiner/1.0".to_owned()),
+                workers: 3,
+                sessions: 4,
+            },
+            FirmwareEntryView {
+                app: None,
+                workers: 0,
+                sessions: 2,
             },
         ],
     };

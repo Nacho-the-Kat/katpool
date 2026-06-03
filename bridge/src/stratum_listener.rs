@@ -50,6 +50,14 @@ pub struct StratumListenerConfig {
     /// Identifier used for Prometheus metric labels emitted by the
     /// anti-abuse layer.
     pub instance_id: String,
+    /// When `true`, every accepted connection MUST begin with a PROXY
+    /// protocol v2 header (ADR-0022); the real client IP/port is parsed
+    /// from it and used for all downstream logic (anti-abuse,
+    /// attribution). Connections without a valid header are dropped.
+    /// Enable only behind a trusted forwarder (the fly.io edge), with
+    /// the origin's stratum ports firewalled to the forwarder egress.
+    /// Default `false` => raw TCP peer address is used (unchanged).
+    pub proxy_protocol: bool,
 }
 
 /// Stratum TCP listener
@@ -108,13 +116,36 @@ impl StratumListener {
             tokio::select! {
                 result = listener.accept() => {
                     match result {
-                        Ok((stream, addr)) => {
-                            let remote_addr = addr.ip().to_string();
-                            let remote_port = addr.port();
+                        Ok((mut stream, addr)) => {
+                            // Local (listening) port this connection landed on.
+                            // Drives the per-port starting-difficulty seed
+                            // (ADR-0022). `local_addr()` is authoritative even
+                            // with SO_REUSEPORT / multiple listeners.
+                            let local_port = stream.local_addr().map(|a| a.port()).unwrap_or(0);
+
+                            // PROXY protocol (ADR-0022): behind the fly.io edge
+                            // the TCP peer is the forwarder, so recover the real
+                            // miner IP/port from the v2 header before any
+                            // per-connection logic. A missing/invalid header on a
+                            // proxy_protocol listener is a hard reject.
+                            let (real_ip, remote_port) = if self.config.proxy_protocol {
+                                match read_proxy_v2_source(&mut stream).await {
+                                    Ok(src) => (src.ip(), src.port()),
+                                    Err(e) => {
+                                        warn!("[CONNECTION] PROXY protocol parse failed from {}: {}; dropping", addr.ip(), e);
+                                        drop(stream);
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                (addr.ip(), addr.port())
+                            };
+                            let remote_addr = real_ip.to_string();
 
                             // Anti-abuse: per-IP connection cap + tracked-IP cap.
                             // Reject before allocating any per-connection state.
-                            let ticket = match self.config.anti_abuse.try_accept_connection(addr.ip(), std::time::Instant::now()) {
+                            // Keyed on the real client IP (post-PROXY).
+                            let ticket = match self.config.anti_abuse.try_accept_connection(real_ip, std::time::Instant::now()) {
                                 Ok(t) => t,
                                 Err(rejection) => {
                                     record_anti_abuse_connection_reject(
@@ -150,6 +181,7 @@ impl StratumListener {
                             let ctx = StratumContext::new(
                                 remote_addr,
                                 remote_port,
+                                local_port,
                                 stream,
                                 state,
                                 disconnect_tx_clone.clone(),
@@ -863,7 +895,14 @@ impl StratumListener {
             }
         }
 
+        // Tear the socket down, then route through the disconnect handler
+        // so `ClientHandler::on_disconnect` runs (Prometheus disconnect
+        // accounting + the `SessionClosed` event feeding the firmware
+        // breakdown, ADR-0023). `disconnect()` is idempotent, so the
+        // handler's own call is a no-op; identity (worker/app) remains
+        // readable for the event.
         ctx.disconnect();
+        ctx.notify_disconnect();
     }
 
     /// Handle an event
@@ -879,5 +918,101 @@ impl StratumListener {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Read and parse a PROXY protocol **v2** header from the front of a
+/// freshly-accepted stream, returning the real client source address
+/// (ADR-0022). The fly.io edge is configured for v2
+/// (`proxy_proto_options = { version = "v2" }`), which is
+/// length-delimited, so we read exactly the header bytes and leave the
+/// stratum payload untouched in the socket — no buffer injection needed.
+///
+/// A 5s deadline bounds a stalled/malicious peer; the header normally
+/// arrives in the first segment alongside the connection.
+async fn read_proxy_v2_source<R: tokio::io::AsyncRead + Unpin>(stream: &mut R) -> Result<std::net::SocketAddr, String> {
+    use std::net::{IpAddr, SocketAddr};
+
+    // PROXY v2 12-byte signature, then ver/cmd, fam/proto, and a 2-byte
+    // big-endian length of the address+TLV block that follows.
+    const SIG: [u8; 12] = [0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A];
+
+    let read = async {
+        let mut fixed = [0u8; 16];
+        stream.read_exact(&mut fixed).await.map_err(|e| format!("read v2 fixed header: {e}"))?;
+        if fixed[..12] != SIG {
+            return Err("not a PROXY protocol v2 header".to_string());
+        }
+        let addr_len = u16::from_be_bytes([fixed[14], fixed[15]]) as usize;
+        let mut buf = vec![0u8; 16 + addr_len];
+        buf[..16].copy_from_slice(&fixed);
+        stream.read_exact(&mut buf[16..]).await.map_err(|e| format!("read v2 address block: {e}"))?;
+
+        let header = ppp::v2::Header::try_from(buf.as_slice()).map_err(|e| format!("parse v2 header: {e:?}"))?;
+        match header.addresses {
+            ppp::v2::Addresses::IPv4(a) => Ok(SocketAddr::new(IpAddr::V4(a.source_address), a.source_port)),
+            ppp::v2::Addresses::IPv6(a) => Ok(SocketAddr::new(IpAddr::V6(a.source_address), a.source_port)),
+            other => Err(format!("unsupported PROXY address family: {other:?}")),
+        }
+    };
+
+    match tokio::time::timeout(std::time::Duration::from_secs(5), read).await {
+        Ok(result) => result,
+        Err(_) => Err("timed out reading PROXY protocol header".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod proxy_protocol_tests {
+    use super::read_proxy_v2_source;
+    use ppp::v2::{Builder, Command, IPv4, IPv6, Protocol, Version};
+
+    /// A valid v2 IPv4 header yields the source address, and only the
+    /// header bytes are consumed — the trailing stratum bytes remain.
+    #[tokio::test]
+    async fn parses_ipv4_source_and_leaves_payload() {
+        let header = Builder::with_addresses(
+            Version::Two | Command::Proxy,
+            Protocol::Stream,
+            IPv4::new([203, 0, 113, 5], [10, 0, 0, 1], 49_321, 7777),
+        )
+        .build()
+        .unwrap();
+
+        let payload = b"{\"id\":1,\"method\":\"mining.subscribe\"}\n";
+        let mut stream: Vec<u8> = header.clone();
+        stream.extend_from_slice(payload);
+
+        let mut cursor = stream.as_slice();
+        let src = read_proxy_v2_source(&mut cursor).await.unwrap();
+
+        assert_eq!(src.ip().to_string(), "203.0.113.5");
+        assert_eq!(src.port(), 49_321);
+        // The reader stopped exactly at the header boundary.
+        assert_eq!(cursor, payload);
+    }
+
+    #[tokio::test]
+    async fn parses_ipv6_source() {
+        let header = Builder::with_addresses(
+            Version::Two | Command::Proxy,
+            Protocol::Stream,
+            IPv6::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, 0x42], [0xfe80, 0, 0, 0, 0, 0, 0, 1], 51_000, 8888),
+        )
+        .build()
+        .unwrap();
+
+        let mut cursor = header.as_slice();
+        let src = read_proxy_v2_source(&mut cursor).await.unwrap();
+        assert_eq!(src.ip().to_string(), "2001:db8::42");
+        assert_eq!(src.port(), 51_000);
+    }
+
+    /// A stream that does not begin with the v2 signature is rejected
+    /// (e.g. a miner that connected directly without the forwarder).
+    #[tokio::test]
+    async fn rejects_non_proxy_stream() {
+        let mut cursor = b"{\"id\":1,\"method\":\"mining.subscribe\"}\n".as_slice();
+        assert!(read_proxy_v2_source(&mut cursor).await.is_err());
     }
 }

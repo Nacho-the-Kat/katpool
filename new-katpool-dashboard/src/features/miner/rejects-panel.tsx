@@ -1,0 +1,44 @@
+"use client";
+
+import { useMemo } from "react";
+import { Panel } from "@/components/dashboard/panel";
+import { HBarChart } from "@/components/charts/bar-chart";
+import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { useMinerRejects } from "@/lib/api/hooks";
+import { formatNumber } from "@/lib/format";
+
+const REASON_LABELS: Record<string, string> = {
+  low_difficulty: "Low difficulty",
+  stale: "Stale",
+  duplicate: "Duplicate",
+  invalid: "Invalid",
+  job_not_found: "Job not found",
+};
+
+/** Reject reasons for a miner, as a horizontal bar chart. */
+export function RejectsPanel({ address }: { address: string }) {
+  const { data, isLoading, isError, refetch } = useMinerRejects(address);
+
+  const bars = useMemo(
+    () =>
+      (data?.by_reason ?? []).map((r) => ({
+        label: REASON_LABELS[r.reason] ?? r.reason,
+        value: r.count,
+      })),
+    [data],
+  );
+
+  return (
+    <Panel title="Rejected shares" description={data ? `${formatNumber(data.total)} total in window` : "By reason"}>
+      {isError ? (
+        <ErrorState onRetry={() => void refetch()} />
+      ) : isLoading ? (
+        <LoadingRows rows={4} />
+      ) : bars.length === 0 ? (
+        <EmptyState title="No rejects" description="This miner has a clean record in the window." />
+      ) : (
+        <HBarChart data={bars} valueFormatter={(v) => formatNumber(v)} colorIndex={4} height={Math.max(180, bars.length * 48)} />
+      )}
+    </Panel>
+  );
+}

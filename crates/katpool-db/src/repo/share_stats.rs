@@ -399,6 +399,134 @@ where
     points_from_rows(rows, bucket_secs_f)
 }
 
+/// One entry of the pool leaderboard: a wallet ranked by its summed
+/// share difficulty (≈ hashrate) over the window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeaderboardEntry {
+    /// Miner wallet address.
+    pub address: String,
+    /// Network the wallet was seen on.
+    pub network: String,
+    /// Accepted shares in the window.
+    pub accepted_shares: i64,
+    /// Sum of accepted share difficulty (the PROP weight) in the window.
+    pub total_weight: f64,
+    /// Estimated hashrate over the window (H/s).
+    pub hashrate_hs: f64,
+}
+
+/// Top `limit` miners by summed share difficulty over `[since, until)`.
+///
+/// Joins `share` to `wallet` so the caller receives the address directly,
+/// and computes each entry's window hashrate with the same
+/// `sum(difficulty) × 2^32 / window_secs` convention as the per-wallet
+/// estimate. Ordered by descending weight, ties broken by accepted-share
+/// count then wallet id for a stable page. `limit` must be bounded by the
+/// caller. Returns an empty vec for an idle window.
+pub async fn leaderboard<'e, E>(
+    executor: E,
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    limit: i64,
+) -> Result<Vec<LeaderboardEntry>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    if until <= since {
+        return Err(DbError::Config {
+            message: "leaderboard: until must be after since".to_owned(),
+        });
+    }
+    let rows: Vec<(String, String, i64, Option<f64>)> = sqlx::query_as(
+        "SELECT w.address, w.network,
+                count(*)::bigint AS accepted_shares,
+                sum(s.difficulty) AS total_weight
+           FROM share s
+           JOIN wallet w ON w.id = s.wallet_id
+          WHERE s.credited_at >= $1
+            AND s.credited_at <  $2
+          GROUP BY w.id, w.address, w.network
+          ORDER BY total_weight DESC, accepted_shares DESC, w.id ASC
+          LIMIT $3",
+    )
+    .bind(since)
+    .bind(until)
+    .bind(limit)
+    .fetch_all(executor)
+    .await?;
+    let secs = (until - since).num_seconds().max(1) as f64;
+    Ok(rows
+        .into_iter()
+        .map(|(address, network, accepted_shares, weight)| {
+            let total_weight = weight.unwrap_or(0.0);
+            LeaderboardEntry {
+                address,
+                network,
+                accepted_shares,
+                total_weight,
+                hashrate_hs: total_weight * HASHES_PER_DIFFICULTY / secs,
+            }
+        })
+        .collect())
+}
+
+/// One point of an active-miners time-series: the bucket start and the
+/// count of distinct wallets that landed ≥ 1 accepted share in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveMinersPoint {
+    /// Inclusive bucket start (UTC), aligned to a `bucket_secs` grid.
+    pub bucket_start: DateTime<Utc>,
+    /// Distinct active wallets in the bucket.
+    pub miners: i64,
+}
+
+/// Distinct-active-wallet count per bucket over `[from, until)`.
+///
+/// Bucketed to a `bucket_secs`-second grid (aligned to the unix epoch).
+/// Empty buckets are omitted; the caller zero-fills if it needs a dense
+/// series. Same bounding contract as [`hashrate_series_pool_wide`]: the caller
+/// caps the span/bucket count; this only rejects a non-positive bucket or
+/// an empty/inverted range.
+pub async fn active_wallets_series<'e, E>(
+    executor: E,
+    from: DateTime<Utc>,
+    until: DateTime<Utc>,
+    bucket_secs: i64,
+) -> Result<Vec<ActiveMinersPoint>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    validate_series_args(from, until, bucket_secs, "active_wallets_series")?;
+    let rows: Vec<(f64, i64)> = sqlx::query_as(
+        "SELECT floor(extract(epoch FROM credited_at) / $3::double precision)
+                    * $3::double precision AS bucket_epoch,
+                count(DISTINCT wallet_id)::bigint AS miners
+           FROM share
+          WHERE credited_at >= $1
+            AND credited_at <  $2
+          GROUP BY bucket_epoch
+          ORDER BY bucket_epoch ASC",
+    )
+    .bind(from)
+    .bind(until)
+    .bind(bucket_secs)
+    .fetch_all(executor)
+    .await?;
+    rows.into_iter()
+        .map(|(epoch, miners)| {
+            let secs = epoch.round();
+            let bucket_start =
+                DateTime::<Utc>::from_timestamp(secs as i64, 0).ok_or_else(|| DbError::Config {
+                    message: format!("active miners series: bucket epoch {secs} out of range"),
+                })?;
+            Ok(ActiveMinersPoint {
+                bucket_start,
+                miners,
+            })
+        })
+        .collect()
+}
+
 /// Per-wallet hashrate time-series over `[from, until)`, same bucketing
 /// as [`hashrate_series_pool_wide`].
 pub async fn hashrate_series_for_wallet<'e, E>(

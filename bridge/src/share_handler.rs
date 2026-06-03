@@ -264,6 +264,14 @@ impl ShareHandler {
         self
     }
 
+    /// Publish a [`PoolEvent`] on the attached bus, if any. Public
+    /// entry point for lifecycle events (e.g. session close) emitted
+    /// from outside the share-submission path; a no-op in standalone
+    /// mode with no bus attached.
+    pub fn publish(&self, event: PoolEvent) {
+        self.emit(event);
+    }
+
     /// Best-effort event emission. Drops the event silently if no bus is
     /// attached or if all receivers have been dropped — both are valid
     /// runtime states (legacy mode, accountant restart) and must not

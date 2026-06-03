@@ -6,6 +6,13 @@ deciders: argonmining
 
 # ADR-0005: Stay on the existing NetCup VPS; use Railway for the edge
 
+> **Note (2026-06-02):** the **stratum-edge** decision below (Railway
+> TCP proxies) is superseded by
+> [ADR-0022](0022-multiport-stratum-and-flyio-anycast-edge.md): Railway
+> cannot expose the legacy stratum ports (`1111–8888`), so the geo edge
+> moves to fly.io anycast. The NetCup-origin and observability decisions
+> in this ADR still stand.
+
 ## Context and Problem Statement
 
 The legacy pool runs on an existing NetCup VPS that has been

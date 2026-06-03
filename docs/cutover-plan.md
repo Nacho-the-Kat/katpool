@@ -4,6 +4,13 @@ The procedure for switching production from the legacy
 `Nacho-the-Kat/katpool-app` stack to this rebuild. Detailed, exact,
 revisable. Anything ambiguous here is a finding to fix before T-24h.
 
+> **Stratum endpoint/edge mapping**: the connection-compatibility
+> matrix (all 7 regional hostnames × 8 ports, the per-port difficulty
+> seeds, and the fly.io anycast edge that supersedes the Railway edge in
+> ADR-0005) lives in
+> [`cutover-stratum-compatibility.md`](cutover-stratum-compatibility.md).
+> The DNS step in §1 (T-0) below is revised by that document.
+
 ## 0. Pre-cutover gates
 
 All of these must be true before scheduling cutover:

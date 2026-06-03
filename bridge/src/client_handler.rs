@@ -6,6 +6,8 @@ use crate::{
     share_handler::{KaspaApiTrait, ShareHandler},
     stratum_context::StratumContext,
 };
+use chrono::{DateTime, Utc};
+use katpool_domain::{CorrelationId, PoolEvent, WalletAddress, WorkerName};
 use num_bigint::BigUint;
 use num_traits::Zero;
 use parking_lot::Mutex;
@@ -27,7 +29,13 @@ static GLOBAL_NEXT_EXTRANONCE: AtomicI32 = AtomicI32::new(0);
 pub struct ClientHandler {
     clients: Arc<Mutex<HashMap<i32, Arc<StratumContext>>>>,
     client_counter: AtomicI32,
+    /// Default starting difficulty for connections whose local port has
+    /// no explicit seed in [`Self::port_seeds`].
     min_share_diff: f64,
+    /// Per-port starting-difficulty seeds (ADR-0022). The connection's
+    /// local (listening) port selects the *initial* difficulty only;
+    /// vardiff then moves freely from there. Empty in single-port mode.
+    port_seeds: HashMap<u16, f64>,
     _extranonce_size: i8, // Kept for backward compatibility, but now auto-detected per client
     _max_extranonce: i32, // Kept for backward compatibility
     last_template_time: Arc<Mutex<Instant>>,
@@ -37,13 +45,20 @@ pub struct ClientHandler {
 }
 
 impl ClientHandler {
-    pub fn new(share_handler: Arc<ShareHandler>, min_share_diff: f64, extranonce_size: i8, instance_id: String) -> Self {
+    pub fn new(
+        share_handler: Arc<ShareHandler>,
+        min_share_diff: f64,
+        port_seeds: HashMap<u16, f64>,
+        extranonce_size: i8,
+        instance_id: String,
+    ) -> Self {
         let max_extranonce = if extranonce_size > 0 { (2_f64.powi(8 * extranonce_size.min(3) as i32) - 1.0) as i32 } else { 0 };
 
         Self {
             clients: Arc::new(Mutex::new(HashMap::new())),
             client_counter: AtomicI32::new(0),
             min_share_diff,
+            port_seeds,
             _extranonce_size: extranonce_size,
             _max_extranonce: max_extranonce,
             last_template_time: Arc::new(Mutex::new(Instant::now())),
@@ -51,6 +66,15 @@ impl ClientHandler {
             share_handler,
             instance_id,
         }
+    }
+
+    /// Starting difficulty seed for a connection's local port. Falls
+    /// back to the default `min_share_diff` when the port has no
+    /// explicit seed (e.g. single-port mode). A start only — vardiff
+    /// owns the steady state (ADR-0022).
+    #[inline]
+    fn seed_for_port(&self, local_port: u16) -> f64 {
+        self.port_seeds.get(&local_port).copied().unwrap_or(self.min_share_diff)
     }
 
     /// Accessor for the instance identifier used in Prometheus labels
@@ -155,9 +179,30 @@ impl ClientHandler {
             record_disconnect(&crate::prom::WorkerContext {
                 instance_id: self.instance_id.clone(),
                 worker_name: worker_name.clone(),
-                miner: remote_app,
+                miner: remote_app.clone(),
                 wallet: wallet_addr.clone(),
                 ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
+            });
+        }
+
+        // Persist the session for per-IP forensics + the firmware
+        // breakdown (ADR-0023). Only sessions that revealed something
+        // useful — a worker identity or a reported user-agent — are
+        // recorded, to keep port-scanner noise out of the table. A
+        // no-op in standalone mode (no event bus attached).
+        let remote_app_opt = (!remote_app.is_empty()).then(|| remote_app.clone());
+        let worker_opt = (!worker_name.is_empty()).then(|| WorkerName::new(&worker_name).ok()).flatten();
+        if remote_app_opt.is_some() || worker_opt.is_some() {
+            let wallet_opt = (!wallet_addr.is_empty()).then(|| WalletAddress::new(&wallet_addr).ok()).flatten();
+            let connected_at = DateTime::<Utc>::from(ctx.state.connect_time());
+            self.share_handler.publish(PoolEvent::SessionClosed {
+                wallet: wallet_opt,
+                worker: worker_opt,
+                remote_ip: ctx.remote_addr().to_owned(),
+                remote_app: remote_app_opt,
+                connected_at,
+                ts: Utc::now(),
+                correlation_id: CorrelationId::new_v4(),
             });
         }
     }
@@ -187,7 +232,7 @@ impl ClientHandler {
         let client_clone = Arc::clone(&client);
         let kaspa_api_clone = Arc::clone(&kaspa_api);
         let share_handler = Arc::clone(&self.share_handler);
-        let min_diff = self.min_share_diff;
+        let min_diff = self.seed_for_port(client.local_port);
         let instance_id = self.instance_id.clone();
 
         tokio::spawn(async move {
@@ -488,7 +533,7 @@ impl ClientHandler {
             let client_clone = Arc::clone(&client);
             let kaspa_api_clone = Arc::clone(&kaspa_api);
             let share_handler = Arc::clone(&self.share_handler);
-            let min_diff = self.min_share_diff;
+            let min_diff = self.seed_for_port(client.local_port);
             let instance_id = self.instance_id.clone();
 
             tokio::spawn(async move {
@@ -796,4 +841,26 @@ fn send_client_diff(instance_id: &str, client: &StratumContext, _state: &MiningS
         }
         debug!("[DIFFICULTY] Successfully sent difficulty {} to {}", diff, client_clone.remote_addr);
     });
+}
+
+#[cfg(test)]
+mod seed_tests {
+    use super::ClientHandler;
+    use crate::share_handler::ShareHandler;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    #[test]
+    fn per_port_seed_selection_falls_back_to_default() {
+        let share_handler = Arc::new(ShareHandler::new("test".to_string()));
+        let mut seeds = HashMap::new();
+        seeds.insert(1111u16, 256.0);
+        seeds.insert(7777u16, 65536.0);
+        let handler = ClientHandler::new(share_handler, 4096.0, seeds, 2, "test".to_string());
+
+        // Ports with explicit seeds use them; unknown ports use the default.
+        assert_eq!(handler.seed_for_port(1111), 256.0);
+        assert_eq!(handler.seed_for_port(7777), 65536.0);
+        assert_eq!(handler.seed_for_port(9999), 4096.0);
+    }
 }

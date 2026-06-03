@@ -49,6 +49,11 @@
 //! - `KATPOOL_STRATUM_PORT`          e.g. `5555`
 //!
 //! Optional:
+//! - `KATPOOL_STRATUM_PORTS`         multi-port binding with per-port
+//!   starting-difficulty seeds (ADR-0022), `port:seed` comma-separated,
+//!   e.g. `1111:256,2222:1024,3333:4096,4444:8192,5555:16384,6666:32768,7777:65536,8888:2048`.
+//!   Each seed is the *initial* difficulty for that port; vardiff moves
+//!   freely from there. Empty/unset => bind only `KATPOOL_STRATUM_PORT`.
 //! - `KATPOOL_INSTANCE_ID`           default `katpool-runtime`
 //! - `KATPOOL_FEE_TOPLINE_BPS`       default 75
 //! - `KATPOOL_MIN_SHARE_DIFF`        default 4096 (ASIC-class floor;
@@ -57,6 +62,11 @@
 //!   retargeting; set `false` to pin every miner at `min_share_diff`)
 //! - `KATPOOL_SHARES_PER_MIN`        default 20 (vardiff retarget setpoint;
 //!   ignored when `KATPOOL_VAR_DIFF=false`)
+//! - `KATPOOL_STRATUM_PROXY_PROTOCOL` default `false`. When `true`, every
+//!   stratum connection must begin with a PROXY protocol v2 header and the
+//!   real miner IP is parsed from it (ADR-0022, fly.io edge). Enable only
+//!   when fronted by the trusted forwarder with the origin stratum ports
+//!   firewalled to the forwarder egress.
 //! - `KATPOOL_PROM_PORT`             default empty (disabled)
 //! - `KATPOOL_HEALTH_CHECK_PORT`     **no-op in the unified runtime** — it is
 //!   carried into `BridgeServerConfig.health_check_port` for the standalone
@@ -455,6 +465,7 @@ async fn main() -> Result<()> {
     let bridge_config = BridgeServerConfig {
         instance_id: cfg.instance_id.clone(),
         stratum_port: cfg.stratum_port.clone(),
+        stratum_ports: cfg.stratum_ports.clone(),
         kaspad_address: cfg.kaspad_url.clone(),
         prom_port: cfg.prom_port.clone(),
         print_stats: false,
@@ -468,7 +479,13 @@ async fn main() -> Result<()> {
         extranonce_size: 2,
         pow2_clamp: true,
         coinbase_tag_suffix: None,
+        proxy_protocol: cfg.proxy_protocol,
     };
+    if cfg.stratum_ports.is_empty() {
+        info!(port = %cfg.stratum_port, "stratum: single-port mode");
+    } else {
+        info!(ports = ?cfg.stratum_ports, "stratum: multi-port mode with per-port difficulty seeds");
+    }
     let bridge_tx = event_tx.clone();
     let bridge_api = Arc::clone(&kaspa_api);
     let bridge_concrete = Some(Arc::clone(&kaspa_api));
@@ -739,12 +756,22 @@ async fn sigterm() {
     }
 }
 
+// This is an env-config DTO: each bool maps 1:1 to a documented
+// `KATPOOL_*` toggle. Collapsing them into enums would obscure that
+// mapping without improving safety, so the bool-count lint is waived here.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
 struct RuntimeConfig {
     kaspad_url: String,
     database_url: String,
     pool_addresses: Vec<Address>,
     stratum_port: String,
+    /// Multi-port stratum binding with per-port starting-difficulty
+    /// seeds (ADR-0022), parsed from `KATPOOL_STRATUM_PORTS`. Each entry
+    /// is `(port, seed)`; the seed is the *initial* difficulty for
+    /// connections on that port and vardiff moves freely from there.
+    /// Empty => single-port mode using [`Self::stratum_port`].
+    stratum_ports: Vec<(String, u32)>,
     prom_port: String,
     health_check_port: String,
     instance_id: String,
@@ -761,6 +788,12 @@ struct RuntimeConfig {
     /// Target accepted-shares-per-minute that the vardiff retarget loop
     /// converges each miner toward; ignored when `var_diff` is `false`.
     shares_per_min: u32,
+    /// Require + parse a PROXY protocol v2 header on every stratum
+    /// connection to recover the real miner IP behind the fly.io edge
+    /// (ADR-0022). Default `false`. Mainnet (fronted by the edge) sets
+    /// it `true`; the origin stratum ports must be firewalled to the
+    /// forwarder egress when enabled.
+    proxy_protocol: bool,
     broadcast_capacity: usize,
     maturity: MaturityConfig,
     /// Network identifier passed to the accountant for
@@ -860,6 +893,7 @@ impl RuntimeConfig {
         let kaspad_url = required("KASPAD_GRPC_URL")?;
         let database_url = required("KATPOOL_DATABASE_URL")?;
         let stratum_port = required("KATPOOL_STRATUM_PORT")?;
+        let stratum_ports = parse_stratum_ports(optional("KATPOOL_STRATUM_PORTS").as_deref())?;
         let pool_address_raw = required("KATPOOL_POOL_ADDRESS")?;
         let pool_addresses = pool_address_raw
             .split(',')
@@ -881,6 +915,7 @@ impl RuntimeConfig {
         let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?.unwrap_or(4096);
         let var_diff = optional_bool("KATPOOL_VAR_DIFF")?.unwrap_or(true);
         let shares_per_min = optional_u32("KATPOOL_SHARES_PER_MIN")?.unwrap_or(20);
+        let proxy_protocol = optional_bool("KATPOOL_STRATUM_PROXY_PROTOCOL")?.unwrap_or(false);
         let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?.unwrap_or(4096);
         let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
         let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?.unwrap_or(1000);
@@ -936,6 +971,7 @@ impl RuntimeConfig {
             database_url,
             pool_addresses,
             stratum_port,
+            stratum_ports,
             prom_port,
             health_check_port,
             instance_id,
@@ -943,6 +979,7 @@ impl RuntimeConfig {
             min_share_diff,
             var_diff,
             shares_per_min,
+            proxy_protocol,
             broadcast_capacity,
             network,
             event_record_path,
@@ -964,6 +1001,32 @@ impl RuntimeConfig {
 
 fn required(var: &str) -> Result<String> {
     std::env::var(var).map_err(|_| anyhow::anyhow!("required env var {var} unset"))
+}
+
+/// Parse `KATPOOL_STRATUM_PORTS` (ADR-0022): comma-separated `port:seed`
+/// pairs, e.g. `1111:256,2222:1024`. `None`/empty => no multi-port
+/// binding (single-port mode). Each port and seed is validated.
+fn parse_stratum_ports(raw: Option<&str>) -> Result<Vec<(String, u32)>> {
+    let Some(raw) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|entry| {
+            let (port, seed) = entry.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("KATPOOL_STRATUM_PORTS entry `{entry}` must be `port:seed`")
+            })?;
+            let port = port.trim();
+            port.parse::<u16>().map_err(|e| {
+                anyhow::anyhow!("KATPOOL_STRATUM_PORTS entry `{entry}` has invalid port: {e}")
+            })?;
+            let seed = seed.trim().parse::<u32>().map_err(|e| {
+                anyhow::anyhow!("KATPOOL_STRATUM_PORTS entry `{entry}` has invalid seed: {e}")
+            })?;
+            Ok((port.to_string(), seed))
+        })
+        .collect()
 }
 
 fn optional(var: &str) -> Option<String> {
@@ -1142,10 +1205,36 @@ fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_args};
+    use super::{Command, parse_args, parse_stratum_ports};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn stratum_ports_empty_or_unset_is_single_port() -> anyhow::Result<()> {
+        assert!(parse_stratum_ports(None)?.is_empty());
+        assert!(parse_stratum_ports(Some(""))?.is_empty());
+        assert!(parse_stratum_ports(Some("   "))?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn stratum_ports_parses_pairs() -> anyhow::Result<()> {
+        let parsed = parse_stratum_ports(Some("1111:256, 8888:2048"))?;
+        assert_eq!(
+            parsed,
+            vec![("1111".to_string(), 256), ("8888".to_string(), 2048)]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stratum_ports_rejects_malformed_entries() {
+        assert!(parse_stratum_ports(Some("1111")).is_err());
+        assert!(parse_stratum_ports(Some("notaport:256")).is_err());
+        assert!(parse_stratum_ports(Some("1111:notaseed")).is_err());
+        assert!(parse_stratum_ports(Some("70000:256")).is_err());
     }
 
     #[test]

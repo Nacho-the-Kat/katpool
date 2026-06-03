@@ -16,6 +16,14 @@ use tracing::{debug, info, warn};
 pub struct BridgeConfig {
     pub instance_id: String, // Instance identifier for logging (e.g., "Instance 1", "Instance 2")
     pub stratum_port: String,
+    /// Multi-port stratum binding with per-port starting-difficulty
+    /// seeds (ADR-0022): `(port, seed)`. When non-empty the bridge binds
+    /// every listed port over one shared pipeline and selects each
+    /// connection's *initial* difficulty by its local port; vardiff then
+    /// owns the steady state. When empty, behaviour is identical to the
+    /// single [`Self::stratum_port`] / [`Self::min_share_diff`] path, so
+    /// the standalone binary's instance model is unchanged.
+    pub stratum_ports: Vec<(String, u32)>,
     pub kaspad_address: String,
     pub prom_port: String,
     pub print_stats: bool,
@@ -29,6 +37,11 @@ pub struct BridgeConfig {
     pub extranonce_size: u8,
     pub pow2_clamp: bool,
     pub coinbase_tag_suffix: Option<String>,
+    /// Require + parse a PROXY protocol v2 header on every accepted
+    /// connection, recovering the real client IP behind the fly.io edge
+    /// (ADR-0022). Default `false` (raw TCP peer). Enable only when the
+    /// listener sits behind the trusted forwarder.
+    pub proxy_protocol: bool,
 }
 
 /// Start block template listener with concrete KaspaApi
@@ -84,14 +97,27 @@ pub async fn listen_and_serve_with_events<T: KaspaApiTrait + Send + Sync + 'stat
     concrete_kaspa_api: Option<Arc<KaspaApi>>,
     event_tx: Option<broadcast::Sender<PoolEvent>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Calculate min diff with pow2 clamp if needed
-    let mut min_diff = config.min_share_diff as f64;
-    if config.pow2_clamp && min_diff > 0.0 {
-        min_diff = 2_f64.powi((min_diff.log2().floor()) as i32);
-    }
-    if min_diff == 0.0 {
-        min_diff = 4.0;
-    }
+    // Calculate min diff with pow2 clamp if needed. This is the default
+    // seed used for any port without an explicit per-port seed.
+    let clamp_seed = |raw: u32| -> f64 {
+        let mut d = raw as f64;
+        if config.pow2_clamp && d > 0.0 {
+            d = 2_f64.powi((d.log2().floor()) as i32);
+        }
+        if d == 0.0 { 4.0 } else { d }
+    };
+    let min_diff = clamp_seed(config.min_share_diff);
+
+    // Resolve the ports to bind and their per-port starting-difficulty
+    // seeds (ADR-0022). Empty `stratum_ports` => single-port mode using
+    // `stratum_port` + `min_share_diff` (standalone-binary behaviour).
+    let listen_ports: Vec<String> = if config.stratum_ports.is_empty() {
+        vec![config.stratum_port.clone()]
+    } else {
+        config.stratum_ports.iter().map(|(p, _)| p.clone()).collect()
+    };
+    let port_seeds: std::collections::HashMap<u16, f64> =
+        config.stratum_ports.iter().filter_map(|(p, seed)| parse_port_number(p).map(|n| (n, clamp_seed(*seed)))).collect();
 
     // Extranonce size is now auto-detected per client based on miner type
     // We still need to pass a value to ClientHandler::new() for backward compatibility,
@@ -119,7 +145,8 @@ pub async fn listen_and_serve_with_events<T: KaspaApiTrait + Send + Sync + 'stat
     // Create client handler
     // Note: extranonce_size parameter is now only used for backward compatibility
     // Actual extranonce assignment happens per-client in handle_subscribe based on detected miner type
-    let client_handler = Arc::new(ClientHandler::new(Arc::clone(&share_handler), min_diff, extranonce_size, instance_id.clone()));
+    let client_handler =
+        Arc::new(ClientHandler::new(Arc::clone(&share_handler), min_diff, port_seeds, extranonce_size, instance_id.clone()));
 
     // Setup default handlers
     let mut handlers = default_handlers();
@@ -206,24 +233,23 @@ pub async fn listen_and_serve_with_events<T: KaspaApiTrait + Send + Sync + 'stat
     );
     let anti_abuse = std::sync::Arc::new(crate::anti_abuse::AntiAbuseGuard::new(anti_abuse_config));
 
-    let listener_config = StratumListenerConfig {
-        port: config.stratum_port.clone(),
-        handler_map: Arc::new(handlers),
-        on_connect: Arc::new({
-            let client_handler = Arc::clone(&client_handler);
-            move |ctx: Arc<StratumContext>| {
-                client_handler.on_connect(ctx);
-            }
-        }),
-        on_disconnect: Arc::new({
-            let client_handler = Arc::clone(&client_handler);
-            move |ctx: Arc<StratumContext>| {
-                client_handler.on_disconnect(&ctx);
-            }
-        }),
-        anti_abuse,
-        instance_id: config.instance_id.clone(),
-    };
+    // Shared across every per-port listener (ADR-0022): one handler map,
+    // one connect/disconnect callback set, and one anti-abuse guard so
+    // per-IP caps and attribution stay global regardless of which port a
+    // miner lands on.
+    let handler_map = Arc::new(handlers);
+    let on_connect: Arc<dyn Fn(Arc<StratumContext>) + Send + Sync> = Arc::new({
+        let client_handler = Arc::clone(&client_handler);
+        move |ctx: Arc<StratumContext>| {
+            client_handler.on_connect(ctx);
+        }
+    });
+    let on_disconnect: Arc<dyn Fn(Arc<StratumContext>) + Send + Sync> = Arc::new({
+        let client_handler = Arc::clone(&client_handler);
+        move |ctx: Arc<StratumContext>| {
+            client_handler.on_disconnect(&ctx);
+        }
+    });
 
     // Start vardiff thread if enabled
     if config.var_diff {
@@ -285,8 +311,55 @@ pub async fn listen_and_serve_with_events<T: KaspaApiTrait + Send + Sync + 'stat
         });
     }
 
-    // Start listener
-    let listener = StratumListener::new(listener_config);
-    info!("{} Starting stratum listener on {}", instance_id, config.stratum_port);
-    listener.listen().await
+    // Start one listener per bound port over the shared pipeline. In
+    // single-port mode `listen_ports` has one entry, so this is
+    // behaviourally identical to the original single-listener path.
+    let mut listeners = tokio::task::JoinSet::new();
+    for port in listen_ports {
+        let listener = StratumListener::new(StratumListenerConfig {
+            port: port.clone(),
+            handler_map: Arc::clone(&handler_map),
+            on_connect: Arc::clone(&on_connect),
+            on_disconnect: Arc::clone(&on_disconnect),
+            anti_abuse: Arc::clone(&anti_abuse),
+            instance_id: config.instance_id.clone(),
+            proxy_protocol: config.proxy_protocol,
+        });
+        info!("{} Starting stratum listener on {}", instance_id, port);
+        listeners.spawn(async move { listener.listen().await });
+    }
+
+    // Each `listen()` runs until shutdown or a bind/accept error. Return
+    // on the first listener that finishes: a startup bind failure
+    // surfaces immediately (fail fast), and on shutdown the runtime
+    // aborts this task anyway.
+    match listeners.join_next().await {
+        Some(Ok(result)) => result,
+        Some(Err(join_err)) => Err(Box::new(std::io::Error::other(format!("stratum listener task panicked: {join_err}")))
+            as Box<dyn std::error::Error + Send + Sync>),
+        None => Ok(()),
+    }
+}
+
+/// Parse the numeric port from a listener address string such as
+/// `"5555"`, `":5555"`, or `"0.0.0.0:5555"`. Returns `None` if no port
+/// number can be extracted.
+fn parse_port_number(addr: &str) -> Option<u16> {
+    let tail = addr.rsplit(':').next().unwrap_or(addr);
+    tail.trim().parse::<u16>().ok()
+}
+
+#[cfg(test)]
+mod port_parse_tests {
+    use super::parse_port_number;
+
+    #[test]
+    fn parses_supported_forms() {
+        assert_eq!(parse_port_number("1111"), Some(1111));
+        assert_eq!(parse_port_number(":5555"), Some(5555));
+        assert_eq!(parse_port_number("0.0.0.0:7777"), Some(7777));
+        assert_eq!(parse_port_number("[::]:8888"), Some(8888));
+        assert_eq!(parse_port_number("not-a-port"), None);
+        assert_eq!(parse_port_number(""), None);
+    }
 }
