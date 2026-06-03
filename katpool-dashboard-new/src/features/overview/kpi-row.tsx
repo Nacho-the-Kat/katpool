@@ -76,7 +76,9 @@ export function KpiRow() {
         label="Network share"
         icon={<Network className="size-4" />}
         value={netShare}
-        format={(v) => `${v.toFixed(v < 1 ? 3 : 2)}%`}
+        // On small networks (e.g. testnet) the pool can exceed the network
+        // estimate; never render an absurd multi-thousand-percent figure.
+        format={(v) => (v > 100 ? ">100%" : `${v.toFixed(v < 1 ? 3 : 2)}%`)}
         loading={loading || network.isLoading}
         hint="Pool hashrate as a fraction of total Kaspa network hashrate."
       />
