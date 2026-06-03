@@ -331,14 +331,16 @@ fn verify(tx: &Transaction, entries: &[UtxoEntry]) -> Result<(), SignError> {
     let verifiable = PopulatedTransaction::new(tx, entries.to_vec());
     let reused = SigHashReusedValuesUnsync::new();
     let sig_cache: Cache<_, bool> = Cache::new(u64::try_from(entries.len()).unwrap_or(u64::MAX));
-    // Mirror the post-Toccata consensus engine: covenants and ZK hardening are
-    // active on every network we target (tn10-toc3 / post-Crescendo mainnet), so
-    // the self-check uses the same script-size limits and rules kaspad applies to
-    // the reveal's P2SH redeem script.
+    // Mirror the post-Toccata consensus engine: covenants are active on every
+    // network we target (v1.3.0-toc.5 testnet-10 / post-Crescendo mainnet), so
+    // the self-check uses the same post-Toccata script-size limits and rules
+    // kaspad applies to the reveal's P2SH redeem script. ZK hardening no longer
+    // has a separate flag — it folds into the Toccata covenants path.
+    // `sigop_script_units` stays at its default (`Gram(1000)`), matching every
+    // network's `mass_per_sig_op`, so the sig-op budget here mirrors consensus.
     let ctx = EngineContext::new(&sig_cache).with_reused(&reused);
     let flags = EngineFlags {
         covenants_enabled: true,
-        zk_hardening_enabled: true,
         ..Default::default()
     };
     for (idx, (input, entry)) in verifiable.populated_inputs().enumerate() {
