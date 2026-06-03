@@ -15,7 +15,8 @@ use insta::assert_json_snapshot;
 use api::models::{
     ActiveMinersHistory, ActiveMinersPointView, BalanceResponse, BlockCounts, BlockView,
     BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, FullRebateResponse,
-    HashrateHistory, HashratePointView, KasBalanceView, LeaderboardEntryView, LeaderboardResponse,
+    GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView, KasBalanceView,
+    LeaderboardEntryView, LeaderboardResponse,
     MinerPayoutView, MinerPayoutsPage, MinerProfile, NachoRebateView, PayoutTotals,
     PoolRejectsResponse, PoolStats, RejectReasonCount, RejectsResponse, TreasuryView, WorkerView,
     WorkersResponse,
@@ -278,6 +279,26 @@ fn active_miners_history_wire() {
             ActiveMinersPointView {
                 bucket_start: ts("2026-01-02T01:00:00Z"),
                 miners: 17,
+            },
+        ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn pool_geo_wire() {
+    let resp = GeoBreakdown {
+        window_secs: 86_400,
+        entries: vec![
+            GeoEntryView {
+                country: "US".to_owned(),
+                workers: 12,
+                sessions: 18,
+            },
+            GeoEntryView {
+                country: "DE".to_owned(),
+                workers: 4,
+                sessions: 5,
             },
         ],
     };

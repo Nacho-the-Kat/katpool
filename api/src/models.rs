@@ -377,6 +377,30 @@ pub struct FirmwareBreakdown {
     pub entries: Vec<FirmwareEntryView>,
 }
 
+/// One slice of the pool-wide geo distribution (ADR-0025).
+#[derive(Debug, Serialize)]
+pub struct GeoEntryView {
+    /// ISO-3166-1 alpha-2 country code.
+    pub country: String,
+    /// Distinct workers reporting from this country in the window.
+    pub workers: i64,
+    /// Sessions opened from this country in the window.
+    pub sessions: i64,
+}
+
+/// `GET /api/v1/pool/geo` body — aggregate miner country distribution.
+///
+/// Aggregate-only by construction: no IP, no per-miner geo. Country is
+/// resolved from session IPs via `MaxMind` `GeoLite2` (attribution required;
+/// see ADR-0025).
+#[derive(Debug, Serialize)]
+pub struct GeoBreakdown {
+    /// Sliding window the breakdown covers, in seconds.
+    pub window_secs: u64,
+    /// Slices, descending by worker count.
+    pub entries: Vec<GeoEntryView>,
+}
+
 // ---- miner -----------------------------------------------------------
 
 /// A wallet's KAS payable position.

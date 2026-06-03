@@ -87,6 +87,7 @@ pub async fn record_closed<'e, E>(
     worker_id: Option<WorkerId>,
     remote_ip: IpAddr,
     remote_app: Option<&str>,
+    country: Option<&str>,
     connected_at: DateTime<Utc>,
     disconnected_at: DateTime<Utc>,
 ) -> Result<SessionId, DbError>
@@ -95,13 +96,14 @@ where
 {
     let id: SessionId = sqlx::query_scalar::<_, SessionId>(
         "INSERT INTO connection_session
-             (worker_id, remote_ip, remote_app, connected_at, disconnected_at)
-         VALUES ($1, $2::inet, $3, $4, $5)
+             (worker_id, remote_ip, remote_app, country, connected_at, disconnected_at)
+         VALUES ($1, $2::inet, $3, $4, $5, $6)
          RETURNING id",
     )
     .bind(worker_id.map(|w| w.0))
     .bind(remote_ip.to_string())
     .bind(remote_app)
+    .bind(country)
     .bind(connected_at)
     .bind(disconnected_at)
     .fetch_one(executor)
@@ -216,6 +218,58 @@ where
         .into_iter()
         .map(|(remote_app, workers, sessions)| FirmwareCount {
             remote_app,
+            workers,
+            sessions,
+        })
+        .collect())
+}
+
+/// One row of the per-country session breakdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CountryCount {
+    /// ISO-3166-1 alpha-2 country code resolved at session-persist time
+    /// (ADR-0025). Only non-null countries are returned.
+    pub country: String,
+    /// Distinct workers reporting from this country in the window.
+    pub workers: i64,
+    /// Sessions opened from this country in the window.
+    pub sessions: i64,
+}
+
+/// Aggregate distinct workers (and sessions) by resolved country, over
+/// sessions that overlapped `[since, now]`.
+///
+/// Overlap matches the firmware breakdown: a session counts if it is
+/// still open (`disconnected_at IS NULL`) or ended at/after `since`.
+/// Rows with a `NULL` country (resolver disabled, private/unknown IP, or
+/// sessions persisted before ADR-0025) are excluded. `workers` counts
+/// distinct non-null `worker_id`. Ordered by descending workers, then
+/// sessions, for stable display. Aggregate-only by construction — no IP
+/// or per-miner geo is exposed.
+pub async fn country_breakdown<'e, E>(
+    executor: E,
+    since: DateTime<Utc>,
+) -> Result<Vec<CountryCount>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+        "SELECT country,
+                count(DISTINCT worker_id)::bigint AS workers,
+                count(*)::bigint AS sessions
+           FROM connection_session
+          WHERE country IS NOT NULL
+            AND (disconnected_at IS NULL OR disconnected_at >= $1)
+          GROUP BY country
+          ORDER BY workers DESC, sessions DESC",
+    )
+    .bind(since)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(country, workers, sessions)| CountryCount {
+            country,
             workers,
             sessions,
         })
