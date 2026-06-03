@@ -45,6 +45,7 @@
 //! the metric tick to surface.
 
 use std::net::IpAddr;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use katpool_db::repo::block::{self, EnsureOutcome};
@@ -56,6 +57,7 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use crate::error::EventError;
+use crate::geoip::GeoIp;
 use crate::metrics::{
     record_block_transition, record_event, record_event_error, record_lag, record_share_insert,
 };
@@ -127,13 +129,29 @@ pub enum ConsumerConfigError {
 pub struct EventConsumer {
     db: PgPool,
     cfg: ConsumerConfig,
+    /// Optional IP→country resolver (ADR-0025). `None` when no `GeoLite2`
+    /// database is configured — sessions then record a `NULL` country.
+    geoip: Option<Arc<GeoIp>>,
 }
 
 impl EventConsumer {
     /// Construct a consumer ready to be `run`.
     #[must_use]
     pub const fn new(db: PgPool, cfg: ConsumerConfig) -> Self {
-        Self { db, cfg }
+        Self {
+            db,
+            cfg,
+            geoip: None,
+        }
+    }
+
+    /// Attach an optional `GeoIP` resolver for session country tagging.
+    ///
+    /// Pass `None` to leave geo resolution disabled (the default).
+    #[must_use]
+    pub fn with_geoip(mut self, geoip: Option<Arc<GeoIp>>) -> Self {
+        self.geoip = geoip;
+        self
     }
 
     /// Drive the consumer until the broadcast channel closes.
@@ -442,6 +460,10 @@ impl EventConsumer {
             ip: remote_ip.to_owned(),
         })?;
 
+        // Resolve country off the hot path (ADR-0025). Absent resolver or
+        // unknown IP ⇒ NULL country; never fails the session write.
+        let country = self.geoip.as_ref().and_then(|g| g.country(ip));
+
         let mut tx = self
             .db
             .begin()
@@ -470,6 +492,7 @@ impl EventConsumer {
             worker_id,
             ip,
             remote_app,
+            country.as_deref(),
             connected_at,
             disconnected_at,
         )

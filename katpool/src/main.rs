@@ -76,6 +76,10 @@
 //! - `KATPOOL_COINBASE_MATURITY`     default 1000 (DAA-score depth)
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
+//! - `KATPOOL_GEOIP_DB`              optional `GeoLite2`/`GeoIP2` Country `.mmdb`
+//!   path (ADR-0025). When set + loadable, sessions are tagged with an
+//!   ISO-3166 country for the aggregate `/api/v1/pool/geo` view; unset or
+//!   unreadable ⇒ geo disabled (NULL country), non-fatal.
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
 //!   for M4 replay-determinism rehearsal
 //!
@@ -161,8 +165,8 @@ use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use accountant::{
-    AllocationEngine, ConsumerConfig, EventConsumer, FeeConfig, KaspadGrpcClient, MaturityConfig,
-    MaturityTracker, StaticTierClassifier,
+    AllocationEngine, ConsumerConfig, EventConsumer, FeeConfig, GeoIp, KaspadGrpcClient,
+    MaturityConfig, MaturityTracker, StaticTierClassifier,
 };
 
 // The runtime orchestrator is intentionally long-form: every step
@@ -311,11 +315,15 @@ async fn main() -> Result<()> {
         tracker
     };
 
+    // Optional IP→country resolver (ADR-0025); non-fatal if absent.
+    let geoip = load_geoip(cfg.geoip_db_path.as_deref());
+
     let consumer = EventConsumer::new(
         db.clone(),
         ConsumerConfig::new(cfg.instance_id.clone(), cfg.network.clone())
             .context("building accountant ConsumerConfig")?,
-    );
+    )
+    .with_geoip(geoip);
 
     // ---- shutdown channel ------------------------------------------
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -756,6 +764,28 @@ async fn sigterm() {
     }
 }
 
+/// Load the optional `GeoIP` country resolver (ADR-0025).
+///
+/// A missing or unreadable database is non-fatal: it logs and returns
+/// `None` so a `GeoIP` misconfiguration never takes down the pool. `None`
+/// path ⇒ geo disabled.
+fn load_geoip(path: Option<&str>) -> Option<Arc<GeoIp>> {
+    let Some(path) = path else {
+        info!("GeoIP disabled (set KATPOOL_GEOIP_DB to enable session geo)");
+        return None;
+    };
+    match GeoIp::open(path) {
+        Ok(g) => {
+            info!(%path, "GeoIP country resolver loaded (session geo enabled)");
+            Some(Arc::new(g))
+        }
+        Err(e) => {
+            warn!(%path, error = %e, "GeoIP database failed to load; session geo disabled");
+            None
+        }
+    }
+}
+
 // This is an env-config DTO: each bool maps 1:1 to a documented
 // `KATPOOL_*` toggle. Collapsing them into enums would obscure that
 // mapping without improving safety, so the bool-count lint is waived here.
@@ -806,6 +836,10 @@ struct RuntimeConfig {
     network: String,
     /// When set, append one serde-json `PoolEvent` per line to this path.
     event_record_path: Option<String>,
+    /// Optional GeoLite2/GeoIP2 Country `.mmdb` path (`KATPOOL_GEOIP_DB`,
+    /// ADR-0025). When set and loadable, the accountant tags each session
+    /// with an ISO-3166 country; unset/absent ⇒ geo disabled (NULL country).
+    geoip_db_path: Option<String>,
     /// Bind address for the public read-only API (`KATPOOL_API_PORT`).
     /// `None` disables the API (mirrors the prom exporter's env gate).
     api_bind: Option<SocketAddr>,
@@ -983,6 +1017,7 @@ impl RuntimeConfig {
             broadcast_capacity,
             network,
             event_record_path,
+            geoip_db_path: optional("KATPOOL_GEOIP_DB"),
             api_bind,
             api_config,
             maturity: MaturityConfig {

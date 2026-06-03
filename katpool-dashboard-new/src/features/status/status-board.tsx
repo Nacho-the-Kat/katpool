@@ -116,7 +116,7 @@ export function StatusBoard() {
           <ul className="space-y-2 text-sm text-muted-foreground">
             <li>
               <span className="text-foreground">Pool metrics</span> come from katpool&apos;s public,
-              read-only v1 API (hashrate, blocks, payouts, miners, firmware, rejects).
+              read-only v1 API (hashrate, blocks, payouts, miners, firmware, rejects, geo).
             </li>
             <li>
               <span className="text-foreground">Network context</span> (hashrate, difficulty, supply,
@@ -125,6 +125,20 @@ export function StatusBoard() {
             <li>
               <span className="text-foreground">Prices</span> (KAS, NACHO) come from CoinGecko. All
               on-chain amounts are computed with exact integer math — never floating point.
+            </li>
+            <li>
+              <span className="text-foreground">Geo distribution</span> is aggregate-only (country
+              counts, never individual IPs). This product includes GeoLite Data created by MaxMind,
+              available from{" "}
+              <a
+                href="https://www.maxmind.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                maxmind.com
+              </a>
+              .
             </li>
             <li>Data refreshes automatically; on-chain figures lag the network by confirmation depth.</li>
           </ul>

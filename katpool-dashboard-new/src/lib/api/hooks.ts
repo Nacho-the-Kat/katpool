@@ -9,6 +9,7 @@ import type {
   BucketToken,
   CyclesPage,
   FirmwareBreakdown,
+  GeoBreakdown,
   PoolRejectsResponse,
   FullRebateResponse,
   HashrateHistory,
@@ -94,6 +95,14 @@ export function usePoolRejects(windowSecs?: number) {
   return useBff<PoolRejectsResponse>(
     ["pool", "rejects", windowSecs ?? null],
     bffUrl("/api/v1/pool/rejects", { window: windowSecs }),
+    LIVE_MS,
+  );
+}
+
+export function usePoolGeo(windowSecs?: number) {
+  return useBff<GeoBreakdown>(
+    ["pool", "geo", windowSecs ?? null],
+    bffUrl("/api/v1/pool/geo", { window: windowSecs }),
     LIVE_MS,
   );
 }

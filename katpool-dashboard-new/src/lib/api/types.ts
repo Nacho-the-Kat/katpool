@@ -156,6 +156,17 @@ export interface FirmwareBreakdown {
   entries: FirmwareEntryView[];
 }
 
+export interface GeoEntryView {
+  country: string;
+  workers: number;
+  sessions: number;
+}
+
+export interface GeoBreakdown {
+  window_secs: number;
+  entries: GeoEntryView[];
+}
+
 export interface KasBalanceView {
   allocated: KasAmount;
   paid: KasAmount;
