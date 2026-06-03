@@ -7,6 +7,8 @@ import { BlocksSummary } from "@/features/overview/blocks-summary";
 import { FirmwarePanel } from "@/features/firmware/firmware-panel";
 import { PayoutsSummary } from "@/features/overview/payouts-summary";
 import { LeaderboardTable } from "@/features/leaders/leaderboard-table";
+import { LiveBlockFeed } from "@/features/blocks/live-block-feed";
+import { HalvingModule } from "@/features/network/halving-module";
 
 export default function OverviewPage() {
   return (
@@ -23,6 +25,13 @@ export default function OverviewPage() {
           <HashratePanel />
         </div>
         <NetworkPanel />
+      </div>
+
+      <div className="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <LiveBlockFeed />
+        </div>
+        <HalvingModule />
       </div>
 
       <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">

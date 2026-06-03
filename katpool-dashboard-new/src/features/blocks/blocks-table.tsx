@@ -20,6 +20,10 @@ export function BlocksTable() {
   const { data, isLoading, isError, refetch } = useBlocks(PAGE, before);
 
   const blocks = data?.blocks ?? [];
+  // The reward field is populated on mainnet but null on TN10; only show the
+  // column when at least one block carries a value, so it never reads as a
+  // dead, unfinished column.
+  const showReward = blocks.some((b) => b.reward != null);
 
   return (
     <Panel
@@ -69,7 +73,7 @@ export function BlocksTable() {
                 <th className="px-5 py-3 font-medium">Block hash</th>
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 text-right font-medium">DAA score</th>
-                <th className="px-5 py-3 text-right font-medium">Reward</th>
+                {showReward && <th className="px-5 py-3 text-right font-medium">Reward</th>}
                 <th className="px-5 py-3 text-right font-medium">Found</th>
               </tr>
             </thead>
@@ -95,9 +99,11 @@ export function BlocksTable() {
                     <BlockStatusBadge status={b.status} />
                   </td>
                   <td className="px-5 py-3 text-right tnum">{formatNumber(b.daa_score)}</td>
-                  <td className="px-5 py-3 text-right tnum">
-                    {b.reward ? formatKas(b.reward.kas) : <span className="text-muted-foreground">—</span>}
-                  </td>
+                  {showReward && (
+                    <td className="px-5 py-3 text-right tnum">
+                      {b.reward ? formatKas(b.reward.kas) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                  )}
                   <td className="px-5 py-3 text-right text-muted-foreground" title={formatDateTime(b.found_at)}>
                     {formatRelative(b.found_at)}
                   </td>
