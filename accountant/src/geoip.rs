@@ -62,10 +62,7 @@ impl GeoIp {
     pub fn country(&self, ip: IpAddr) -> Option<String> {
         let result = self.reader.lookup(ip).ok()?;
         result
-            .decode_path::<String>(&[
-                PathElement::Key("country"),
-                PathElement::Key("iso_code"),
-            ])
+            .decode_path::<String>(&[PathElement::Key("country"), PathElement::Key("iso_code")])
             .ok()
             .flatten()
     }

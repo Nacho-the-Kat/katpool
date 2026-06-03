@@ -16,10 +16,9 @@ use api::models::{
     ActiveMinersHistory, ActiveMinersPointView, BalanceResponse, BlockCounts, BlockView,
     BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, FullRebateResponse,
     GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView, KasBalanceView,
-    LeaderboardEntryView, LeaderboardResponse,
-    MinerPayoutView, MinerPayoutsPage, MinerProfile, NachoRebateView, PayoutTotals,
-    PoolRejectsResponse, PoolStats, RejectReasonCount, RejectsResponse, TreasuryView, WorkerView,
-    WorkersResponse,
+    LeaderboardEntryView, LeaderboardResponse, MinerPayoutView, MinerPayoutsPage, MinerProfile,
+    NachoRebateView, PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount,
+    RejectsResponse, TreasuryView, WorkerView, WorkersResponse,
 };
 use api::money::KasAmount;
 
