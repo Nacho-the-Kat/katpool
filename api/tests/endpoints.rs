@@ -263,6 +263,17 @@ async fn firmware_breakdown_ok_when_empty() {
 }
 
 #[tokio::test]
+async fn pool_rejects_ok_when_empty() {
+    // No share_reject rows are seeded, so the breakdown is empty and the
+    // total is zero (the accountant persists rejects in production).
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/rejects").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 0);
+    assert!(body["by_reason"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn hashrate_history_rejects_bad_bucket() {
     let (app, _r, _c) = seeded().await;
     let (status, body) = get(&app, "/api/v1/pool/hashrate/history?bucket=7m").await;

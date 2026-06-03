@@ -16,8 +16,9 @@ use api::models::{
     ActiveMinersHistory, ActiveMinersPointView, BalanceResponse, BlockCounts, BlockView,
     BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, FullRebateResponse,
     HashrateHistory, HashratePointView, KasBalanceView, LeaderboardEntryView, LeaderboardResponse,
-    MinerPayoutView, MinerPayoutsPage, MinerProfile, NachoRebateView, PayoutTotals, PoolStats,
-    RejectReasonCount, RejectsResponse, TreasuryView, WorkerView, WorkersResponse,
+    MinerPayoutView, MinerPayoutsPage, MinerProfile, NachoRebateView, PayoutTotals,
+    PoolRejectsResponse, PoolStats, RejectReasonCount, RejectsResponse, TreasuryView, WorkerView,
+    WorkersResponse,
 };
 use api::money::KasAmount;
 
@@ -192,6 +193,25 @@ fn rejects_wire() {
             RejectReasonCount {
                 reason: "stale",
                 count: 3,
+            },
+        ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn pool_rejects_wire() {
+    let resp = PoolRejectsResponse {
+        window_secs: 3_600,
+        total: 12,
+        by_reason: vec![
+            RejectReasonCount {
+                reason: "low_difficulty",
+                count: 7,
+            },
+            RejectReasonCount {
+                reason: "bad_pow",
+                count: 5,
             },
         ],
     };

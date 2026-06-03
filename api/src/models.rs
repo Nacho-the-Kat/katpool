@@ -571,6 +571,17 @@ impl RejectReasonCount {
     }
 }
 
+/// `GET /api/v1/pool/rejects` body — pool-wide reject breakdown.
+#[derive(Debug, Serialize)]
+pub struct PoolRejectsResponse {
+    /// Sliding window in seconds.
+    pub window_secs: u64,
+    /// Total rejects across the pool in the window.
+    pub total: i64,
+    /// Per-reason breakdown, descending by count.
+    pub by_reason: Vec<RejectReasonCount>,
+}
+
 /// `GET /api/v1/full_rebate/:address` body.
 #[derive(Debug, Serialize)]
 pub struct FullRebateResponse {

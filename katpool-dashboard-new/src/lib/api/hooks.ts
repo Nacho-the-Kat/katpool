@@ -9,6 +9,7 @@ import type {
   BucketToken,
   CyclesPage,
   FirmwareBreakdown,
+  PoolRejectsResponse,
   FullRebateResponse,
   HashrateHistory,
   LeaderboardResponse,
@@ -85,6 +86,14 @@ export function useFirmware(windowSecs?: number) {
   return useBff<FirmwareBreakdown>(
     ["pool", "firmware", windowSecs ?? null],
     bffUrl("/api/v1/pool/firmware", { window: windowSecs }),
+    LIVE_MS,
+  );
+}
+
+export function usePoolRejects(windowSecs?: number) {
+  return useBff<PoolRejectsResponse>(
+    ["pool", "rejects", windowSecs ?? null],
+    bffUrl("/api/v1/pool/rejects", { window: windowSecs }),
     LIVE_MS,
   );
 }

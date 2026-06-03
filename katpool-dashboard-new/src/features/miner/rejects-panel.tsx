@@ -6,14 +6,7 @@ import { HBarChart } from "@/components/charts/bar-chart";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { useMinerRejects } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
-
-const REASON_LABELS: Record<string, string> = {
-  low_difficulty: "Low difficulty",
-  stale: "Stale",
-  duplicate: "Duplicate",
-  invalid: "Invalid",
-  job_not_found: "Job not found",
-};
+import { rejectReasonLabel } from "@/lib/reject-reasons";
 
 /** Reject reasons for a miner, as a horizontal bar chart. */
 export function RejectsPanel({ address }: { address: string }) {
@@ -22,7 +15,7 @@ export function RejectsPanel({ address }: { address: string }) {
   const bars = useMemo(
     () =>
       (data?.by_reason ?? []).map((r) => ({
-        label: REASON_LABELS[r.reason] ?? r.reason,
+        label: rejectReasonLabel(r.reason),
         value: r.count,
       })),
     [data],
