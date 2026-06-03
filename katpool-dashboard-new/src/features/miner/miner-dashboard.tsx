@@ -12,6 +12,8 @@ import { MinerHeader } from "./miner-header";
 import { MinerKpis } from "./miner-kpis";
 import { MinerHashrate } from "./miner-hashrate";
 import { WorkersTable } from "./workers-table";
+import { WorkerDistribution } from "./worker-distribution";
+import { MinerEarnings } from "./miner-earnings";
 import { RejectsPanel } from "./rejects-panel";
 import { MinerPayouts } from "./miner-payouts";
 
@@ -61,8 +63,14 @@ export function MinerDashboard({ address }: { address: string }) {
       <MinerHeader address={address} />
       <MinerKpis address={address} />
       <MinerHashrate address={address} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <WorkersTable address={address} />
+      <div className="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <WorkersTable address={address} />
+        </div>
+        <WorkerDistribution address={address} />
+      </div>
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+        <MinerEarnings address={address} />
         <RejectsPanel address={address} />
       </div>
       <MinerPayouts address={address} />
