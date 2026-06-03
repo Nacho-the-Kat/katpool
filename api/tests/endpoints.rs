@@ -263,6 +263,16 @@ async fn firmware_breakdown_ok_when_empty() {
 }
 
 #[tokio::test]
+async fn pool_geo_ok_when_empty() {
+    // No connection_session rows carry a country (geo resolution is
+    // unconfigured in tests), so the breakdown is empty.
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/geo").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["entries"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn pool_rejects_ok_when_empty() {
     // No share_reject rows are seeded, so the breakdown is empty and the
     // total is zero (the accountant persists rejects in production).

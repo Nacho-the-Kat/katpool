@@ -12,9 +12,9 @@ use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
     ActiveMinersHistory, ActiveMinersPointView, BlockCounts, BlockView, BlocksPage, CycleView,
-    CyclesPage, FirmwareBreakdown, FirmwareEntryView, HashrateHistory, HashratePointView,
-    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals, PoolRejectsResponse,
-    PoolStats, RejectReasonCount, TreasuryView,
+    CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown, GeoEntryView, HashrateHistory,
+    HashratePointView, HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals,
+    PoolRejectsResponse, PoolStats, RejectReasonCount, TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
@@ -256,6 +256,37 @@ pub async fn firmware(
                 .into_iter()
                 .map(|r| FirmwareEntryView {
                     app: r.remote_app,
+                    workers: r.workers,
+                    sessions: r.sessions,
+                })
+                .collect(),
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/geo` — aggregate miner country distribution.
+///
+/// Aggregates resolved session countries over a sliding window
+/// (ADR-0025). Aggregate-only: no IP, no per-miner geo. Country comes
+/// from `MaxMind` `GeoLite2` (attribution required). Returns an empty
+/// `entries` array when geo resolution is disabled or unpopulated.
+pub async fn geo(
+    State(state): State<AppState>,
+    Query(window_params): Query<WindowParams>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let window = params::window(&window_params)?;
+    let key = format!("pool/geo?w={}", window.as_secs());
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let w = resolve_window(window);
+        let rows = connection_session::country_breakdown(&state.pool, w.since).await?;
+        to_value(&GeoBreakdown {
+            window_secs: w.secs,
+            entries: rows
+                .into_iter()
+                .map(|r| GeoEntryView {
+                    country: r.country,
                     workers: r.workers,
                     sessions: r.sessions,
                 })

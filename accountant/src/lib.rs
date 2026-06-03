@@ -61,6 +61,7 @@ pub mod allocation;
 pub mod config;
 pub mod consumer;
 pub mod error;
+pub mod geoip;
 pub mod kaspad_grpc;
 pub mod maturity;
 pub mod metrics;
@@ -76,6 +77,7 @@ pub use config::{
 };
 pub use consumer::{ConsumerConfig, ConsumerConfigError, EventConsumer, VALID_NETWORKS};
 pub use error::{AccountantError, EventError};
+pub use geoip::{GeoIp, GeoIpError};
 pub use kaspad_grpc::{KaspadGrpcClient, coinbase_utxos_from_entries};
 pub use maturity::{
     BlockColor, CoinbaseUtxo, DEFAULT_BATCH_SIZE, DEFAULT_COINBASE_MATURITY, DEFAULT_POLL_INTERVAL,

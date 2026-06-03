@@ -5,6 +5,7 @@ import { MinersPanel } from "@/features/overview/miners-panel";
 import { NetworkPanel } from "@/features/overview/network-panel";
 import { BlocksSummary } from "@/features/overview/blocks-summary";
 import { FirmwarePanel } from "@/features/firmware/firmware-panel";
+import { GeoPanel } from "@/features/geo/geo-panel";
 import { PayoutsSummary } from "@/features/overview/payouts-summary";
 import { LeaderboardTable } from "@/features/leaders/leaderboard-table";
 import { LiveBlockFeed } from "@/features/blocks/live-block-feed";
@@ -39,10 +40,10 @@ export default function OverviewPage() {
         <BlocksSummary />
       </div>
 
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <LeaderboardTable limit={8} compact />
-        </div>
+      <LeaderboardTable limit={8} compact />
+
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+        <GeoPanel />
         <FirmwarePanel />
       </div>
 

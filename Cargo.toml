@@ -79,6 +79,8 @@ parking_lot = "0.12"
 regex = "1"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 clap = { version = "4", features = ["derive"] }
+# IP→country geolocation (GeoLite2 .mmdb reader; ADR-0025). ISC-licensed.
+maxminddb = "0.28"
 
 # Async runtime + utilities
 tokio = { version = "1", features = ["full"] }
