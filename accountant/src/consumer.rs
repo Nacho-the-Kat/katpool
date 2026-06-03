@@ -44,10 +44,13 @@
 //! Postgres issue (resolved on the next event) or a bug we want
 //! the metric tick to surface.
 
+use std::net::IpAddr;
+
+use chrono::{DateTime, Utc};
 use katpool_db::repo::block::{self, EnsureOutcome};
 use katpool_db::repo::share_reject::{self, DbShareRejectReason};
-use katpool_db::repo::{share, wallet, worker};
-use katpool_domain::PoolEvent;
+use katpool_db::repo::{connection_session, share, wallet, worker};
+use katpool_domain::{PoolEvent, WalletAddress, WorkerName};
 use sqlx::PgPool;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
@@ -224,6 +227,31 @@ impl EventConsumer {
                     self.log_event_error(variant, &e, &correlation_id);
                 }
             }
+            PoolEvent::SessionClosed {
+                wallet,
+                worker,
+                remote_ip,
+                remote_app,
+                connected_at,
+                ts,
+                correlation_id,
+            } => {
+                let variant = "session_closed";
+                record_event(&self.cfg.instance_id, variant);
+                if let Err(e) = self
+                    .handle_session_closed(
+                        wallet.as_ref(),
+                        worker.as_ref(),
+                        &remote_ip,
+                        remote_app.as_deref(),
+                        connected_at,
+                        ts,
+                    )
+                    .await
+                {
+                    self.log_event_error(variant, &e, &correlation_id);
+                }
+            }
             // `PoolEvent` is `#[non_exhaustive]` by design; we
             // must keep this arm so adding a new variant upstream
             // doesn't break the build, but log loudly so an
@@ -397,6 +425,64 @@ impl EventConsumer {
         Ok(())
     }
 
+    /// Persist a completed stratum session: resolve the worker id (if
+    /// the session authorized) and insert the `connection_session` row.
+    /// Identity-only — no share tallies — so it never touches the hot
+    /// crediting path.
+    async fn handle_session_closed(
+        &self,
+        wallet_addr: Option<&WalletAddress>,
+        worker_name: Option<&WorkerName>,
+        remote_ip: &str,
+        remote_app: Option<&str>,
+        connected_at: DateTime<Utc>,
+        disconnected_at: DateTime<Utc>,
+    ) -> Result<(), EventError> {
+        let ip: IpAddr = remote_ip.parse().map_err(|_| EventError::SessionBadIp {
+            ip: remote_ip.to_owned(),
+        })?;
+
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::SessionRecord)?;
+
+        // Resolve the worker id only when the session authorized; an
+        // anonymous session records a null worker (still useful for
+        // per-IP forensics).
+        let worker_id = match (wallet_addr, worker_name) {
+            (Some(addr), Some(name)) => {
+                let w = wallet::ensure(&mut *tx, addr, &self.cfg.network)
+                    .await
+                    .map_err(EventError::WalletEnsure)?;
+                let wk = worker::ensure(&mut *tx, w.id, name)
+                    .await
+                    .map_err(EventError::WorkerEnsure)?;
+                Some(wk.id)
+            }
+            _ => None,
+        };
+
+        connection_session::record_closed(
+            &mut *tx,
+            worker_id,
+            ip,
+            remote_app,
+            connected_at,
+            disconnected_at,
+        )
+        .await
+        .map_err(EventError::SessionRecord)?;
+
+        tx.commit()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::SessionRecord)?;
+        Ok(())
+    }
+
     fn log_event_error(
         &self,
         variant: &'static str,
@@ -412,6 +498,8 @@ impl EventConsumer {
             EventError::BlockEnsure(_) => "block_ensure",
             EventError::BlockMarkSubmitted(_) => "block_mark_submitted",
             EventError::OrphanBlockAccepted { .. } => "orphan_block_accepted",
+            EventError::SessionBadIp { .. } => "session_bad_ip",
+            EventError::SessionRecord(_) => "session_record",
         };
         record_event_error(&self.cfg.instance_id, variant, kind);
         error!(

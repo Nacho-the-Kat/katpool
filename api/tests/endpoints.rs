@@ -230,6 +230,39 @@ async fn blocks_endpoint_ok_when_empty() {
 }
 
 #[tokio::test]
+async fn leaderboard_ranks_seeded_miner() {
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/leaderboard?window=86400").await;
+    assert_eq!(status, StatusCode::OK);
+    let entries = body["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["rank"], 1);
+    assert_eq!(entries[0]["address"], KNOWN_ADDR);
+    assert_eq!(entries[0]["accepted_shares"], 2);
+    // The lone miner owns the whole window's weight.
+    assert!((entries[0]["pool_share"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn active_miners_history_ok() {
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/miners/history").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["bucket"], "1h");
+    assert!(body["points"].is_array());
+}
+
+#[tokio::test]
+async fn firmware_breakdown_ok_when_empty() {
+    // No connection_session rows are seeded, so the breakdown is empty
+    // (the bridge populates this table at disconnect in production).
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/firmware").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["entries"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn hashrate_history_rejects_bad_bucket() {
     let (app, _r, _c) = seeded().await;
     let (status, body) = get(&app, "/api/v1/pool/hashrate/history?bucket=7m").await;

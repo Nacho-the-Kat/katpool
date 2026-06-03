@@ -308,6 +308,75 @@ pub struct CyclesPage {
     pub next_before: Option<i64>,
 }
 
+/// One entry of the pool leaderboard.
+#[derive(Debug, Serialize)]
+pub struct LeaderboardEntryView {
+    /// 1-based rank within this response (by window hashrate, descending).
+    pub rank: i64,
+    /// Miner wallet address.
+    pub address: String,
+    /// Network the wallet was seen on.
+    pub network: String,
+    /// Accepted shares in the window.
+    pub accepted_shares: i64,
+    /// Estimated hashrate over the window (H/s).
+    pub hashrate_hs: f64,
+    /// Fraction of the pool's windowed weight this miner contributed,
+    /// in `[0, 1]` (`0` when the pool had no shares in the window).
+    pub pool_share: f64,
+}
+
+/// `GET /api/v1/pool/leaderboard` body — top miners by window hashrate.
+#[derive(Debug, Serialize)]
+pub struct LeaderboardResponse {
+    /// Sliding window the figures cover, in seconds.
+    pub window_secs: u64,
+    /// Ranked entries, descending by hashrate.
+    pub entries: Vec<LeaderboardEntryView>,
+}
+
+/// One point of the active-miners time-series.
+#[derive(Debug, Serialize)]
+pub struct ActiveMinersPointView {
+    /// Bucket start (UTC).
+    pub bucket_start: DateTime<Utc>,
+    /// Distinct active wallets in the bucket.
+    pub miners: i64,
+}
+
+/// `GET /api/v1/pool/miners/history` body — active-miner count over time.
+#[derive(Debug, Serialize)]
+pub struct ActiveMinersHistory {
+    /// Inclusive range start (UTC).
+    pub from: DateTime<Utc>,
+    /// Exclusive range end (UTC).
+    pub to: DateTime<Utc>,
+    /// Bucket width token (`1m`/`5m`/`1h`/`1d`).
+    pub bucket: &'static str,
+    /// Non-empty buckets, ascending by time.
+    pub points: Vec<ActiveMinersPointView>,
+}
+
+/// One slice of the firmware / user-agent breakdown.
+#[derive(Debug, Serialize)]
+pub struct FirmwareEntryView {
+    /// Reported stratum user-agent, or `null` when the client sent none.
+    pub app: Option<String>,
+    /// Distinct workers reporting this user-agent in the window.
+    pub workers: i64,
+    /// Sessions opened with this user-agent in the window.
+    pub sessions: i64,
+}
+
+/// `GET /api/v1/pool/firmware` body — miner-software breakdown.
+#[derive(Debug, Serialize)]
+pub struct FirmwareBreakdown {
+    /// Sliding window the breakdown covers, in seconds.
+    pub window_secs: u64,
+    /// Slices, descending by worker count.
+    pub entries: Vec<FirmwareEntryView>,
+}
+
 // ---- miner -----------------------------------------------------------
 
 /// A wallet's KAS payable position.

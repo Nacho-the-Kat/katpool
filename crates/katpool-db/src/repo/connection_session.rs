@@ -75,6 +75,40 @@ where
     Ok(id)
 }
 
+/// Insert an already-completed session row in a single statement.
+///
+/// Used by the accountant when it learns of a session only at
+/// disconnect (the bridge holds no DB handle, so it cannot `open` at
+/// accept time). `worker_id` is `None` for sessions that never
+/// authorized. Per-session counters are left at their schema defaults
+/// (0) — this path records identity + lifetime, not share tallies.
+pub async fn record_closed<'e, E>(
+    executor: E,
+    worker_id: Option<WorkerId>,
+    remote_ip: IpAddr,
+    remote_app: Option<&str>,
+    connected_at: DateTime<Utc>,
+    disconnected_at: DateTime<Utc>,
+) -> Result<SessionId, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let id: SessionId = sqlx::query_scalar::<_, SessionId>(
+        "INSERT INTO connection_session
+             (worker_id, remote_ip, remote_app, connected_at, disconnected_at)
+         VALUES ($1, $2::inet, $3, $4, $5)
+         RETURNING id",
+    )
+    .bind(worker_id.map(|w| w.0))
+    .bind(remote_ip.to_string())
+    .bind(remote_app)
+    .bind(connected_at)
+    .bind(disconnected_at)
+    .fetch_one(executor)
+    .await?;
+    Ok(id)
+}
+
 /// Bind a worker to an already-open session.
 ///
 /// Called by the accountant when the first `ShareCredited` event for
@@ -135,6 +169,57 @@ where
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// One row of the firmware / user-agent breakdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FirmwareCount {
+    /// Reported stratum `mining.subscribe` user-agent, or `None` when the
+    /// client sent none. Callers normalize this to a vendor for display.
+    pub remote_app: Option<String>,
+    /// Distinct workers reporting this user-agent in the window.
+    pub workers: i64,
+    /// Sessions opened with this user-agent in the window.
+    pub sessions: i64,
+}
+
+/// Breakdown of distinct workers (and sessions) by reported stratum
+/// user-agent, over sessions that overlapped `[since, now]`.
+///
+/// A session overlaps the window if it is still open
+/// (`disconnected_at IS NULL`) or ended at/after `since`. `workers`
+/// counts distinct non-null `worker_id` (pre-authorize sessions have a
+/// null worker and contribute only to `sessions`). Drives the
+/// dashboard's firmware/device breakdown. Ordered by descending
+/// workers, then sessions, for a stable display.
+pub async fn firmware_breakdown<'e, E>(
+    executor: E,
+    since: DateTime<Utc>,
+) -> Result<Vec<FirmwareCount>, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let rows: Vec<(Option<String>, i64, i64)> = sqlx::query_as(
+        "SELECT remote_app,
+                count(DISTINCT worker_id)::bigint AS workers,
+                count(*)::bigint AS sessions
+           FROM connection_session
+          WHERE disconnected_at IS NULL
+             OR disconnected_at >= $1
+          GROUP BY remote_app
+          ORDER BY workers DESC, sessions DESC",
+    )
+    .bind(since)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(remote_app, workers, sessions)| FirmwareCount {
+            remote_app,
+            workers,
+            sessions,
+        })
+        .collect())
 }
 
 /// List recent sessions for a given worker, newest-first.

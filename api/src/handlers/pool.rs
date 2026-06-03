@@ -6,16 +6,18 @@ use axum::Json;
 use axum::extract::{Query, State};
 use serde_json::Value;
 
-use katpool_db::repo::{block, payout, share_stats, treasury};
+use katpool_db::repo::{block, connection_session, payout, share_stats, treasury};
 
 use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
-    BlockCounts, BlockView, BlocksPage, CycleView, CyclesPage, HashrateHistory, HashratePointView,
-    HashrateSnapshot, PayoutTotals, PoolStats, TreasuryView,
+    ActiveMinersHistory, ActiveMinersPointView, BlockCounts, BlockView, BlocksPage, CycleView,
+    CyclesPage, FirmwareBreakdown, FirmwareEntryView, HashrateHistory, HashratePointView,
+    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals, PoolStats,
+    TreasuryView,
 };
 use crate::money::KasAmount;
-use crate::params::{self, PageParams, RangeParams, WindowParams};
+use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
 use crate::state::AppState;
 
 /// `GET /api/v1/pool/stats` — headline pool figures over a sliding window.
@@ -155,6 +157,109 @@ pub async fn payouts(
         to_value(&CyclesPage {
             cycles,
             next_before,
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/leaderboard` — top miners by window hashrate.
+// `pool_share` is a unitless ratio of summed difficulty (a rate-like
+// figure), not money; float division is the correct representation here.
+#[allow(clippy::float_arithmetic)]
+pub async fn leaderboard(
+    State(state): State<AppState>,
+    Query(lb_params): Query<LeaderboardParams>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let (window, limit) = params::leaderboard(&lb_params)?;
+    let key = format!("pool/leaderboard?w={}&l={limit}", window.as_secs());
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let w = resolve_window(window);
+        let rows = share_stats::leaderboard(&state.pool, w.since, w.until, limit).await?;
+        let pool = share_stats::accepted_pool_wide(&state.pool, w.since).await?;
+        let pool_weight = pool.total_weight;
+        let entries = rows
+            .into_iter()
+            .enumerate()
+            .map(|(idx, e)| LeaderboardEntryView {
+                rank: idx as i64 + 1,
+                address: e.address,
+                network: e.network,
+                accepted_shares: e.accepted_shares,
+                hashrate_hs: e.hashrate_hs,
+                pool_share: if pool_weight > 0.0 {
+                    e.total_weight / pool_weight
+                } else {
+                    0.0
+                },
+            })
+            .collect();
+        to_value(&LeaderboardResponse {
+            window_secs: w.secs,
+            entries,
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/miners/history` — active-miner count over time.
+pub async fn active_miners_history(
+    State(state): State<AppState>,
+    Query(range_params): Query<RangeParams>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let range = params::range(&range_params)?;
+    let key = format!(
+        "pool/miners/history?from={}&to={}&b={}",
+        range.from.timestamp(),
+        range.until.timestamp(),
+        range.bucket.seconds()
+    );
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let points = share_stats::active_wallets_series(
+            &state.pool,
+            range.from,
+            range.until,
+            range.bucket.seconds(),
+        )
+        .await?;
+        to_value(&ActiveMinersHistory {
+            from: range.from,
+            to: range.until,
+            bucket: bucket_token(range.bucket),
+            points: points
+                .into_iter()
+                .map(|p| ActiveMinersPointView {
+                    bucket_start: p.bucket_start,
+                    miners: p.miners,
+                })
+                .collect(),
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/firmware` — miner-software breakdown over a window.
+pub async fn firmware(
+    State(state): State<AppState>,
+    Query(window_params): Query<WindowParams>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let window = params::window(&window_params)?;
+    let key = format!("pool/firmware?w={}", window.as_secs());
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let w = resolve_window(window);
+        let rows = connection_session::firmware_breakdown(&state.pool, w.since).await?;
+        to_value(&FirmwareBreakdown {
+            window_secs: w.secs,
+            entries: rows
+                .into_iter()
+                .map(|r| FirmwareEntryView {
+                    app: r.remote_app,
+                    workers: r.workers,
+                    sessions: r.sessions,
+                })
+                .collect(),
         })
     })
     .await

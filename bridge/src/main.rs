@@ -240,6 +240,9 @@ async fn main() -> Result<(), anyhow::Error> {
             let bridge_config = StratumBridgeConfig {
                 instance_id: instance_id_str.clone(),
                 stratum_port: instance.stratum_port.clone(),
+                // Standalone binary keeps the one-port-per-instance model;
+                // multi-port binding (ADR-0022) is a unified-runtime feature.
+                stratum_ports: Vec::new(),
                 kaspad_address: global.kaspad_address.clone(),
                 prom_port: String::new(),
                 print_stats: global.print_stats,
@@ -253,6 +256,8 @@ async fn main() -> Result<(), anyhow::Error> {
                 extranonce_size: global.extranonce_size,
                 pow2_clamp: instance.pow2_clamp.unwrap_or(global.pow2_clamp),
                 coinbase_tag_suffix: global.coinbase_tag_suffix.clone(),
+                // Standalone binary is not fronted by the fly edge.
+                proxy_protocol: false,
             };
 
             listen_and_serve(bridge_config, Arc::clone(&kaspa_api_clone), if is_first_instance { Some(kaspa_api_clone) } else { None })

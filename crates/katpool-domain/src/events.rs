@@ -100,6 +100,28 @@ pub enum PoolEvent {
         /// `BlockFound` event so consumers can pair them.
         correlation_id: CorrelationId,
     },
+    /// A stratum TCP session ended. Emitted once per disconnect so the
+    /// accountant can persist a completed `connection_session` row for
+    /// per-IP forensics and the firmware/device breakdown. The bridge
+    /// owns no database, so this carries everything the row needs; the
+    /// hot share-crediting path is untouched.
+    SessionClosed {
+        /// The authenticated wallet, if the session reached authorize.
+        wallet: Option<WalletAddress>,
+        /// The worker rig, if the session reached authorize.
+        worker: Option<WorkerName>,
+        /// Remote miner IP (the real client IP after PROXY-protocol
+        /// resolution), as text — parsed to `inet` by the consumer.
+        remote_ip: String,
+        /// Reported stratum `mining.subscribe` user-agent, if any.
+        remote_app: Option<String>,
+        /// When the TCP session was accepted.
+        connected_at: DateTime<Utc>,
+        /// When the session ended.
+        ts: DateTime<Utc>,
+        /// Tracing correlation id.
+        correlation_id: CorrelationId,
+    },
 }
 
 /// Typed reason for share rejection. Each variant maps to one concrete
@@ -223,6 +245,43 @@ mod tests {
         };
         let json = serde_json::to_string(&event).expect("serialize");
         assert!(json.contains(&h.to_string()), "missing hash in: {json}");
+    }
+
+    #[test]
+    fn session_closed_roundtrips_through_serde() {
+        let event = PoolEvent::SessionClosed {
+            wallet: Some(sample_wallet()),
+            worker: Some(sample_worker()),
+            remote_ip: "203.0.113.7".to_owned(),
+            remote_app: Some("GodMiner/1.0".to_owned()),
+            connected_at: Utc::now(),
+            ts: Utc::now(),
+            correlation_id: CorrelationId::new_v4(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        let back: PoolEvent = serde_json::from_str(&json).expect("deserialize");
+        let again = serde_json::to_string(&back).expect("re-serialize");
+        assert_eq!(json, again);
+        assert!(json.contains("GodMiner/1.0"), "missing app in: {json}");
+    }
+
+    #[test]
+    fn session_closed_allows_anonymous_session() {
+        let event = PoolEvent::SessionClosed {
+            wallet: None,
+            worker: None,
+            remote_ip: "2001:db8::1".to_owned(),
+            remote_app: None,
+            connected_at: Utc::now(),
+            ts: Utc::now(),
+            correlation_id: CorrelationId::new_v4(),
+        };
+        let json = serde_json::to_string(&event).expect("serialize");
+        let back: PoolEvent = serde_json::from_str(&json).expect("deserialize");
+        assert!(matches!(
+            back,
+            PoolEvent::SessionClosed { wallet: None, .. }
+        ));
     }
 
     #[test]

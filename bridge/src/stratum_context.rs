@@ -28,6 +28,11 @@ pub struct ContextSummary {
 pub struct StratumContext {
     pub remote_addr: String,
     pub remote_port: u16,
+    /// Local (listening) port the connection arrived on. Used to select
+    /// the per-port starting-difficulty seed (ADR-0022). With the fly
+    /// edge in front, HAProxy maps each public port 1:1 to the same
+    /// origin port, so this is the port the miner dialed.
+    pub local_port: u16,
     pub wallet_addr: Arc<Mutex<String>>,
     pub worker_name: Arc<Mutex<String>>,
     pub canxium_addr: Arc<Mutex<String>>,
@@ -46,6 +51,7 @@ impl StratumContext {
     pub fn new(
         remote_addr: String,
         remote_port: u16,
+        local_port: u16,
         stream: TcpStream,
         state: Arc<crate::mining_state::MiningState>,
         on_disconnect: mpsc::UnboundedSender<Arc<StratumContext>>,
@@ -54,6 +60,7 @@ impl StratumContext {
         Arc::new(Self {
             remote_addr,
             remote_port,
+            local_port,
             wallet_addr: Arc::new(Mutex::new(String::new())),
             worker_name: Arc::new(Mutex::new(String::new())),
             canxium_addr: Arc::new(Mutex::new(String::new())),
@@ -610,6 +617,18 @@ impl StratumContext {
         }
     }
 
+    /// Route this connection's teardown through the listener's disconnect
+    /// handler so [`ClientHandler::on_disconnect`] runs — Prometheus
+    /// disconnect accounting plus the `SessionClosed` lifecycle event that
+    /// feeds the firmware breakdown (ADR-0023). The read loop calls this
+    /// exactly once per task at teardown; the handler performs the actual
+    /// (idempotent) [`Self::disconnect`]. Best-effort: a dropped receiver
+    /// (listener shutting down) silently no-ops, matching the socket
+    /// teardown's own semantics.
+    pub fn notify_disconnect(self: &Arc<Self>) {
+        let _ = self.on_disconnect.send(Arc::clone(self));
+    }
+
     fn check_disconnect(&self) {
         if !self.disconnecting.load(Ordering::Acquire) {
             // Spawn async disconnect
@@ -631,6 +650,7 @@ impl Clone for StratumContext {
         Self {
             remote_addr: self.remote_addr.clone(),
             remote_port: self.remote_port,
+            local_port: self.local_port,
             wallet_addr: self.wallet_addr.clone(),
             worker_name: self.worker_name.clone(),
             canxium_addr: self.canxium_addr.clone(),
