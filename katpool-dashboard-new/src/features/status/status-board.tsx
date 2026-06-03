@@ -3,10 +3,20 @@
 import { CheckCircle2, CircleAlert, CircleSlash } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Panel } from "@/components/dashboard/panel";
-import { usePoolStats, useNetworkContext } from "@/lib/api/hooks";
+import { usePoolStats, useNetworkContext, useBlocks } from "@/lib/api/hooks";
+import { formatCompact, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Health = "ok" | "degraded" | "down";
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-card px-4 py-3.5">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 truncate text-base font-semibold metric">{value}</p>
+    </div>
+  );
+}
 
 function StatusPill({ state, label, detail }: { state: Health; label: string; detail: string }) {
   const Icon = state === "ok" ? CheckCircle2 : state === "degraded" ? CircleAlert : CircleSlash;
@@ -33,6 +43,11 @@ function StatusPill({ state, label, detail }: { state: Health; label: string; de
 export function StatusBoard() {
   const stats = usePoolStats();
   const network = useNetworkContext();
+  const latest = useBlocks(1);
+
+  const topBlock = latest.data?.blocks[0];
+  const lastBlockAge = topBlock ? formatRelative(topBlock.found_at) : "—";
+  const treasuryAge = stats.data?.treasury ? formatRelative(stats.data.treasury.captured_at) : "—";
 
   const poolState: Health = stats.isError ? "down" : stats.isLoading ? "degraded" : "ok";
   const degraded = network.data?.degraded ?? [];
@@ -70,6 +85,29 @@ export function StatusBoard() {
           }
         />
       </div>
+
+      <Panel title="Operational metrics" description="Live pool health at a glance">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
+          <Metric label="Last block found" value={lastBlockAge} />
+          <Metric
+            label="Blocks matured"
+            value={stats.data ? formatNumber(stats.data.blocks.matured) : "—"}
+          />
+          <Metric
+            label="Active miners"
+            value={stats.data ? formatNumber(stats.data.miners_active) : "—"}
+          />
+          <Metric
+            label="Accepted shares"
+            value={stats.data ? formatCompact(stats.data.accepted_shares) : "—"}
+          />
+          <Metric
+            label="Confirmed payouts"
+            value={stats.data ? formatNumber(stats.data.payouts.confirmed_payouts) : "—"}
+          />
+          <Metric label="Treasury snapshot" value={treasuryAge} />
+        </div>
+      </Panel>
 
       <Panel title="About this data" description="How the dashboard sources its numbers">
         <ul className="space-y-2 text-sm text-muted-foreground">
