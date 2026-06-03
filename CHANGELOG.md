@@ -86,21 +86,6 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
-- **Kaspa version bump to `v1.3.0-toc.5`** (node + `kaspa-*` crates moved
-  together per ADR-0017 / Runbook 20). The upstream Toccata line moved from the
-  `tn10-toc{N}` tag naming to versioned `v1.3.0-toc.{N}` tags; this re-pins all
-  `kaspa-*`/`kaspad` workspace deps from `tn10-toc3` (`1.2.1-toc.3`, commit
-  `1015a62`) to `v1.3.0-toc.5` (commit `04b0d13`) and the node binary
-  (`ops/kaspad/install-kaspad-tn10.sh`, SHA-256 re-pinned). The MSRV is
-  unchanged (upstream still declares `rust-version = 1.91.0`), so the toolchain
-  pins do not move. API break: `kaspa-txscript`'s `EngineFlags` dropped the
-  `zk_hardening_enabled` field (ZK hardening now folds into the Toccata covenants
-  path) and added `sigop_script_units`; the payout self-verify in `payout-kas`
-  and `payout-krc20` now constructs `EngineFlags { covenants_enabled: true,
-  ..Default::default() }`, whose default `sigop_script_units` (`Gram(1000)`)
-  equals every network's `mass_per_sig_op`, so the local engine still mirrors
-  consensus exactly. The node DB upgrade is one-way (rollback ⇒ resync). Verified
-  green: `ci-fast`, `cargo test --workspace`, `cargo deny check`.
 - **`KATPOOL_HEALTH_CHECK_PORT` documented as a no-op in the unified runtime**
   (ADR-0021 E1). The runtime still carries it into
   `BridgeServerConfig.health_check_port` for the standalone bridge binary, but
