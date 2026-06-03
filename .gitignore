@@ -56,3 +56,6 @@ lcov.info
 node_modules/
 .cache/
 .direnv/
+
+# Design audit
+.design-audit/
