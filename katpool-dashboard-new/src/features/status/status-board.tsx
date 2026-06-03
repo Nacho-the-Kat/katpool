@@ -6,6 +6,7 @@ import { Panel } from "@/components/dashboard/panel";
 import { usePoolStats, useNetworkContext, useBlocks } from "@/lib/api/hooks";
 import { formatCompact, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { PoolRejectsPanel } from "./pool-rejects-panel";
 
 type Health = "ok" | "degraded" | "down";
 
@@ -109,23 +110,26 @@ export function StatusBoard() {
         </div>
       </Panel>
 
-      <Panel title="About this data" description="How the dashboard sources its numbers">
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          <li>
-            <span className="text-foreground">Pool metrics</span> come from katpool&apos;s public,
-            read-only v1 API (hashrate, blocks, payouts, miners, firmware).
-          </li>
-          <li>
-            <span className="text-foreground">Network context</span> (hashrate, difficulty, supply,
-            halving) is sourced from the Kaspa public API.
-          </li>
-          <li>
-            <span className="text-foreground">Prices</span> (KAS, NACHO) come from CoinGecko. All
-            on-chain amounts are computed with exact integer math — never floating point.
-          </li>
-          <li>Data refreshes automatically; on-chain figures lag the network by confirmation depth.</li>
-        </ul>
-      </Panel>
+      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+        <PoolRejectsPanel />
+        <Panel title="About this data" description="How the dashboard sources its numbers">
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li>
+              <span className="text-foreground">Pool metrics</span> come from katpool&apos;s public,
+              read-only v1 API (hashrate, blocks, payouts, miners, firmware, rejects).
+            </li>
+            <li>
+              <span className="text-foreground">Network context</span> (hashrate, difficulty, supply,
+              halving) is sourced from the Kaspa public API.
+            </li>
+            <li>
+              <span className="text-foreground">Prices</span> (KAS, NACHO) come from CoinGecko. All
+              on-chain amounts are computed with exact integer math — never floating point.
+            </li>
+            <li>Data refreshes automatically; on-chain figures lag the network by confirmation depth.</li>
+          </ul>
+        </Panel>
+      </div>
     </div>
   );
 }

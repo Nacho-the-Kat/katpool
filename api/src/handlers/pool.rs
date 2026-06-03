@@ -6,15 +6,15 @@ use axum::Json;
 use axum::extract::{Query, State};
 use serde_json::Value;
 
-use katpool_db::repo::{block, connection_session, payout, share_stats, treasury};
+use katpool_db::repo::{block, connection_session, payout, share_reject, share_stats, treasury};
 
 use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
     ActiveMinersHistory, ActiveMinersPointView, BlockCounts, BlockView, BlocksPage, CycleView,
     CyclesPage, FirmwareBreakdown, FirmwareEntryView, HashrateHistory, HashratePointView,
-    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals, PoolStats,
-    TreasuryView,
+    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals, PoolRejectsResponse,
+    PoolStats, RejectReasonCount, TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
@@ -260,6 +260,35 @@ pub async fn firmware(
                     sessions: r.sessions,
                 })
                 .collect(),
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/rejects` — pool-wide reject breakdown by reason.
+///
+/// Aggregates `share_reject` across all wallets over a sliding window,
+/// mirroring the per-miner `rejects` surface. Backs the operator
+/// anti-abuse view: which reject reasons dominate pool-wide, right now.
+pub async fn rejects(
+    State(state): State<AppState>,
+    Query(window_params): Query<WindowParams>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let window = params::window(&window_params)?;
+    let key = format!("pool/rejects?w={}", window.as_secs());
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let w = resolve_window(window);
+        let rows = share_reject::count_by_reason_pool_wide(&state.pool, w.since).await?;
+        let total: i64 = rows.iter().map(|(_, count)| *count).sum();
+        let by_reason = rows
+            .into_iter()
+            .map(|(reason, count)| RejectReasonCount::from_row(reason, count))
+            .collect();
+        to_value(&PoolRejectsResponse {
+            window_secs: w.secs,
+            total,
+            by_reason,
         })
     })
     .await

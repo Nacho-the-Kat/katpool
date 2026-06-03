@@ -243,6 +243,12 @@ export interface RejectsResponse {
   by_reason: RejectReasonCount[];
 }
 
+export interface PoolRejectsResponse {
+  window_secs: number;
+  total: number;
+  by_reason: RejectReasonCount[];
+}
+
 export interface FullRebateResponse {
   address: string;
   tier: "standard" | "elite" | null;
