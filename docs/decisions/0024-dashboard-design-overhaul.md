@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-02
 deciders: argonmining
 consulted: argonmining
@@ -164,6 +164,23 @@ Design-language commitments:
   difficulty/halving module.
 - **P3 — Polish.** Light-mode contrast; status enrichment; mobile
   density; favicon/OG; copy.
+
+## Implementation status
+
+- **P0** (#59): query-resilience + network-share guard; network-hashrate
+  units verified correct (TN10's tiny network legitimately yields a small
+  ratio). Hero error states redesigned in P1.
+- **P1** (#61): brand mark/wordmark (#60), token & material system,
+  display/metric type scale, bespoke ECharts theme, live hashrate hero,
+  motion choreography, grid/empty-state reflow.
+- **P2/P3** (#62): live block feed with rate-limited celebration; chromatic
+  halving countdown module; Network-panel trim; Blocks `REWARD` column
+  hidden until populated; Status operational-metrics grid.
+- **P2 (follow-up):** treasury/payout-flow-over-time and richer per-miner
+  pages — data-backed by `/api/v1`, tracked separately.
+- **Blocked on API (ADR-0021 extension):** pool-wide share accept/reject
+  stream and geo distribution have no current data source; deferred until
+  endpoints exist.
 
 ## More information
 
