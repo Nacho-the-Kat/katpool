@@ -11,6 +11,16 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+/// Drop a connection after this long with no inbound bytes.
+///
+/// TCP keepalive (set at accept) reaps truly dead sockets at the transport
+/// layer; this is the application-level backstop for sockets that look alive
+/// to the kernel but have gone silent. With vardiff a live miner submits
+/// shares far more often than this, so 10 minutes of total inbound silence
+/// reliably indicates an abandoned/half-open connection whose
+/// `connection_session` row would otherwise never close.
+const POST_AUTH_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Event handler function type
 pub type EventHandler = Arc<
     dyn Fn(
@@ -168,6 +178,27 @@ impl StratumListener {
                             debug!("[CONNECTION] Local address: {:?}", stream.local_addr());
                             debug!("[CONNECTION] Connection accepted successfully");
 
+                            // Enable TCP keepalive so a half-open connection (an
+                            // abruptly power-cycled ASIC that sends neither FIN
+                            // nor RST) is detected at the transport layer instead
+                            // of leaving the read loop blocked forever and its
+                            // `connection_session` row open. Probe after 60s
+                            // idle, every 20s, dropping after 3 missed probes
+                            // (~2min to reap a dead peer). This is the
+                            // false-positive-free backstop to the application
+                            // idle timeout in `spawn_client_listener`.
+                            if let Err(e) = socket2::SockRef::from(&stream).set_tcp_keepalive(
+                                &socket2::TcpKeepalive::new()
+                                    .with_time(std::time::Duration::from_secs(60))
+                                    .with_interval(std::time::Duration::from_secs(20))
+                                    .with_retries(3),
+                            ) {
+                                debug!(
+                                    "[CONNECTION] failed to enable TCP keepalive for {}:{}: {}",
+                                    remote_addr, remote_port, e
+                                );
+                            }
+
                             // Create new MiningState for each client
                             // Each client gets its own isolated state, just like in Go
                             use crate::mining_state::MiningState;
@@ -259,6 +290,8 @@ impl StratumListener {
         let mut buffer = [0u8; 1024];
         let mut line_buffer = String::new();
         let mut first_message = true;
+        // Last time we received inbound bytes; drives the idle-drop backstop.
+        let mut last_activity = tokio::time::Instant::now();
 
         loop {
             // Check if disconnected
@@ -313,6 +346,7 @@ impl StratumListener {
                     break;
                 }
                 Ok(Ok(n)) => {
+                    last_activity = tokio::time::Instant::now();
                     debug!("[CLIENT_LISTENER] Read {} bytes from {}:{}", n, ctx.remote_addr, ctx.remote_port);
 
                     // Remove null bytes and process
@@ -888,7 +922,23 @@ impl StratumListener {
                     break;
                 }
                 Err(_) => {
-                    // Timeout - continue
+                    // Read deadline elapsed with no inbound bytes. Drop the
+                    // connection once it has been idle past the backstop so a
+                    // silent half-open socket can't pin its session row open
+                    // forever; otherwise keep polling.
+                    if last_activity.elapsed() >= POST_AUTH_IDLE_TIMEOUT {
+                        let worker_name = ctx.worker_name.lock().clone();
+                        let remote_app = ctx.remote_app.lock().clone();
+                        info!(
+                            "[CONNECTION] Client {}:{} idle for {}s with no data; dropping (worker='{}' app='{}')",
+                            ctx.remote_addr,
+                            ctx.remote_port,
+                            last_activity.elapsed().as_secs(),
+                            worker_name,
+                            remote_app
+                        );
+                        break;
+                    }
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                     continue;
                 }

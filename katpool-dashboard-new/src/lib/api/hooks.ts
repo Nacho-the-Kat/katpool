@@ -169,7 +169,7 @@ export function useMinerPayouts(address: string, limit?: number, before?: number
   return useBff<MinerPayoutsPage>(
     ["miner", address, "payouts", limit ?? null, before ?? null],
     bffUrl(`/api/v1/miners/${encodeURIComponent(address)}/payouts`, { limit, before }),
-    false,
+    LIVE_MS,
     enabled,
   );
 }
@@ -196,7 +196,7 @@ export function useFullRebate(address: string, enabled = true) {
   return useBff<FullRebateResponse>(
     ["miner", address, "full_rebate"],
     bffUrl(`/api/v1/full_rebate/${encodeURIComponent(address)}`),
-    false,
+    LIVE_MS,
     enabled,
   );
 }

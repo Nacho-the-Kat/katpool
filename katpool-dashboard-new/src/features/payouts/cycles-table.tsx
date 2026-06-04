@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/stat
 import { CycleStatusBadge } from "./cycle-status-badge";
 import { usePayoutCycles } from "@/lib/api/hooks";
 import { formatDateTime, formatKas, formatNumber, formatRelative } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 const PAGE = 25;
 
@@ -18,7 +19,10 @@ export function CyclesTable() {
   const before = stack[stack.length - 1];
   const { data, isLoading, isError, refetch } = usePayoutCycles(PAGE, before);
 
-  const cycles = data?.cycles ?? [];
+  // "Planned" cycles are an internal pre-broadcast bookkeeping state with no
+  // distributed value yet; they only add noise to the public ledger, so hide
+  // them and surface cycles from the moment they actually broadcast.
+  const cycles = (data?.cycles ?? []).filter((c) => c.status !== "planned");
 
   return (
     <Panel
@@ -78,9 +82,17 @@ export function CyclesTable() {
                 <tr key={c.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
                   <td className="px-5 py-3 font-mono text-xs text-muted-foreground">#{c.id}</td>
                   <td className="px-5 py-3">
-                    <Badge variant={c.kind === "kas" ? "default" : "secondary"}>
-                      {c.kind === "kas" ? "KAS" : "NACHO"}
-                    </Badge>
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full",
+                          c.kind === "kas" ? "bg-primary" : "bg-secondary",
+                        )}
+                      />
+                      <Badge variant={c.kind === "kas" ? "default" : "secondary"}>
+                        {c.kind === "kas" ? "KAS" : "NACHO"}
+                      </Badge>
+                    </span>
                   </td>
                   <td className="px-5 py-3">
                     <CycleStatusBadge status={c.status} />
@@ -92,7 +104,12 @@ export function CyclesTable() {
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-right tnum">{formatKas(c.total.kas)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <span className="block font-medium tnum">{formatKas(c.total.kas)}</span>
+                    {c.kind === "nacho" ? (
+                      <span className="block text-xs text-muted-foreground">KAS value</span>
+                    ) : null}
+                  </td>
                   <td
                     className="px-5 py-3 text-right text-muted-foreground"
                     title={formatDateTime(c.settled_at ?? c.planned_at)}

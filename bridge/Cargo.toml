@@ -64,6 +64,11 @@ clap = { workspace = true, features = ["derive"] }
 
 # External dependencies not in workspace (add specific versions)
 anyhow = "1.0"
+# TCP keepalive tuning on accepted miner sockets. tokio's TcpStream exposes no
+# keepalive interval/retry knobs, so we set them via socket2 to reap half-open
+# connections (abruptly power-cycled ASICs that never send FIN/RST). Version
+# matches the one already resolved in the workspace lockfile.
+socket2 = "0.6"
 # PROXY protocol v2 parser for the fly.io anycast edge (ADR-0022). Used
 # by the stratum listener to recover the real miner IP behind the
 # forwarder. Mature, widely-used parser (v1 + v2).

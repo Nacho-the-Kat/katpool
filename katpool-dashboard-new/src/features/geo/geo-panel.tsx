@@ -22,16 +22,19 @@ export function GeoPanel() {
 
   const bars = useMemo(
     () =>
+      // Plot distinct miners (workers), not cumulative session count: a single
+      // device that reconnects opens many sessions over the window, so sessions
+      // wildly overstates how many miners are actually in a country.
       (data?.entries ?? []).slice(0, TOP_N).map((e) => ({
         label: `${flagEmoji(e.country)}  ${countryName(e.country)}`,
-        value: e.sessions,
+        value: e.workers,
       })),
     [data],
   );
 
   const countries = data?.entries.length ?? 0;
   const description = countries
-    ? `Sessions across ${formatNumber(countries)} ${countries === 1 ? "country" : "countries"} (last 24h)`
+    ? `Miners across ${formatNumber(countries)} ${countries === 1 ? "country" : "countries"} (last 24h)`
     : "Miner countries (last 24h)";
 
   return (
@@ -49,7 +52,7 @@ export function GeoPanel() {
       ) : (
         <HBarChart
           data={bars}
-          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "session" : "sessions"}`}
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "miner" : "miners"}`}
           colorIndex={2}
           height={Math.max(220, bars.length * 44)}
         />
