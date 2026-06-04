@@ -38,7 +38,7 @@ export function WorkerDistribution({ address }: { address: string }) {
           valueFormatter={(v) => formatHashrate(v)}
           centerValue={formatHashrate(total)}
           centerLabel="total"
-          height={280}
+          height={300}
         />
       )}
     </Panel>

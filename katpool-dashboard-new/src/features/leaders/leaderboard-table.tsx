@@ -65,34 +65,34 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Top miners by hashrate">
+          <table className="w-full min-w-[560px] text-sm" aria-label="Top miners by hashrate">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">#</th>
-                <th className="px-5 py-3 font-medium">Miner</th>
-                <th className="px-5 py-3 text-right font-medium">Hashrate</th>
-                {!compact && <th className="px-5 py-3 text-right font-medium">Shares</th>}
-                <th className="px-5 py-3 text-right font-medium">Pool share</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">#</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Miner</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Hashrate</th>
+                {!compact && <th className="px-3 py-3 sm:px-5 text-right font-medium">Shares</th>}
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Pool share</th>
               </tr>
             </thead>
             <tbody>
               {entries.map((e) => (
                 <tr key={e.address} className="border-b border-border/50 transition-colors hover:bg-muted/40">
-                  <td className={cn("px-5 py-3 font-semibold tnum", RANK_ACCENT[e.rank - 1] ?? "text-muted-foreground")}>
+                  <td className={cn("px-3 py-3 sm:px-5 font-semibold tnum", RANK_ACCENT[e.rank - 1] ?? "text-muted-foreground")}>
                     {e.rank}
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5">
                     <Link href={`/miners/${encodeURIComponent(e.address)}`} className="hover:underline">
                       <AddressDisplay address={e.address} link={false} />
                     </Link>
                   </td>
-                  <td className="px-5 py-3 text-right tnum font-medium">{formatHashrate(e.hashrate_hs)}</td>
+                  <td className="px-3 py-3 sm:px-5 text-right tnum font-medium">{formatHashrate(e.hashrate_hs)}</td>
                   {!compact && (
-                    <td className="px-5 py-3 text-right tnum text-muted-foreground">
+                    <td className="px-3 py-3 sm:px-5 text-right tnum text-muted-foreground">
                       {formatNumber(e.accepted_shares)}
                     </td>
                   )}
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5">
                     <div className="flex items-center justify-end gap-2">
                       <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
                         <div

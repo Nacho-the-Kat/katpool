@@ -81,7 +81,7 @@ export function StatCard({
           {delta !== undefined ? <DeltaChip value={delta} invert={invertDelta} /> : null}
         </div>
 
-        <div className="mt-3 flex flex-1 items-end gap-1.5">
+        <div className="mt-3 flex flex-1 flex-wrap items-end gap-x-1.5">
           {loading || value == null ? (
             <Skeleton className="h-9 w-28" />
           ) : (

@@ -32,13 +32,13 @@ function HeroStat({
   extra?: ReactNode;
 }) {
   return (
-    <div className="bg-card px-4 py-3.5">
+    <div className="min-w-0 bg-card px-4 py-3.5">
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="mt-1.5 flex items-center gap-2">
         {loading || value == null ? (
           <Skeleton className="h-6 w-20" />
         ) : (
-          <span className="text-base font-semibold metric sm:text-lg">{value}</span>
+          <span className="truncate text-base font-semibold metric sm:text-lg">{value}</span>
         )}
         {extra}
       </div>

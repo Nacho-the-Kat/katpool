@@ -1,6 +1,7 @@
 import { Brand } from "./brand";
 import { SidebarNav } from "./sidebar-nav";
 import { PoolPulse } from "./pool-pulse";
+import { MinerPulse } from "./miner-pulse";
 
 /** Fixed desktop sidebar (lg+). */
 export function Sidebar() {
@@ -14,6 +15,7 @@ export function Sidebar() {
         <SidebarNav />
       </div>
       <PoolPulse />
+      <MinerPulse />
     </aside>
   );
 }

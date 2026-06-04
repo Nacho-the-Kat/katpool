@@ -16,19 +16,21 @@ export function FirmwarePanel() {
 
   const items = useMemo(
     () =>
+      // Count distinct miners (workers) per client, not cumulative sessions: one
+      // device reconnecting many times would otherwise dominate the breakdown.
       (data?.entries ?? []).map((e) => ({
         name: e.app ?? "Unknown client",
-        value: e.sessions,
+        value: e.workers,
       })),
     [data],
   );
 
-  const totalSessions = useMemo(() => items.reduce((sum, i) => sum + i.value, 0), [items]);
+  const totalMiners = useMemo(() => items.reduce((sum, i) => sum + i.value, 0), [items]);
 
   return (
     <Panel
       title="Miner software"
-      description="Sessions by reported stratum user-agent (last 24h)"
+      description="Miners by reported stratum user-agent (last 24h)"
     >
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
@@ -43,9 +45,9 @@ export function FirmwarePanel() {
       ) : (
         <DonutChart
           data={items}
-          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "session" : "sessions"}`}
-          centerValue={formatNumber(totalSessions)}
-          centerLabel={totalSessions === 1 ? "session" : "sessions"}
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "miner" : "miners"}`}
+          centerValue={formatNumber(totalMiners)}
+          centerLabel={totalMiners === 1 ? "miner" : "miners"}
           height={300}
         />
       )}

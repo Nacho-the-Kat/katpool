@@ -6,26 +6,21 @@ import { Panel } from "@/components/dashboard/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
-import { useMinerPayouts } from "@/lib/api/hooks";
-import { formatDateTime, formatKas, formatRelative } from "@/lib/format";
+import { useMinerPayouts, useNetworkContext } from "@/lib/api/hooks";
+import { formatDateTime, formatKas, formatRelative, formatUsd, sompiToUsd } from "@/lib/format";
 import { explorerTx } from "@/lib/explorer";
-import type { PayoutStatus } from "@/lib/api/types";
+import { cn } from "@/lib/utils";
+import { PayoutStatusBadge } from "./payout-status-badge";
 
 const PAGE = 25;
-
-const STATUS: Record<PayoutStatus, "default" | "secondary" | "success" | "warning" | "destructive" | "outline"> = {
-  planned: "outline",
-  submitted: "secondary",
-  accepted: "secondary",
-  confirmed: "success",
-  failed: "destructive",
-};
 
 /** Per-miner payout history (keyset-paginated). */
 export function MinerPayouts({ address }: { address: string }) {
   const [stack, setStack] = useState<number[]>([]);
   const before = stack[stack.length - 1];
   const { data, isLoading, isError, refetch } = useMinerPayouts(address, PAGE, before);
+  const network = useNetworkContext();
+  const kasUsd = network.data?.prices.kas_usd ?? null;
   const payouts = data?.payouts ?? [];
 
   return (
@@ -64,31 +59,46 @@ export function MinerPayouts({ address }: { address: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Payout history">
+          <table className="w-full min-w-[640px] text-sm" aria-label="Payout history">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Asset</th>
-                <th className="px-5 py-3 text-right font-medium">Amount</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Tx</th>
-                <th className="px-5 py-3 text-right font-medium">When</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Asset</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Amount</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Status</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Tx</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">When</th>
               </tr>
             </thead>
             <tbody>
               {payouts.map((p) => {
                 const tx = p.tx_hash ?? p.krc20_reveal_hash ?? p.krc20_commit_hash;
+                const usd = kasUsd != null ? sompiToUsd(p.amount.sompi, kasUsd) : null;
+                const when = p.confirmed_at ?? p.submitted_at ?? p.planned_at;
                 return (
                   <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
-                    <td className="px-5 py-3">
-                      <Badge variant={p.kind === "kas" ? "default" : "secondary"}>
-                        {p.kind === "kas" ? "KAS" : "NACHO"}
-                      </Badge>
+                    <td className="px-3 py-3 sm:px-5">
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            p.kind === "kas" ? "bg-primary" : "bg-secondary",
+                          )}
+                        />
+                        <Badge variant={p.kind === "kas" ? "default" : "secondary"}>
+                          {p.kind === "kas" ? "KAS" : "NACHO"}
+                        </Badge>
+                      </span>
                     </td>
-                    <td className="px-5 py-3 text-right tnum">{formatKas(p.amount.kas)}</td>
-                    <td className="px-5 py-3">
-                      <Badge variant={STATUS[p.status] ?? "outline"}>{p.status}</Badge>
+                    <td className="px-3 py-3 sm:px-5 text-right">
+                      <span className="block font-medium tnum">{formatKas(p.amount.kas)}</span>
+                      {usd != null ? (
+                        <span className="block text-xs text-muted-foreground tnum">{formatUsd(usd)}</span>
+                      ) : null}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-3 py-3 sm:px-5">
+                      <PayoutStatusBadge status={p.status} reason={p.failure_reason} />
+                    </td>
+                    <td className="px-3 py-3 sm:px-5">
                       {tx ? (
                         <a
                           href={explorerTx(tx)}
@@ -103,10 +113,10 @@ export function MinerPayouts({ address }: { address: string }) {
                       )}
                     </td>
                     <td
-                      className="px-5 py-3 text-right text-muted-foreground"
-                      title={formatDateTime(p.confirmed_at ?? p.planned_at)}
+                      className="px-3 py-3 sm:px-5 text-right text-muted-foreground"
+                      title={formatDateTime(when)}
                     >
-                      {formatRelative(p.confirmed_at ?? p.planned_at)}
+                      {formatRelative(when)}
                     </td>
                   </tr>
                 );

@@ -67,20 +67,20 @@ export function BlocksTable() {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Recent blocks">
+          <table className="w-full min-w-[640px] text-sm" aria-label="Recent blocks">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Block hash</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 text-right font-medium">DAA score</th>
-                {showReward && <th className="px-5 py-3 text-right font-medium">Reward</th>}
-                <th className="px-5 py-3 text-right font-medium">Found</th>
+                <th className="px-3 py-3 font-medium sm:px-5">Block hash</th>
+                <th className="px-3 py-3 font-medium sm:px-5">Status</th>
+                <th className="px-3 py-3 text-right font-medium sm:px-5">DAA score</th>
+                {showReward && <th className="px-3 py-3 text-right font-medium sm:px-5">Reward</th>}
+                <th className="px-3 py-3 text-right font-medium sm:px-5">Found</th>
               </tr>
             </thead>
             <tbody>
               {blocks.map((b) => (
                 <tr key={b.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5">
                     <span className="inline-flex items-center gap-1.5 font-mono text-xs">
                       {truncateMiddle(b.hash, 12, 8)}
                       <CopyButton value={b.hash} label="Copy block hash" />
@@ -89,22 +89,22 @@ export function BlocksTable() {
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label="View block on explorer"
-                        className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:size-6"
                       >
                         <ExternalLink className="size-3.5" />
                       </a>
                     </span>
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5">
                     <BlockStatusBadge status={b.status} />
                   </td>
-                  <td className="px-5 py-3 text-right tnum">{formatNumber(b.daa_score)}</td>
+                  <td className="px-3 py-3 text-right tnum sm:px-5">{formatNumber(b.daa_score)}</td>
                   {showReward && (
-                    <td className="px-5 py-3 text-right tnum">
+                    <td className="px-3 py-3 text-right tnum sm:px-5">
                       {b.reward ? formatKas(b.reward.kas) : <span className="text-muted-foreground">—</span>}
                     </td>
                   )}
-                  <td className="px-5 py-3 text-right text-muted-foreground" title={formatDateTime(b.found_at)}>
+                  <td className="px-3 py-3 text-right text-muted-foreground sm:px-5" title={formatDateTime(b.found_at)}>
                     {formatRelative(b.found_at)}
                   </td>
                 </tr>

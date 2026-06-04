@@ -26,7 +26,16 @@ export function bffUrl(path: string, params?: Record<string, string | number | u
 
 /** Fetch + parse JSON from the same-origin BFF, mapping the error envelope. */
 export async function fetchBff<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, { signal, headers: { accept: "application/json" } });
+  // `no-store` bypasses the browser HTTP cache so a React Query refetch always
+  // reaches the BFF instead of being answered from a `stale-while-revalidate`
+  // disk-cache entry. Without this, status transitions (e.g. a payout going
+  // submitted → confirmed) appear frozen until the user clears their cache; the
+  // BFF's own short server-side revalidate still shields the upstream API.
+  const res = await fetch(url, {
+    signal,
+    cache: "no-store",
+    headers: { accept: "application/json" },
+  });
   if (!res.ok) {
     let code = "error";
     let message = `request failed (${res.status})`;

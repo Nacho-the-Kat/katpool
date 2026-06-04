@@ -30,13 +30,13 @@ export function WorkersTable({ address }: { address: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Workers">
+          <table className="w-full min-w-[520px] text-sm" aria-label="Workers">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Worker</th>
-                <th className="px-5 py-3 text-right font-medium">Hashrate</th>
-                <th className="px-5 py-3 text-right font-medium">Shares</th>
-                <th className="px-5 py-3 text-right font-medium">Last seen</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Worker</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Hashrate</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Shares</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Last seen</th>
               </tr>
             </thead>
             <tbody>
@@ -52,7 +52,7 @@ export function WorkersTable({ address }: { address: string }) {
                       !online && "text-muted-foreground",
                     )}
                   >
-                    <td className="px-5 py-3 font-medium">
+                    <td className="px-3 py-3 sm:px-5 font-medium">
                       <span className="inline-flex items-center gap-2">
                         <span
                           className={cn(
@@ -64,12 +64,12 @@ export function WorkersTable({ address }: { address: string }) {
                         {w.name}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right tnum">{formatHashrate(w.hashrate_hs)}</td>
-                    <td className="px-5 py-3 text-right tnum text-muted-foreground">
+                    <td className="px-3 py-3 sm:px-5 text-right tnum">{formatHashrate(w.hashrate_hs)}</td>
+                    <td className="px-3 py-3 sm:px-5 text-right tnum text-muted-foreground">
                       {formatNumber(w.accepted_shares)}
                     </td>
                     <td
-                      className="px-5 py-3 text-right text-muted-foreground"
+                      className="px-3 py-3 sm:px-5 text-right text-muted-foreground"
                       title={formatDateTime(w.last_seen_at)}
                     >
                       {formatRelative(w.last_seen_at)}

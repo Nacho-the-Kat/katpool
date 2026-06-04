@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider, keepPreviousData } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
+import { SearchFocusProvider } from "@/components/shell/search-focus";
 
 /** App-wide client providers: theming + a single React Query client. */
 export function Providers({ children }: { children: ReactNode }) {
@@ -30,7 +31,9 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      <QueryClientProvider client={client}>
+        <SearchFocusProvider>{children}</SearchFocusProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }

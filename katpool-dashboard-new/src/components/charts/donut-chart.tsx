@@ -5,6 +5,7 @@ import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
 import { chartTooltip } from "./theme";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 export interface DonutDatum {
   name: string;
@@ -28,13 +29,17 @@ export function DonutChart({
   centerValue,
 }: DonutChartProps) {
   const tokens = useChartTokens();
+  // On narrow viewports a right-hand vertical legend squeezes the ring into a
+  // sliver and reads badly; below `lg` we stack the legend underneath instead.
+  const isNarrow = useMediaQuery("(max-width: 1023px)");
 
   const option = useMemo<EChartsCoreOption>(() => {
     const single = data.length === 1;
-    // With only 1–2 slices a right-hand vertical legend leaves the ring
-    // marooned at the left with dead space. Center the ring and drop the
-    // legend under it so the chart always reads balanced.
-    const compact = data.length <= 2;
+    // Stack the legend under a centered ring when there's little horizontal
+    // room — either very few slices (a right legend leaves dead space) or a
+    // narrow screen (a right legend maroons the ring). Otherwise use the
+    // space-efficient right-hand vertical legend.
+    const compact = data.length <= 2 || isNarrow;
     const ringX = compact ? "50%" : "32%";
     const ringY = compact ? "44%" : "50%";
 
@@ -102,7 +107,7 @@ export function DonutChart({
         },
       ],
     };
-  }, [data, tokens, valueFormatter, centerLabel, centerValue]);
+  }, [data, tokens, valueFormatter, centerLabel, centerValue, isNarrow]);
 
   return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }
