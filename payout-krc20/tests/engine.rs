@@ -136,6 +136,8 @@ fn engine_config(namespace: &str, mode: ExecutionMode) -> Krc20PayoutEngineConfi
     Krc20PayoutEngineConfig {
         instance_id: "test".to_owned(),
         poll_interval: Duration::from_secs(60),
+        // No bounded retry in tests: the lock-held case returns immediately.
+        lock_acquire_wait: Duration::ZERO,
         cycle_span_daa: 1_000_000,
         mode,
         lock_namespace: namespace.to_owned(),

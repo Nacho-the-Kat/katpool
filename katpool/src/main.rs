@@ -33,9 +33,10 @@
 //! - `katpool payout run-now [--dry-run]` — drive a single KAS payout cycle
 //!   synchronously (plan → broadcast → confirm → reconcile), then exit. It
 //!   reads the same environment configuration as the daemon (including
-//!   `KATPOOL_PAYOUT_DRY_RUN`) and acquires the shared `payout-kas:kas-leader`
+//!   `KATPOOL_PAYOUT_DRY_RUN`) and acquires the shared `treasury:spend-leader`
 //!   advisory lock, so it is safe to run while the daemon is live — only one
-//!   cycle driver acts at a time. `--dry-run` forces sign+verify without
+//!   treasury spender (KAS, KRC-20, or consolidation) acts at a time.
+//!   `--dry-run` forces sign+verify without
 //!   broadcasting regardless of the env setting.
 //! - `katpool --help` — print usage.
 //!
@@ -129,6 +130,28 @@
 //! - `KATPOOL_KRC20_QUOTE_BASE`            default `https://api.kaspa.com`
 //! - `KATPOOL_KRC20_QUOTE_BREAKER_THRESHOLD` default 3 consecutive failures
 //! - `KATPOOL_KRC20_QUOTE_BREAKER_COOLDOWN_SECS` default 60
+//!
+//! Treasury UTXO consolidation engine (opt-in; shares the treasury key and the
+//! `treasury:spend-leader` advisory lock with the payout engines):
+//! - `KATPOOL_CONSOLIDATION_ENABLED`          default `false`
+//! - `KATPOOL_CONSOLIDATION_DRY_RUN`          default `true` (plan + sign, no
+//!   broadcast). Requires `ENABLED=true` AND `DRY_RUN=false` to move funds.
+//! - `KATPOOL_CONSOLIDATION_POLL_SECS`        default 120
+//! - `KATPOOL_CONSOLIDATION_TICK_TIMEOUT_SECS` default 120 (per-tick wall-clock
+//!   budget; a tick that exceeds it is abandoned and the treasury lock released
+//!   so a hung kaspad RPC cannot wedge the payout engines)
+//! - `KATPOOL_CONSOLIDATION_TRIGGER_UTXO_COUNT` default 1000 (high-water mark: a
+//!   sweep starts only once the spendable UTXO count rises above this)
+//! - `KATPOOL_CONSOLIDATION_TARGET_UTXO_COUNT` default 50 (low-water mark: an
+//!   active sweep compounds down to this floor, then rests until the count
+//!   climbs back above the trigger — hysteresis. Keeping the floor above 1
+//!   lets a continuously-mining treasury settle and idle instead of churning a
+//!   tiny sweep every tick as fresh coinbase matures in)
+//! - `KATPOOL_CONSOLIDATION_MAX_INPUTS_PER_TX` default 80 (upper bound; the
+//!   per-transaction mempool standard-mass check is the real input guard, which
+//!   caps a one-output self-send near ~88 inputs)
+//! - `KATPOOL_CONSOLIDATION_MAX_TXS_PER_TICK` default 50 (sweep throughput;
+//!   each tick retires up to this many disjoint batches)
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
@@ -149,8 +172,9 @@ use katpool_db::{PoolConfig, build_pool};
 use katpool_domain::PoolEvent;
 use katpool_secrets::{load_from_path, load_from_systemd_credential};
 use payout_kas::{
-    DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, ExecutionMode, GrpcKaspadClient, PayoutEngine,
-    PayoutEngineConfig, TickOutcome,
+    ConsolidationEngine, ConsolidationEngineConfig, DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI,
+    ExecutionMode, GrpcKaspadClient, PayoutEngine, PayoutEngineConfig,
+    TREASURY_SPEND_LOCK_NAMESPACE, TickOutcome,
 };
 use payout_krc20::{
     BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
@@ -384,7 +408,7 @@ async fn main() -> Result<()> {
                 cycle_span_daa: cfg.payout.cycle_span_daa,
                 threshold_sompi: cfg.payout.threshold_sompi,
                 mode,
-                lock_namespace: "payout-kas:kas-leader".to_owned(),
+                lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
             },
         )
         .context("building payout engine")?;
@@ -403,10 +427,12 @@ async fn main() -> Result<()> {
     };
 
     // ---- KRC-20 NACHO payout engine (M5.5b, opt-in) -----------------
-    // Same single-leader discipline as the KAS engine, but a distinct
-    // advisory-lock namespace so the two never contend. Shares the treasury
-    // key/address and kaspad node (separate gRPC connection). Disabled and
-    // dry-run by default.
+    // Same single-leader discipline as the KAS engine and the *shared*
+    // treasury-spend lock, so the two serialize. Because both tick on the same
+    // poll_interval from startup, this engine phase-staggers and waits a bounded
+    // interval for the lock (lock_acquire_wait) so it defers to an in-flight KAS
+    // payout instead of starving. Shares the treasury key/address and kaspad
+    // node (separate gRPC connection). Disabled and dry-run by default.
     let krc20_payout_handle = if cfg.krc20_payout_enabled {
         let secret = match &cfg.krc20_payout.key_source {
             KeySource::File(path) => load_from_path(path)
@@ -439,9 +465,15 @@ async fn main() -> Result<()> {
             Krc20PayoutEngineConfig {
                 instance_id: cfg.instance_id.clone(),
                 poll_interval: cfg.krc20_payout.poll_interval,
+                // Bounded wait for the shared treasury lock: a quarter of the
+                // poll interval comfortably outlasts an in-flight KAS payout
+                // tick (so this engine merely defers to it) yet stays well under
+                // one period. Phase-staggering already keeps real contention
+                // rare; this is the safety net.
+                lock_acquire_wait: cfg.krc20_payout.poll_interval / 4,
                 cycle_span_daa: cfg.krc20_payout.cycle_span_daa,
                 mode,
-                lock_namespace: "payout-krc20:nacho-leader".to_owned(),
+                lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
                 min_pending_sompi: cfg.krc20_payout.min_pending_sompi,
                 min_nacho_base_units: cfg.krc20_payout.min_nacho_base_units,
                 ticker: cfg.krc20_payout.ticker.clone(),
@@ -462,6 +494,69 @@ async fn main() -> Result<()> {
         Some(tokio::spawn(async move { engine.run_loop(rx).await }))
     } else {
         info!("payout-krc20 engine disabled (set KATPOOL_KRC20_PAYOUT_ENABLED=true to enable)");
+        None
+    };
+
+    // ---- Treasury UTXO consolidation engine (opt-in) ----------------
+    // Fourth treasury task. Shares the single `treasury:spend-leader`
+    // advisory lock with both payout engines, so only one treasury spender
+    // acts per tick and they can never select the same UTXO. Disabled and
+    // dry-run by default.
+    let consolidation_handle = if cfg.consolidation_enabled {
+        let secret = match &cfg.consolidation.key_source {
+            KeySource::File(path) => load_from_path(path)
+                .with_context(|| format!("loading treasury key from {}", path.display()))?,
+            KeySource::SystemdCredential(name) => load_from_systemd_credential(name)
+                .with_context(|| format!("loading treasury credential `{name}`"))?,
+        };
+        let consolidation_client = GrpcKaspadClient::connect(cfg.kaspad_url.clone())
+            .await
+            .context("consolidation kaspad gRPC connect")?;
+        let mode = if cfg.consolidation.dry_run {
+            ExecutionMode::DryRun
+        } else {
+            ExecutionMode::Live
+        };
+        let engine = ConsolidationEngine::new(
+            db.clone(),
+            consolidation_client,
+            secret,
+            coinbase_override.clone(),
+            ConsolidationEngineConfig {
+                instance_id: cfg.instance_id.clone(),
+                poll_interval: cfg.consolidation.poll_interval,
+                tick_timeout: cfg.consolidation.tick_timeout,
+                // Bounded wait for the shared treasury lock: a quarter of the
+                // poll interval is generous enough to outlast an in-flight
+                // payout tick (so consolidation merely defers to it) yet stays
+                // well under one period. Phase-staggering already keeps real
+                // contention rare; this is the safety net.
+                lock_acquire_wait: cfg.consolidation.poll_interval / 4,
+                mode,
+                trigger_utxo_count: cfg.consolidation.trigger_utxo_count,
+                target_utxo_count: cfg.consolidation.target_utxo_count,
+                max_inputs_per_tx: cfg.consolidation.max_inputs_per_tx,
+                max_txs_per_tick: cfg.consolidation.max_txs_per_tick,
+                lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
+            },
+        );
+        info!(
+            dry_run = cfg.consolidation.dry_run,
+            poll_secs = cfg.consolidation.poll_interval.as_secs(),
+            tick_timeout_secs = cfg.consolidation.tick_timeout.as_secs(),
+            trigger_utxo_count = cfg.consolidation.trigger_utxo_count,
+            target_utxo_count = cfg.consolidation.target_utxo_count,
+            max_inputs_per_tx = cfg.consolidation.max_inputs_per_tx,
+            max_txs_per_tick = cfg.consolidation.max_txs_per_tick,
+            treasury = %coinbase_override,
+            "treasury consolidation engine enabled"
+        );
+        let rx = shutdown_rx.clone();
+        Some(tokio::spawn(async move { engine.run_loop(rx).await }))
+    } else {
+        info!(
+            "treasury consolidation engine disabled (set KATPOOL_CONSOLIDATION_ENABLED=true to enable)"
+        );
         None
     };
 
@@ -568,6 +663,13 @@ async fn main() -> Result<()> {
             Err(e) => error!(error = %e, "krc20 payout engine task join error"),
         }
     }
+    if let Some(handle) = consolidation_handle {
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => error!(error = %e, "consolidation engine exited with error"),
+            Err(e) => error!(error = %e, "consolidation engine task join error"),
+        }
+    }
     bridge_handle.abort();
     consumer_handle.abort();
     let _ = bridge_handle.await;
@@ -644,11 +746,11 @@ fn print_usage() {
 
 /// Operator on-demand payout: drive the current DAA-window cycle exactly as a
 /// single daemon tick would (plan → broadcast → confirm → reconcile), under the
-/// shared `payout-kas:kas-leader` advisory lock, then exit.
+/// shared `treasury:spend-leader` advisory lock, then exit.
 ///
 /// Safe to invoke while the daemon runs: the advisory lock guarantees only one
-/// cycle driver acts at a time. If the daemon is mid-tick the lock is briefly
-/// retried before giving up.
+/// treasury spender acts at a time. If another spender holds it mid-tick the
+/// lock is briefly retried before giving up.
 async fn run_payout_now(cfg: &RuntimeConfig, force_dry_run: bool) -> Result<()> {
     let db = build_pool(&PoolConfig {
         url: cfg.database_url.clone(),
@@ -694,7 +796,7 @@ async fn run_payout_now(cfg: &RuntimeConfig, force_dry_run: bool) -> Result<()> 
             cycle_span_daa: cfg.payout.cycle_span_daa,
             threshold_sompi: cfg.payout.threshold_sompi,
             mode,
-            lock_namespace: "payout-kas:kas-leader".to_owned(),
+            lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
         },
     )
     .context("building payout engine")?;
@@ -856,6 +958,11 @@ struct RuntimeConfig {
     /// KRC-20 engine knobs (parsed unconditionally; only consumed when
     /// `krc20_payout_enabled`).
     krc20_payout: Krc20RuntimeConfig,
+    /// Whether the treasury UTXO consolidation engine runs in this process.
+    consolidation_enabled: bool,
+    /// Consolidation engine knobs (parsed unconditionally; only consumed when
+    /// `consolidation_enabled`).
+    consolidation: ConsolidationConfig,
 }
 
 /// Where the treasury signing key is loaded from at startup.
@@ -874,6 +981,19 @@ struct PayoutConfig {
     poll_interval: Duration,
     cycle_span_daa: u64,
     threshold_sompi: i64,
+    key_source: KeySource,
+}
+
+/// Parsed treasury UTXO consolidation engine configuration.
+#[derive(Debug)]
+struct ConsolidationConfig {
+    dry_run: bool,
+    poll_interval: Duration,
+    tick_timeout: Duration,
+    trigger_utxo_count: usize,
+    target_utxo_count: usize,
+    max_inputs_per_tx: usize,
+    max_txs_per_tick: usize,
     key_source: KeySource,
 }
 
@@ -923,6 +1043,9 @@ impl Krc20RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    // One flat env-var read per field across many subsystems; keeping it linear
+    // is clearer than splitting into per-subsystem helpers that each run once.
+    #[allow(clippy::too_many_lines)]
     fn from_env() -> Result<Self> {
         let kaspad_url = required("KASPAD_GRPC_URL")?;
         let database_url = required("KATPOOL_DATABASE_URL")?;
@@ -996,6 +1119,32 @@ impl RuntimeConfig {
             key_source: key_source.clone(),
         };
 
+        // Treasury UTXO consolidation engine (shares the treasury key source).
+        // Off and dry-run by default. Hysteresis: sweeps start above
+        // TRIGGER_UTXO_COUNT and compound down to TARGET_UTXO_COUNT. The per-tx
+        // mempool standard-mass check is the real input guard, so
+        // MAX_INPUTS_PER_TX is only an upper bound (~88 inputs actually fit).
+        let consolidation_enabled =
+            optional_bool("KATPOOL_CONSOLIDATION_ENABLED")?.unwrap_or(false);
+        let consolidation = ConsolidationConfig {
+            dry_run: optional_bool("KATPOOL_CONSOLIDATION_DRY_RUN")?.unwrap_or(true),
+            poll_interval: Duration::from_secs(
+                optional_u64("KATPOOL_CONSOLIDATION_POLL_SECS")?.unwrap_or(120),
+            ),
+            tick_timeout: Duration::from_secs(
+                optional_u64("KATPOOL_CONSOLIDATION_TICK_TIMEOUT_SECS")?.unwrap_or(120),
+            ),
+            trigger_utxo_count: optional_usize("KATPOOL_CONSOLIDATION_TRIGGER_UTXO_COUNT")?
+                .unwrap_or(1000),
+            target_utxo_count: optional_usize("KATPOOL_CONSOLIDATION_TARGET_UTXO_COUNT")?
+                .unwrap_or(50),
+            max_inputs_per_tx: optional_usize("KATPOOL_CONSOLIDATION_MAX_INPUTS_PER_TX")?
+                .unwrap_or(80),
+            max_txs_per_tick: optional_usize("KATPOOL_CONSOLIDATION_MAX_TXS_PER_TICK")?
+                .unwrap_or(50),
+            key_source: key_source.clone(),
+        };
+
         // KRC-20 NACHO payout engine (shares the treasury key source).
         let krc20_payout_enabled = optional_bool("KATPOOL_KRC20_PAYOUT_ENABLED")?.unwrap_or(false);
         let krc20_payout = Krc20RuntimeConfig::from_env(key_source)?;
@@ -1030,6 +1179,8 @@ impl RuntimeConfig {
             payout,
             krc20_payout_enabled,
             krc20_payout,
+            consolidation_enabled,
+            consolidation,
         })
     }
 }

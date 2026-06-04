@@ -36,7 +36,7 @@ use katpool_db::repo::{audit, payout};
 use katpool_db::{PoolConfig, build_pool};
 use katpool_krc20_rehearsal::{ENVELOPE_SCHEMA, RehearsalEvidence, RehearsalParams, VERSION};
 use katpool_secrets::load_from_path;
-use payout_kas::{ExecutionMode, GrpcKaspadClient};
+use payout_kas::{ExecutionMode, GrpcKaspadClient, TREASURY_SPEND_LOCK_NAMESPACE};
 use payout_krc20::{
     BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
     DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI,
@@ -186,9 +186,11 @@ async fn main() -> Result<()> {
             instance_id: args.instance_id.clone(),
             // Unused by run_once; only run_loop schedules on it.
             poll_interval: Duration::from_secs(60),
+            // Rehearsal drives run_once directly; no contender, so no wait.
+            lock_acquire_wait: Duration::ZERO,
             cycle_span_daa: args.cycle_span_daa,
             mode: ExecutionMode::DryRun,
-            lock_namespace: "payout-krc20:nacho-leader".to_owned(),
+            lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
             min_pending_sompi: args.min_pending_sompi,
             min_nacho_base_units: args.min_nacho_base_units,
             ticker: args.ticker.clone(),

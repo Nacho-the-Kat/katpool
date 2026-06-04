@@ -143,6 +143,29 @@ backward-incompatible ways at every minor bump.
 
 ### Fixed
 
+- **Consolidation could strand a confirmed payout in `broadcasting` forever by
+  spending its treasury change coin.** Payout confirmation infers on-chain
+  acceptance from the payout tx's treasury *change* output still being present
+  in the UTXO set (its `block_daa_score` gives the accepting height). The new
+  consolidation engine selects from that same spendable set, so a sweep that
+  ran before the 60s confirm pass could consume a just-broadcast payout's change
+  coin — after which confirmation saw neither the coin nor the (already-mined)
+  tx in the mempool, classified `Unknown`, and made no state change. The miner
+  was paid on L1, but the payout sat at `submitted` and its cycle at
+  `broadcasting` permanently. Fixed on both sides: (1) consolidation now
+  excludes every treasury coin produced by a payout that is not yet terminal
+  (`confirmed`/`failed`) — KAS `tx_hash` plus KRC-20 commit/reveal hashes, via
+  the new `repo::payout::in_flight_spend_tx_hashes` — so an unconfirmed payout's
+  change coin is held back until it settles (race-free: the shared treasury lock
+  guarantees the payout row is persisted with its txid before consolidation next
+  runs); and (2) `confirm_cycle` now durably records the accepting DAA score the
+  first time the change coin is observed (new nullable `payout.accepted_daa_score`,
+  written first-write-wins), so confirmation advances `accepted → confirmed` by
+  depth even if that coin is later spent. Reproduced and verified on tn10
+  (payout tx `27b64603…` accepted on L1 with its change coin swept from the
+  treasury set). New `payout-kas` test asserts protected change outputs are
+  excluded and released once the payout confirms; new `confirm` unit tests cover
+  the recorded-score path.
 - **Unified runtime ignored `KATPOOL_PROM_PORT`, so no Prometheus metrics were
   exported and the anti-abuse counters never recorded.** `BridgeServerConfig`
   carried `prom_port`, but only the standalone bridge binary spawned

@@ -32,6 +32,7 @@
 
 pub mod client;
 pub mod confirm;
+pub mod consolidate;
 mod cycle;
 pub mod engine;
 mod error;
@@ -45,6 +46,10 @@ pub use confirm::{
     ConfirmationInputs, ConfirmationState, KAS_PAYOUT_CONFIRMATION_DAA, classify_confirmation,
     is_spendable,
 };
+pub use consolidate::{
+    ConsolidationEngine, ConsolidationEngineConfig, ConsolidationError, ConsolidationTickOutcome,
+    ConsolidationTickReport,
+};
 pub use cycle::{
     CycleState, PayoutStatusCounts, derive_cycle_status, reconcile_cycle_status,
     resume_or_plan_kas_cycle,
@@ -55,6 +60,7 @@ pub use execute::{
     ConfirmReport, ExecuteError, ExecutionMode, ExecutionReport, broadcast_cycle, confirm_cycle,
 };
 pub use katpool_db::repo::payout::DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI;
+pub use katpool_idempotency::TREASURY_SPEND_LOCK_NAMESPACE;
 pub use plan::{PlanKasCycleParams, PlanKasCycleResult, plan_kas_cycle};
 pub use signer::{SignError, SignedBatch, batch_txid, sign_batch, verify_signed};
 pub use window::cycle_window;

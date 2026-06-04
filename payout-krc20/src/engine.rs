@@ -4,10 +4,18 @@
 //! Mirrors the Phase 4 KAS engine ([`payout_kas::PayoutEngine`]) and reuses its
 //! safety properties:
 //!
-//! - **Single leader.** Each tick is guarded by a Postgres session advisory
-//!   lock ([`katpool_idempotency::AdvisoryLock`]); a non-leader instance skips
-//!   the tick. The lock is leak-safe (released on connection close), so
-//!   leadership always recovers — running multiple `katpool` replicas is safe.
+//! - **Single leader, fair to the other treasury spenders.** Each tick is
+//!   guarded by a Postgres session advisory lock
+//!   ([`katpool_idempotency::AdvisoryLock`]) under the *shared*
+//!   `TREASURY_SPEND_LOCK_NAMESPACE` — the same lock the KAS payout and
+//!   consolidation engines take, so at most one treasury spender acts at a
+//!   time. Because the KAS engine ticks on the same `poll_interval` from the
+//!   same startup instant, this engine **phase-staggers** its loop and waits a
+//!   **bounded** interval for the lock (see [`Krc20PayoutEngine::run_loop`] /
+//!   [`Krc20PayoutEngineConfig::lock_acquire_wait`]) so it defers to an
+//!   in-flight payout instead of losing the race every tick and starving. The
+//!   lock is leak-safe (released on connection close), so leadership always
+//!   recovers — running multiple `katpool` replicas is safe.
 //! - **Idempotent identity.** The cycle window comes from [`cycle_window`], so
 //!   ticks inside one DAA bucket resume the same cycle
 //!   ([`resume_or_plan_krc20_cycle`]); amounts/recipients never shift under an
@@ -40,6 +48,10 @@ use crate::cycle::{
 };
 use crate::execute::{Krc20ExecuteError, SettleReport, settle_pending};
 use crate::quote::FloorPriceSource;
+
+/// Delay between treasury-lock acquisition retries within a single tick (see
+/// [`Krc20PayoutEngineConfig::lock_acquire_wait`]).
+const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Errors from the KRC-20 payout engine.
 #[derive(Debug, thiserror::Error)]
@@ -81,12 +93,20 @@ pub struct Krc20PayoutEngineConfig {
     pub instance_id: String,
     /// How often to attempt a tick.
     pub poll_interval: Duration,
+    /// How long a tick keeps retrying the shared treasury lock before yielding
+    /// this round. The KAS payout engine shares the same lock and ticks on the
+    /// same `poll_interval`; this bounded wait lets a busy KAS tick merely
+    /// *delay* this engine instead of starving it. Kept well under
+    /// `poll_interval`.
+    pub lock_acquire_wait: Duration,
     /// DAA width of one payout cycle (cadence + idempotency bucket).
     pub cycle_span_daa: u64,
     /// Live broadcast or dry-run rehearsal.
     pub mode: ExecutionMode,
-    /// Advisory-lock namespace (hashed to the leader key). Distinct from the
-    /// KAS engine's namespace so the two engines never contend.
+    /// Advisory-lock namespace (hashed to the leader key). The **shared**
+    /// `TREASURY_SPEND_LOCK_NAMESPACE`, so this engine serializes with the KAS
+    /// payout and consolidation engines and never selects a UTXO concurrently
+    /// with them.
     pub lock_namespace: String,
     /// Minimum pending KAS-sompi for a wallet to be selected (coarse filter).
     pub min_pending_sompi: i64,
@@ -202,8 +222,12 @@ where
     ///
     /// See [`Krc20EngineError`].
     pub async fn run_once(&self) -> Result<Krc20TickOutcome, Krc20EngineError> {
-        let Some(lock) = AdvisoryLock::try_acquire(&self.pool, self.lock_key).await? else {
-            debug!(instance = %self.config.instance_id, "krc20 payout lock held elsewhere; skipping tick");
+        let Some(lock) = self.acquire_treasury_lock().await? else {
+            debug!(
+                instance = %self.config.instance_id,
+                waited_secs = self.config.lock_acquire_wait.as_secs(),
+                "krc20 payout lock held by another spender for the whole wait; skipping tick"
+            );
             return Ok(Krc20TickOutcome::SkippedNotLeader);
         };
 
@@ -214,6 +238,29 @@ where
             warn!(instance = %self.config.instance_id, error = %e, "failed to release krc20 payout lock");
         }
         result
+    }
+
+    /// Acquire the shared treasury-spend lock, retrying for up to
+    /// [`Krc20PayoutEngineConfig::lock_acquire_wait`] before yielding.
+    ///
+    /// The lock is non-blocking ([`AdvisoryLock::try_acquire`]); this engine is
+    /// phase-staggered off the KAS payout engine (see [`Self::run_loop`]) so it
+    /// usually finds the lock free, and this bounded retry covers the case where
+    /// a payout tick is mid-flight — it waits its turn instead of losing the race
+    /// outright. Returns `Ok(None)` only if the lock stays held for the entire
+    /// budget.
+    async fn acquire_treasury_lock(&self) -> Result<Option<AdvisoryLock>, Krc20EngineError> {
+        let deadline = time::Instant::now() + self.config.lock_acquire_wait;
+        loop {
+            if let Some(lock) = AdvisoryLock::try_acquire(&self.pool, self.lock_key).await? {
+                return Ok(Some(lock));
+            }
+            if time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            debug!(instance = %self.config.instance_id, "treasury lock busy; retrying");
+            time::sleep(LOCK_RETRY_INTERVAL).await;
+        }
     }
 
     async fn run_locked(&self) -> Result<Krc20TickOutcome, Krc20EngineError> {
@@ -293,9 +340,15 @@ where
         self,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<(), Krc20EngineError> {
-        let mut interval = time::interval(self.config.poll_interval);
-        // Skip the immediate first tick so startup does not double-fire.
-        interval.tick().await;
+        // Phase-stagger off the KAS payout engine: it shares this lock and ticks
+        // on the same `poll_interval` from the same startup instant, so an
+        // aligned phase would lose the lock race every tick (the KAS engine is
+        // spawned first) and never settle a transfer. Start a quarter-interval
+        // late so this engine's ticks land between the KAS engine (phase 0) and
+        // the consolidation engine (phase ½). `interval_at` also skips the
+        // immediate tick, so startup does not double-fire.
+        let start = time::Instant::now() + self.config.poll_interval / 4;
+        let mut interval = time::interval_at(start, self.config.poll_interval);
         loop {
             tokio::select! {
                 _ = shutdown.changed() => {
