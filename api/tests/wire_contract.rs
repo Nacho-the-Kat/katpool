@@ -13,11 +13,11 @@ use chrono::{DateTime, Utc};
 use insta::assert_json_snapshot;
 
 use api::models::{
-    ActiveMinersHistory, ActiveMinersPointView, BalanceResponse, BlockCounts, BlockView,
-    BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, FullRebateResponse,
-    GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView, KasBalanceView,
-    LeaderboardEntryView, LeaderboardResponse, MinerPayoutView, MinerPayoutsPage, MinerProfile,
-    NachoRebateView, PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount,
+    ActiveMinersHistory, ActiveMinersPointView, ActiveSessionsView, BalanceResponse, BlockCounts,
+    BlockView, BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView,
+    FullRebateResponse, GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView,
+    KasBalanceView, LeaderboardEntryView, LeaderboardResponse, MinerPayoutView, MinerPayoutsPage,
+    MinerProfile, NachoRebateView, PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount,
     RejectsResponse, TreasuryView, WorkerView, WorkersResponse,
 };
 use api::money::KasAmount;
@@ -300,6 +300,15 @@ fn pool_geo_wire() {
                 sessions: 5,
             },
         ],
+    };
+    assert_json_snapshot!(resp);
+}
+
+#[test]
+fn pool_active_sessions_wire() {
+    let resp = ActiveSessionsView {
+        active_sessions: 5,
+        active_workers: 3,
     };
     assert_json_snapshot!(resp);
 }

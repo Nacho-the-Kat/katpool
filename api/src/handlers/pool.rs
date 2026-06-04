@@ -11,10 +11,11 @@ use katpool_db::repo::{block, connection_session, payout, share_reject, share_st
 use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
-    ActiveMinersHistory, ActiveMinersPointView, BlockCounts, BlockView, BlocksPage, CycleView,
-    CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown, GeoEntryView, HashrateHistory,
-    HashratePointView, HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, PayoutTotals,
-    PoolRejectsResponse, PoolStats, RejectReasonCount, TreasuryView,
+    ActiveMinersHistory, ActiveMinersPointView, ActiveSessionsView, BlockCounts, BlockView,
+    BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown,
+    GeoEntryView, HashrateHistory, HashratePointView, HashrateSnapshot, LeaderboardEntryView,
+    LeaderboardResponse, PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount,
+    TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
@@ -291,6 +292,24 @@ pub async fn geo(
                     sessions: r.sessions,
                 })
                 .collect(),
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/active-sessions` — live "connected now" snapshot.
+///
+/// Counts currently-open stratum sessions and the distinct authenticated
+/// workers among them (B1 session lifecycle). Aggregate-only: no IP, no
+/// per-miner identity. Short-TTL cached like the other pool aggregates.
+pub async fn active_sessions(State(state): State<AppState>) -> Result<Json<Arc<Value>>, ApiError> {
+    let key = "pool/active-sessions".to_string();
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let s = connection_session::active_summary(&state.pool).await?;
+        to_value(&ActiveSessionsView {
+            active_sessions: s.sessions,
+            active_workers: s.workers,
         })
     })
     .await

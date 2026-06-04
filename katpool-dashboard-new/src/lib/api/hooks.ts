@@ -4,6 +4,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { bffUrl, fetchBff } from "./client";
 import type {
   ActiveMinersHistory,
+  ActiveSessions,
   BalanceResponse,
   BlocksPage,
   BucketToken,
@@ -103,6 +104,14 @@ export function usePoolGeo(windowSecs?: number) {
   return useBff<GeoBreakdown>(
     ["pool", "geo", windowSecs ?? null],
     bffUrl("/api/v1/pool/geo", { window: windowSecs }),
+    LIVE_MS,
+  );
+}
+
+export function useActiveSessions() {
+  return useBff<ActiveSessions>(
+    ["pool", "active-sessions"],
+    bffUrl("/api/v1/pool/active-sessions"),
     LIVE_MS,
   );
 }

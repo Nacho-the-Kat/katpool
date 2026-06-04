@@ -53,23 +53,35 @@ pub struct ConnectionSession {
     pub malformed_frames: i64,
 }
 
-/// Insert a fresh session at TCP-accept time. Returns the new id so
-/// the bridge can carry it on the share-handler context.
+/// Open a live session row when a connection authenticates.
+///
+/// The row is created with `disconnected_at = NULL` so it counts as an
+/// active session until [`close`] finalizes it. `connected_at` is the
+/// real TCP-accept time (the bridge carries it from the connection),
+/// and `worker_id`/`country` are bound up-front when known. Returns the
+/// new id so the accountant can correlate the later close.
 pub async fn open<'e, E>(
     executor: E,
+    worker_id: Option<WorkerId>,
     remote_ip: IpAddr,
     remote_app: Option<&str>,
+    country: Option<&str>,
+    connected_at: DateTime<Utc>,
 ) -> Result<SessionId, DbError>
 where
     E: PgExecutor<'e>,
 {
     let id: SessionId = sqlx::query_scalar::<_, SessionId>(
-        "INSERT INTO connection_session (remote_ip, remote_app)
-         VALUES ($1::inet, $2)
+        "INSERT INTO connection_session
+             (worker_id, remote_ip, remote_app, country, connected_at)
+         VALUES ($1, $2::inet, $3, $4, $5)
          RETURNING id",
     )
+    .bind(worker_id.map(|w| w.0))
     .bind(remote_ip.to_string())
     .bind(remote_app)
+    .bind(country)
+    .bind(connected_at)
     .fetch_one(executor)
     .await?;
     Ok(id)
@@ -143,6 +155,50 @@ pub async fn close<'e, E: PgExecutor<'e>>(
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Close every still-open session in one statement; returns the number
+/// of rows closed.
+///
+/// Called once at accountant startup. The bridge and accountant share a
+/// single process, so a restart drops all TCP sockets — any row left
+/// `disconnected_at IS NULL` belongs to a dead connection from the
+/// previous incarnation and must be finalized so it doesn't linger as a
+/// phantom "active" session. Surviving miners reconnect and re-`open`.
+pub async fn close_all_open<'e, E: PgExecutor<'e>>(executor: E) -> Result<u64, DbError> {
+    let result = sqlx::query(
+        "UPDATE connection_session
+            SET disconnected_at = now()
+          WHERE disconnected_at IS NULL",
+    )
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Live count of currently-open sessions and the distinct authenticated
+/// workers among them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveSessions {
+    /// Open sessions (`disconnected_at IS NULL`).
+    pub sessions: i64,
+    /// Distinct non-null `worker_id` among open sessions.
+    pub workers: i64,
+}
+
+/// Summarize currently-connected sessions for the live "connected now"
+/// view. Aggregate-only by construction — no IP or per-miner identity is
+/// exposed.
+pub async fn active_summary<'e, E: PgExecutor<'e>>(executor: E) -> Result<ActiveSessions, DbError> {
+    let (sessions, workers): (i64, i64) = sqlx::query_as(
+        "SELECT count(*)::bigint AS sessions,
+                count(DISTINCT worker_id)::bigint AS workers
+           FROM connection_session
+          WHERE disconnected_at IS NULL",
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(ActiveSessions { sessions, workers })
 }
 
 /// Increment the per-session counters atomically. Called once per

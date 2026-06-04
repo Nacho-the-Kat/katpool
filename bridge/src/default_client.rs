@@ -1,6 +1,8 @@
 use crate::jsonrpc_event::{JsonRpcEvent, JsonRpcResponse};
 use crate::stratum_context::StratumContext;
+use chrono::{DateTime, Utc};
 use kaspa_addresses::Address;
+use katpool_domain::{CorrelationId, PoolEvent, WalletAddress, WorkerName};
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -244,6 +246,29 @@ pub async fn handle_authorize(
 
     if !canxium_address.is_empty() {
         *ctx.canxium_addr.lock() = canxium_address.clone();
+    }
+
+    // Open a live `connection_session` row now that the connection has
+    // authenticated (B1): the session becomes visible while still
+    // connected, with its worker bound from the start, and `connected_at`
+    // carries the real TCP-accept time. Emitted at most once per
+    // connection; a no-op in standalone mode (no event bus attached).
+    if let Some(handler) = client_handler.as_ref()
+        && ctx.claim_session_open()
+    {
+        let connected_at = DateTime::<Utc>::from(ctx.state.connect_time());
+        let wallet_opt = WalletAddress::new(&address).ok();
+        let worker_opt = (!worker_name.is_empty()).then(|| WorkerName::new(&worker_name).ok()).flatten();
+        let remote_app_opt = (!remote_app.is_empty()).then(|| remote_app.clone());
+        handler.emit_event(PoolEvent::SessionOpened {
+            conn_id: ctx.session_uid(),
+            wallet: wallet_opt,
+            worker: worker_opt,
+            remote_ip: ctx.remote_addr().to_owned(),
+            remote_app: remote_app_opt,
+            connected_at,
+            correlation_id: CorrelationId::new_v4(),
+        });
     }
 
     let response = JsonRpcResponse::new(&event, Some(Value::Bool(true)), None);

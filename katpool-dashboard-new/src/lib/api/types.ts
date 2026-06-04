@@ -167,6 +167,11 @@ export interface GeoBreakdown {
   entries: GeoEntryView[];
 }
 
+export interface ActiveSessions {
+  active_sessions: number;
+  active_workers: number;
+}
+
 export interface KasBalanceView {
   allocated: KasAmount;
   paid: KasAmount;
