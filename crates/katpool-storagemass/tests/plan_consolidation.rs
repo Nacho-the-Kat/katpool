@@ -60,8 +60,12 @@ fn assert_all_batches_mass_valid(
 ) {
     for batch in batches {
         assert!(batch.payouts.is_empty(), "consolidation has no recipients");
-        let (tx, entries) =
-            build_populated(&batch.inputs, &[], &empty_script(), batch.change_amount_sompi);
+        let (tx, entries) = build_populated(
+            &batch.inputs,
+            &[],
+            &empty_script(),
+            batch.change_amount_sompi,
+        );
         let populated = PopulatedTransaction::new(&tx, entries);
         let mass = evaluator.evaluate_populated(&populated).unwrap();
         assert_eq!(mass, batch.mass, "recorded mass matches the planned shape");
@@ -123,7 +127,9 @@ fn smallest_first_ordering_across_batches() {
     let evaluator = MassEvaluator::mainnet();
     let script = empty_script();
     // Shuffle amounts so the planner must sort: descending input order.
-    let utxos: Vec<_> = (0..20).map(|i| treasury_utxo(i, 1_000_000_000 - u64::from(i))).collect();
+    let utxos: Vec<_> = (0..20)
+        .map(|i| treasury_utxo(i, 1_000_000_000 - u64::from(i)))
+        .collect();
 
     let batches = plan_consolidation(&evaluator, utxos, &script, &FeeRate::ZERO, 5, 100);
     // Flatten in batch order and assert non-decreasing amounts (smallest-first).
@@ -177,11 +183,16 @@ fn mass_cap_binds_when_input_limit_is_huge() {
     let batches = plan_consolidation(&evaluator, utxos, &script, &FeeRate::ZERO, usize::MAX, 1);
     assert_eq!(batches.len(), 1);
     let cap = batches[0].inputs.len();
-    assert!(cap > MIN_CONSOLIDATION_INPUTS, "packs many inputs, got {cap}");
+    assert!(
+        cap > MIN_CONSOLIDATION_INPUTS,
+        "packs many inputs, got {cap}"
+    );
 
     // The cap is the true ceiling: one more input of the same shape overflows
     // the mempool standard mass limit (the bound the planner sizes against).
-    let over: Vec<_> = (0..=(cap as u32)).map(|i| treasury_utxo(i, 390_000_000)).collect();
+    let over: Vec<_> = (0..=(cap as u32))
+        .map(|i| treasury_utxo(i, 390_000_000))
+        .collect();
     let input_sum: u64 = over.iter().map(|u| u.entry.amount).sum();
     let (tx, entries) = build_populated(&over, &[], &script, input_sum);
     let populated = PopulatedTransaction::new(&tx, entries);

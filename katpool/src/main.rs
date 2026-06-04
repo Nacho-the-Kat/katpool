@@ -142,9 +142,11 @@
 //!   so a hung kaspad RPC cannot wedge the payout engines)
 //! - `KATPOOL_CONSOLIDATION_TRIGGER_UTXO_COUNT` default 1000 (high-water mark: a
 //!   sweep starts only once the spendable UTXO count rises above this)
-//! - `KATPOOL_CONSOLIDATION_TARGET_UTXO_COUNT` default 1 (low-water mark: an
+//! - `KATPOOL_CONSOLIDATION_TARGET_UTXO_COUNT` default 50 (low-water mark: an
 //!   active sweep compounds down to this floor, then rests until the count
-//!   climbs back above the trigger — hysteresis)
+//!   climbs back above the trigger — hysteresis. Keeping the floor above 1
+//!   lets a continuously-mining treasury settle and idle instead of churning a
+//!   tiny sweep every tick as fresh coinbase matures in)
 //! - `KATPOOL_CONSOLIDATION_MAX_INPUTS_PER_TX` default 80 (upper bound; the
 //!   per-transaction mempool standard-mass check is the real input guard, which
 //!   caps a one-output self-send near ~88 inputs)
@@ -1127,7 +1129,7 @@ impl RuntimeConfig {
             trigger_utxo_count: optional_usize("KATPOOL_CONSOLIDATION_TRIGGER_UTXO_COUNT")?
                 .unwrap_or(1000),
             target_utxo_count: optional_usize("KATPOOL_CONSOLIDATION_TARGET_UTXO_COUNT")?
-                .unwrap_or(1),
+                .unwrap_or(50),
             max_inputs_per_tx: optional_usize("KATPOOL_CONSOLIDATION_MAX_INPUTS_PER_TX")?
                 .unwrap_or(80),
             max_txs_per_tick: optional_usize("KATPOOL_CONSOLIDATION_MAX_TXS_PER_TICK")?

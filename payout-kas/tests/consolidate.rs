@@ -168,7 +168,13 @@ async fn below_ceiling_records_snapshot_without_planning() {
     mock.set_virtual_daa(2_000);
     mock.set_utxos(fragmented(3, &script)); // 3 below trigger 5 → idle, no campaign
 
-    let engine = ConsolidationEngine::new(pool.clone(), mock, secret, addr, engine_config(ExecutionMode::Live, 5, 2));
+    let engine = ConsolidationEngine::new(
+        pool.clone(),
+        mock,
+        secret,
+        addr,
+        engine_config(ExecutionMode::Live, 5, 2),
+    );
     let outcome = engine.run_once().await.expect("tick");
     let ConsolidationTickOutcome::Ran(report) = outcome else {
         panic!("expected a leader tick");
@@ -178,7 +184,10 @@ async fn below_ceiling_records_snapshot_without_planning() {
     assert_eq!(report.planned_batches, 0);
     assert!(report.submitted_txids.is_empty());
 
-    let snap = treasury::latest(&pool).await.expect("latest").expect("snapshot");
+    let snap = treasury::latest(&pool)
+        .await
+        .expect("latest")
+        .expect("snapshot");
     assert_eq!(snap.utxo_count, Some(3));
     assert_eq!(snap.daa_score, 2_000);
 }
@@ -193,8 +202,13 @@ async fn dry_run_plans_but_does_not_broadcast() {
     mock.set_virtual_daa(2_000);
     mock.set_utxos(fragmented(10, &script)); // 10 > trigger 5 → sweep active
 
-    let engine =
-        ConsolidationEngine::new(pool.clone(), mock, secret, addr, engine_config(ExecutionMode::DryRun, 5, 2));
+    let engine = ConsolidationEngine::new(
+        pool.clone(),
+        mock,
+        secret,
+        addr,
+        engine_config(ExecutionMode::DryRun, 5, 2),
+    );
     let outcome = engine.run_once().await.expect("tick");
     let ConsolidationTickOutcome::Ran(report) = outcome else {
         panic!("expected a leader tick");
@@ -203,11 +217,18 @@ async fn dry_run_plans_but_does_not_broadcast() {
     assert!(report.campaign_active);
     // 10 inputs, cap 5 → two 5-input batches.
     assert_eq!(report.planned_batches, 2);
-    assert_eq!(report.submitted_txids.len(), 2, "dry-run still computes txids");
+    assert_eq!(
+        report.submitted_txids.len(),
+        2,
+        "dry-run still computes txids"
+    );
     assert!(report.submit_errors.is_empty());
 
     // Snapshot recorded; no audit entries because nothing was broadcast.
-    let snap = treasury::latest(&pool).await.expect("latest").expect("snapshot");
+    let snap = treasury::latest(&pool)
+        .await
+        .expect("latest")
+        .expect("snapshot");
     assert_eq!(snap.utxo_count, Some(10));
     let entries = audit::list_for_subject(&pool, "treasury_snapshot", snap.id, 100)
         .await
@@ -225,8 +246,13 @@ async fn live_broadcasts_every_planned_batch_and_audits() {
     mock.set_virtual_daa(2_000);
     mock.set_utxos(fragmented(10, &script)); // 10 > trigger 5 → sweep active
 
-    let engine =
-        ConsolidationEngine::new(pool.clone(), mock, secret, addr, engine_config(ExecutionMode::Live, 5, 2));
+    let engine = ConsolidationEngine::new(
+        pool.clone(),
+        mock,
+        secret,
+        addr,
+        engine_config(ExecutionMode::Live, 5, 2),
+    );
     let outcome = engine.run_once().await.expect("tick");
     let ConsolidationTickOutcome::Ran(report) = outcome else {
         panic!("expected a leader tick");
@@ -235,7 +261,10 @@ async fn live_broadcasts_every_planned_batch_and_audits() {
     assert_eq!(report.submitted_txids.len(), 2);
     assert!(report.submit_errors.is_empty());
 
-    let snap = treasury::latest(&pool).await.expect("latest").expect("snapshot");
+    let snap = treasury::latest(&pool)
+        .await
+        .expect("latest")
+        .expect("snapshot");
     assert_eq!(snap.utxo_count, Some(10));
     let entries = audit::list_for_subject(&pool, "treasury_snapshot", snap.id, 100)
         .await
@@ -261,10 +290,18 @@ async fn skips_when_treasury_lock_held_elsewhere() {
     mock.set_virtual_daa(2_000);
     mock.set_utxos(fragmented(10, &script));
 
-    let engine =
-        ConsolidationEngine::new(pool.clone(), mock, secret, addr, engine_config(ExecutionMode::Live, 5, 2));
+    let engine = ConsolidationEngine::new(
+        pool.clone(),
+        mock,
+        secret,
+        addr,
+        engine_config(ExecutionMode::Live, 5, 2),
+    );
     let outcome = engine.run_once().await.expect("tick");
-    assert!(matches!(outcome, ConsolidationTickOutcome::SkippedNotLeader));
+    assert!(matches!(
+        outcome,
+        ConsolidationTickOutcome::SkippedNotLeader
+    ));
 
     // A skipped tick does no work: no snapshot row was written.
     assert!(treasury::latest(&pool).await.expect("latest").is_none());
@@ -296,7 +333,10 @@ async fn hysteresis_starts_above_trigger_and_sweeps_down_to_target() {
     let ConsolidationTickOutcome::Ran(r1) = engine.run_once().await.expect("tick1") else {
         panic!("leader");
     };
-    assert!(r1.below_ceiling && !r1.campaign_active, "below trigger ⇒ idle");
+    assert!(
+        r1.below_ceiling && !r1.campaign_active,
+        "below trigger ⇒ idle"
+    );
     assert_eq!(r1.planned_batches, 0);
 
     // Tick 2: count crosses the trigger → campaign activates and plans.
@@ -304,7 +344,10 @@ async fn hysteresis_starts_above_trigger_and_sweeps_down_to_target() {
     let ConsolidationTickOutcome::Ran(r2) = engine.run_once().await.expect("tick2") else {
         panic!("leader");
     };
-    assert!(r2.campaign_active && !r2.below_ceiling, "above trigger ⇒ sweeping");
+    assert!(
+        r2.campaign_active && !r2.below_ceiling,
+        "above trigger ⇒ sweeping"
+    );
     assert_eq!(r2.planned_batches, 6, "30 inputs / cap 5 = 6 batches");
 
     // Tick 3: count drops back below the trigger but the latch keeps sweeping.
@@ -320,6 +363,9 @@ async fn hysteresis_starts_above_trigger_and_sweeps_down_to_target() {
     let ConsolidationTickOutcome::Ran(r4) = engine.run_once().await.expect("tick4") else {
         panic!("leader");
     };
-    assert!(!r4.campaign_active && r4.below_ceiling, "at floor ⇒ campaign ends");
+    assert!(
+        !r4.campaign_active && r4.below_ceiling,
+        "at floor ⇒ campaign ends"
+    );
     assert_eq!(r4.planned_batches, 0);
 }
