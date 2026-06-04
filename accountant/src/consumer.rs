@@ -44,13 +44,14 @@
 //! Postgres issue (resolved on the next event) or a bug we want
 //! the metric tick to surface.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use katpool_db::repo::block::{self, EnsureOutcome};
 use katpool_db::repo::share_reject::{self, DbShareRejectReason};
-use katpool_db::repo::{connection_session, share, wallet, worker};
+use katpool_db::repo::{SessionId, connection_session, share, wallet, worker};
 use katpool_domain::{PoolEvent, WalletAddress, WorkerName};
 use sqlx::PgPool;
 use tokio::sync::broadcast;
@@ -71,6 +72,23 @@ use crate::metrics::{
 /// SQLSTATE `23514`, which is exactly the M3d `wallet_ensure`
 /// production incident this constant was introduced to prevent.
 pub const VALID_NETWORKS: &[&str] = &["mainnet", "testnet-10", "testnet-11", "devnet", "simnet"];
+
+/// Identity + lifetime metadata shared by the session-open and
+/// session-close handlers. Borrowed for the duration of one event so the
+/// handlers stay within clippy's argument-count budget without losing the
+/// per-field documentation the event already carries.
+struct SessionMeta<'a> {
+    /// Authenticated wallet, if the session reached authorize.
+    wallet: Option<&'a WalletAddress>,
+    /// Worker rig, if the authorize payload carried one.
+    worker: Option<&'a WorkerName>,
+    /// Remote miner IP as text (parsed to `inet` by the repo layer).
+    remote_ip: &'a str,
+    /// Reported stratum `mining.subscribe` user-agent, if any.
+    remote_app: Option<&'a str>,
+    /// TCP-accept timestamp.
+    connected_at: DateTime<Utc>,
+}
 
 /// Configuration carried by every consumer instance. Cheap to
 /// clone (it's all `Arc`-able internals + a small instance label).
@@ -132,16 +150,22 @@ pub struct EventConsumer {
     /// Optional IP→country resolver (ADR-0025). `None` when no `GeoLite2`
     /// database is configured — sessions then record a `NULL` country.
     geoip: Option<Arc<GeoIp>>,
+    /// Maps a bridge connection id to the live `connection_session` row
+    /// opened for it, so a later `SessionClosed` finalizes the right row.
+    /// In-process only (cleared on restart; the startup sweep finalizes
+    /// any rows orphaned by the previous incarnation).
+    open_sessions: Arc<Mutex<HashMap<u64, SessionId>>>,
 }
 
 impl EventConsumer {
     /// Construct a consumer ready to be `run`.
     #[must_use]
-    pub const fn new(db: PgPool, cfg: ConsumerConfig) -> Self {
+    pub fn new(db: PgPool, cfg: ConsumerConfig) -> Self {
         Self {
             db,
             cfg,
             geoip: None,
+            open_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -161,6 +185,22 @@ impl EventConsumer {
     /// returned.
     pub async fn run(self, mut rx: broadcast::Receiver<PoolEvent>) -> Result<(), anyhow::Error> {
         info!(instance = %self.cfg.instance_id, "accountant consumer starting");
+
+        // Finalize any sessions left open by a previous process
+        // incarnation. Bridge + accountant share one process, so a
+        // restart already dropped every socket; surviving miners
+        // reconnect and re-open. Best-effort: a sweep failure must not
+        // stop the consumer from draining live events.
+        match connection_session::close_all_open(&self.db).await {
+            Ok(n) if n > 0 => {
+                info!(instance = %self.cfg.instance_id, closed = n, "closed orphaned sessions at startup");
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(instance = %self.cfg.instance_id, error = %e, "startup session sweep failed");
+            }
+        }
+
         loop {
             match rx.recv().await {
                 Ok(event) => self.handle_event(event).await,
@@ -182,6 +222,10 @@ impl EventConsumer {
 
     /// Single-event dispatch. Public for testing — callers in
     /// production should always go through `run`.
+    // A flat match over every `PoolEvent` variant; each arm is a thin
+    // record-metric-then-delegate. Splitting it would only scatter the
+    // dispatch table without reducing complexity.
+    #[allow(clippy::too_many_lines)]
     pub async fn handle_event(&self, event: PoolEvent) {
         match event {
             PoolEvent::ShareCredited {
@@ -245,7 +289,35 @@ impl EventConsumer {
                     self.log_event_error(variant, &e, &correlation_id);
                 }
             }
+            PoolEvent::SessionOpened {
+                conn_id,
+                wallet,
+                worker,
+                remote_ip,
+                remote_app,
+                connected_at,
+                correlation_id,
+            } => {
+                let variant = "session_opened";
+                record_event(&self.cfg.instance_id, variant);
+                if let Err(e) = self
+                    .handle_session_opened(
+                        conn_id,
+                        SessionMeta {
+                            wallet: wallet.as_ref(),
+                            worker: worker.as_ref(),
+                            remote_ip: &remote_ip,
+                            remote_app: remote_app.as_deref(),
+                            connected_at,
+                        },
+                    )
+                    .await
+                {
+                    self.log_event_error(variant, &e, &correlation_id);
+                }
+            }
             PoolEvent::SessionClosed {
+                conn_id,
                 wallet,
                 worker,
                 remote_ip,
@@ -258,11 +330,14 @@ impl EventConsumer {
                 record_event(&self.cfg.instance_id, variant);
                 if let Err(e) = self
                     .handle_session_closed(
-                        wallet.as_ref(),
-                        worker.as_ref(),
-                        &remote_ip,
-                        remote_app.as_deref(),
-                        connected_at,
+                        conn_id,
+                        SessionMeta {
+                            wallet: wallet.as_ref(),
+                            worker: worker.as_ref(),
+                            remote_ip: &remote_ip,
+                            remote_app: remote_app.as_deref(),
+                            connected_at,
+                        },
                         ts,
                     )
                     .await
@@ -443,19 +518,23 @@ impl EventConsumer {
         Ok(())
     }
 
-    /// Persist a completed stratum session: resolve the worker id (if
-    /// the session authorized) and insert the `connection_session` row.
-    /// Identity-only — no share tallies — so it never touches the hot
-    /// crediting path.
-    async fn handle_session_closed(
+    /// Open a live `connection_session` row when a connection
+    /// authenticates: resolve the worker id + country and insert a row
+    /// with `disconnected_at = NULL`, then remember the row id keyed by
+    /// the bridge connection id so the matching close finalizes it.
+    /// Identity-only — never touches the hot crediting path.
+    async fn handle_session_opened(
         &self,
-        wallet_addr: Option<&WalletAddress>,
-        worker_name: Option<&WorkerName>,
-        remote_ip: &str,
-        remote_app: Option<&str>,
-        connected_at: DateTime<Utc>,
-        disconnected_at: DateTime<Utc>,
+        conn_id: u64,
+        meta: SessionMeta<'_>,
     ) -> Result<(), EventError> {
+        let SessionMeta {
+            wallet: wallet_addr,
+            worker: worker_name,
+            remote_ip,
+            remote_app,
+            connected_at,
+        } = meta;
         let ip: IpAddr = remote_ip.parse().map_err(|_| EventError::SessionBadIp {
             ip: remote_ip.to_owned(),
         })?;
@@ -471,9 +550,90 @@ impl EventConsumer {
             .map_err(katpool_db::DbError::from)
             .map_err(EventError::SessionRecord)?;
 
-        // Resolve the worker id only when the session authorized; an
-        // anonymous session records a null worker (still useful for
-        // per-IP forensics).
+        let worker_id = match (wallet_addr, worker_name) {
+            (Some(addr), Some(name)) => {
+                let w = wallet::ensure(&mut *tx, addr, &self.cfg.network)
+                    .await
+                    .map_err(EventError::WalletEnsure)?;
+                let wk = worker::ensure(&mut *tx, w.id, name)
+                    .await
+                    .map_err(EventError::WorkerEnsure)?;
+                Some(wk.id)
+            }
+            _ => None,
+        };
+
+        let session_id = connection_session::open(
+            &mut *tx,
+            worker_id,
+            ip,
+            remote_app,
+            country.as_deref(),
+            connected_at,
+        )
+        .await
+        .map_err(EventError::SessionRecord)?;
+
+        tx.commit()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::SessionRecord)?;
+
+        // Short, non-async critical section — never held across an await.
+        if let Ok(mut map) = self.open_sessions.lock() {
+            map.insert(conn_id, session_id);
+        }
+        Ok(())
+    }
+
+    /// Finalize a stratum session at disconnect. If we opened a live row
+    /// for this connection (it authorized), close that exact row so its
+    /// duration and bound worker are preserved. Otherwise — a session
+    /// that dropped before authorize — fall back to inserting a completed
+    /// row for per-IP forensics + the firmware breakdown. Identity-only.
+    async fn handle_session_closed(
+        &self,
+        conn_id: u64,
+        meta: SessionMeta<'_>,
+        disconnected_at: DateTime<Utc>,
+    ) -> Result<(), EventError> {
+        // Did we open a live row for this connection? (Lock released
+        // before any await.)
+        let open_row = self
+            .open_sessions
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(&conn_id));
+
+        if let Some(session_id) = open_row {
+            connection_session::close(&self.db, session_id)
+                .await
+                .map_err(EventError::SessionRecord)?;
+            return Ok(());
+        }
+
+        // No live row: legacy insert-at-close path for pre-authorize
+        // sessions (subscribe-only blips that still reported a user-agent).
+        let SessionMeta {
+            wallet: wallet_addr,
+            worker: worker_name,
+            remote_ip,
+            remote_app,
+            connected_at,
+        } = meta;
+        let ip: IpAddr = remote_ip.parse().map_err(|_| EventError::SessionBadIp {
+            ip: remote_ip.to_owned(),
+        })?;
+
+        let country = self.geoip.as_ref().and_then(|g| g.country(ip));
+
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(katpool_db::DbError::from)
+            .map_err(EventError::SessionRecord)?;
+
         let worker_id = match (wallet_addr, worker_name) {
             (Some(addr), Some(name)) => {
                 let w = wallet::ensure(&mut *tx, addr, &self.cfg.network)

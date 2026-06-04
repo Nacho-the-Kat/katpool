@@ -3,11 +3,17 @@ use crate::log_colors::LogColors;
 use hex;
 use parking_lot::Mutex;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+
+/// Monotonic source of process-unique connection ids. Decoupled from the
+/// mutable, reusable stratum client `id` (which defaults to 0 and keys the
+/// in-memory client map); this is a stable correlation key for the
+/// session-lifecycle events (`SessionOpened`/`SessionClosed`).
+static NEXT_SESSION_UID: AtomicU64 = AtomicU64::new(1);
 
 /// Error for disconnected clients
 #[derive(Debug, thiserror::Error)]
@@ -40,6 +46,12 @@ pub struct StratumContext {
     pub id: Arc<Mutex<i32>>,
     pub extranonce: Arc<Mutex<String>>,
     pub state: Arc<crate::mining_state::MiningState>,
+    /// Process-unique connection id correlating this connection's
+    /// `SessionOpened`/`SessionClosed` lifecycle events.
+    session_uid: u64,
+    /// One-shot guard so `SessionOpened` is emitted at most once per
+    /// connection even if the miner re-authorizes.
+    session_opened: AtomicBool,
     disconnecting: Arc<AtomicBool>,
     write_lock: Arc<AtomicBool>,
     read_half: Arc<Mutex<Option<tokio::io::ReadHalf<TcpStream>>>>,
@@ -68,6 +80,8 @@ impl StratumContext {
             id: Arc::new(Mutex::new(0)),
             extranonce: Arc::new(Mutex::new(String::new())),
             state,
+            session_uid: NEXT_SESSION_UID.fetch_add(1, Ordering::Relaxed),
+            session_opened: AtomicBool::new(false),
             disconnecting: Arc::new(AtomicBool::new(false)),
             write_lock: Arc::new(AtomicBool::new(false)),
             read_half: Arc::new(Mutex::new(Some(read_half))),
@@ -90,6 +104,18 @@ impl StratumContext {
     /// Set client ID
     pub fn set_id(&self, id: i32) {
         *self.id.lock() = id;
+    }
+
+    /// Process-unique connection id for session-lifecycle correlation.
+    pub fn session_uid(&self) -> u64 {
+        self.session_uid
+    }
+
+    /// Claim the one-shot "session opened" flag. Returns `true` exactly
+    /// once per connection (the caller that should emit `SessionOpened`);
+    /// subsequent calls return `false`.
+    pub fn claim_session_open(&self) -> bool {
+        !self.session_opened.swap(true, Ordering::SeqCst)
     }
 
     /// Get context summary
@@ -658,6 +684,10 @@ impl Clone for StratumContext {
             id: self.id.clone(),
             extranonce: self.extranonce.clone(),
             state: self.state.clone(),
+            // A clone represents the same connection: keep its id and
+            // preserve the one-shot open flag so it can't re-emit.
+            session_uid: self.session_uid,
+            session_opened: AtomicBool::new(self.session_opened.load(Ordering::SeqCst)),
             disconnecting: self.disconnecting.clone(),
             write_lock: self.write_lock.clone(),
             read_half: self.read_half.clone(),

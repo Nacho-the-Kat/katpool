@@ -103,16 +103,65 @@ async fn session_open_and_close() {
     let (pool, _ctr) = fresh_pool().await;
     let id = connection_session::open(
         &pool,
+        None,
         IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
         Some("test-miner"),
+        None,
+        chrono::Utc::now(),
     )
     .await
     .expect("open");
+
+    // The freshly-opened row counts as active until closed.
+    let active = connection_session::active_summary(&pool)
+        .await
+        .expect("active");
+    assert_eq!(active.sessions, 1);
+    assert_eq!(active.workers, 0);
+
     connection_session::close(&pool, id).await.expect("close");
     // Re-close is idempotent.
     connection_session::close(&pool, id)
         .await
         .expect("close again");
+
+    // Closed rows are no longer active.
+    let active = connection_session::active_summary(&pool)
+        .await
+        .expect("active after close");
+    assert_eq!(active.sessions, 0);
+}
+
+#[tokio::test]
+async fn close_all_open_finalizes_orphans() {
+    let (pool, _ctr) = fresh_pool().await;
+    for n in 1..=3 {
+        connection_session::open(
+            &pool,
+            None,
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, n)),
+            None,
+            None,
+            chrono::Utc::now(),
+        )
+        .await
+        .expect("open");
+    }
+    let closed = connection_session::close_all_open(&pool)
+        .await
+        .expect("sweep");
+    assert_eq!(closed, 3);
+    let active = connection_session::active_summary(&pool)
+        .await
+        .expect("active");
+    assert_eq!(active.sessions, 0);
+    // Idempotent: a second sweep closes nothing.
+    assert_eq!(
+        connection_session::close_all_open(&pool)
+            .await
+            .expect("sweep2"),
+        0
+    );
 }
 
 #[tokio::test]
@@ -125,9 +174,16 @@ async fn session_bind_worker_then_increment_counters() {
         .await
         .expect("worker");
 
-    let sid = connection_session::open(&pool, IpAddr::V4(Ipv4Addr::LOCALHOST), Some("rig"))
-        .await
-        .expect("open");
+    let sid = connection_session::open(
+        &pool,
+        None,
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        Some("rig"),
+        None,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("open");
     connection_session::bind_worker(&pool, sid, wk.id)
         .await
         .expect("bind");

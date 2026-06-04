@@ -162,6 +162,13 @@ impl ClientHandler {
         );
     }
 
+    /// Publish a lifecycle [`PoolEvent`] on the attached event bus. A
+    /// no-op in standalone mode (no bus). Used by the authorize handler to
+    /// emit `SessionOpened` and by `on_disconnect` for `SessionClosed`.
+    pub fn emit_event(&self, event: PoolEvent) {
+        self.share_handler.publish(event);
+    }
+
     pub fn on_disconnect(&self, ctx: &StratumContext) {
         ctx.disconnect();
         let mut clients = self.clients.lock();
@@ -196,6 +203,7 @@ impl ClientHandler {
             let wallet_opt = (!wallet_addr.is_empty()).then(|| WalletAddress::new(&wallet_addr).ok()).flatten();
             let connected_at = DateTime::<Utc>::from(ctx.state.connect_time());
             self.share_handler.publish(PoolEvent::SessionClosed {
+                conn_id: ctx.session_uid(),
                 wallet: wallet_opt,
                 worker: worker_opt,
                 remote_ip: ctx.remote_addr().to_owned(),

@@ -3,7 +3,12 @@
 import { CheckCircle2, CircleAlert, CircleSlash } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Panel } from "@/components/dashboard/panel";
-import { usePoolStats, useNetworkContext, useBlocks } from "@/lib/api/hooks";
+import {
+  usePoolStats,
+  useNetworkContext,
+  useBlocks,
+  useActiveSessions,
+} from "@/lib/api/hooks";
 import { formatCompact, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PoolRejectsPanel } from "./pool-rejects-panel";
@@ -45,6 +50,7 @@ export function StatusBoard() {
   const stats = usePoolStats();
   const network = useNetworkContext();
   const latest = useBlocks(1);
+  const active = useActiveSessions();
 
   const topBlock = latest.data?.blocks[0];
   const lastBlockAge = topBlock ? formatRelative(topBlock.found_at) : "—";
@@ -86,6 +92,34 @@ export function StatusBoard() {
           }
         />
       </div>
+
+      <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 items-center justify-center rounded-xl border border-success/30 bg-success/10 text-success">
+            <span className="size-2.5 rounded-full bg-success live-dot" />
+          </span>
+          <div>
+            <p className="font-medium">Connected now</p>
+            <p className="text-sm text-muted-foreground">
+              Open stratum sessions right now — live, not a rolling average
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-px self-stretch overflow-hidden rounded-xl border border-border bg-border sm:self-auto">
+          <div className="flex-1 bg-card px-6 py-3 text-center">
+            <p className="text-xs text-muted-foreground">Sessions</p>
+            <p className="mt-1 text-2xl font-semibold metric">
+              {active.data ? formatNumber(active.data.active_sessions) : "—"}
+            </p>
+          </div>
+          <div className="flex-1 bg-card px-6 py-3 text-center">
+            <p className="text-xs text-muted-foreground">Workers</p>
+            <p className="mt-1 text-2xl font-semibold metric">
+              {active.data ? formatNumber(active.data.active_workers) : "—"}
+            </p>
+          </div>
+        </div>
+      </Card>
 
       <Panel title="Operational metrics" description="Live pool health at a glance">
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">

@@ -273,6 +273,17 @@ async fn pool_geo_ok_when_empty() {
 }
 
 #[tokio::test]
+async fn pool_active_sessions_ok() {
+    // No open connection_session rows in the seed, so the live snapshot
+    // reports zero — but the shape and status must be correct.
+    let (app, _r, _c) = seeded().await;
+    let (status, body) = get(&app, "/api/v1/pool/active-sessions").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["active_sessions"].as_i64(), Some(0));
+    assert_eq!(body["active_workers"].as_i64(), Some(0));
+}
+
+#[tokio::test]
 async fn pool_rejects_ok_when_empty() {
     // No share_reject rows are seeded, so the breakdown is empty and the
     // total is zero (the accountant persists rejects in production).

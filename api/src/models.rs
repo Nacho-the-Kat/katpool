@@ -401,6 +401,19 @@ pub struct GeoBreakdown {
     pub entries: Vec<GeoEntryView>,
 }
 
+/// `GET /api/v1/pool/active-sessions` body — live "connected now" snapshot.
+///
+/// Aggregate-only by construction: counts of currently-open stratum
+/// sessions and the distinct authenticated workers among them. No IP or
+/// per-miner identity is exposed.
+#[derive(Debug, Serialize)]
+pub struct ActiveSessionsView {
+    /// Currently-open stratum sessions (`disconnected_at IS NULL`).
+    pub active_sessions: i64,
+    /// Distinct authenticated workers among the open sessions.
+    pub active_workers: i64,
+}
+
 // ---- miner -----------------------------------------------------------
 
 /// A wallet's KAS payable position.
