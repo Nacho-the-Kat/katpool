@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
@@ -33,6 +33,10 @@ export function DonutChart({
   // sliver and reads badly; below `lg` we stack the legend underneath instead.
   const isNarrow = useMediaQuery("(max-width: 1023px)");
 
+  // Keep an inline `valueFormatter` from busting the option memo on each poll.
+  const fmtRef = useRef(valueFormatter);
+  fmtRef.current = valueFormatter;
+
   const option = useMemo<EChartsCoreOption>(() => {
     const single = data.length === 1;
     // Stack the legend under a centered ring when there's little horizontal
@@ -49,7 +53,7 @@ export function DonutChart({
       color: tokens.series,
       tooltip: {
         trigger: "item",
-        valueFormatter: (v: unknown) => valueFormatter(Number(v)),
+        valueFormatter: (v: unknown) => fmtRef.current(Number(v)),
         ...chartTooltip(tokens),
       },
       legend: {
@@ -107,7 +111,7 @@ export function DonutChart({
         },
       ],
     };
-  }, [data, tokens, valueFormatter, centerLabel, centerValue, isNarrow]);
+  }, [data, tokens, centerLabel, centerValue, isNarrow]);
 
   return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }

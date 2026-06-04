@@ -70,7 +70,16 @@ export function EChart({
   }, []);
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge, replaceMerge });
+    const chart = chartRef.current;
+    if (!chart) return;
+    // Clear any live tooltip/axis pointer *before* swapping series models on a
+    // refresh. With `replaceMerge: ["series"]`, a mousemove hit-test can land on
+    // stale shapes during the swap and strand the pointer — it freezes and stops
+    // tracking the cursor. Tearing the tip down first closes that race; the next
+    // mousemove re-shows it cleanly. (Apache ECharts replaceMerge interaction.)
+    chart.dispatchAction({ type: "hideTip" });
+    chart.dispatchAction({ type: "updateAxisPointer", currTrigger: "leave" });
+    chart.setOption(option, { notMerge, replaceMerge });
   }, [option, notMerge, replaceMerge]);
 
   return <div ref={ref} className={cn("w-full", className)} style={{ height }} />;

@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { usePoolStats } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 
@@ -30,7 +30,7 @@ export function BlocksSummary() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={5} />
+        <ChartSkeleton height={300} />
       ) : items.length === 0 ? (
         <EmptyState title="No blocks yet" description="Block stats appear once the pool finds its first block." />
       ) : (

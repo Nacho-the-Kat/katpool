@@ -16,7 +16,9 @@ const LABELS: Record<BlockStatus, { label: string; variant: BadgeVariant; icon: 
 
 /** A colored, icon-tagged badge for a block lifecycle status. */
 export function BlockStatusBadge({ status }: { status: BlockStatus }) {
-  const meta = LABELS[status];
+  // Fall back gracefully if the API introduces a status the UI hasn't mapped
+  // yet, rather than throwing and blanking the whole table.
+  const meta = LABELS[status] ?? { label: status, variant: "outline" as const, icon: CircleDashed };
   const Icon = meta.icon;
   return (
     <Badge variant={meta.variant}>

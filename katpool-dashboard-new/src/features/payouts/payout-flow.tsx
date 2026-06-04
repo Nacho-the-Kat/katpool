@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { TimeSeriesChart, type SeriesDef } from "@/components/charts/time-series-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { usePayoutCycles } from "@/lib/api/hooks";
 import { formatKas } from "@/lib/format";
 
@@ -61,7 +61,7 @@ export function PayoutFlow() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={6} />
+        <ChartSkeleton height={300} />
       ) : !hasData ? (
         <EmptyState
           title="No settled cycles yet"

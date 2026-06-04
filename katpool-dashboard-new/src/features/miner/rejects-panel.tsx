@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { HBarChart } from "@/components/charts/bar-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { useMinerRejects } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 import { rejectReasonLabel } from "@/lib/reject-reasons";
@@ -26,7 +26,7 @@ export function RejectsPanel({ address }: { address: string }) {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={4} />
+        <ChartSkeleton height={220} />
       ) : bars.length === 0 ? (
         <EmptyState title="No rejects" description="This miner has a clean record in the window." />
       ) : (

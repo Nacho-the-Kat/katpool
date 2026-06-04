@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Globe } from "lucide-react";
 import { Panel } from "@/components/dashboard/panel";
 import { HBarChart } from "@/components/charts/bar-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { usePoolGeo } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 import { countryName, flagEmoji } from "@/lib/country";
@@ -42,7 +42,7 @@ export function GeoPanel() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={5} />
+        <ChartSkeleton height={280} />
       ) : bars.length === 0 ? (
         <EmptyState
           icon={<Globe className="size-7" />}

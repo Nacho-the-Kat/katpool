@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { RangeToggle } from "@/components/dashboard/range-toggle";
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { useActiveMinersHistory } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 import { resolveRange, type RangeKey } from "@/lib/range";
@@ -39,7 +39,7 @@ export function MinersPanel() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={6} />
+        <ChartSkeleton height={320} />
       ) : series[0]?.points.length === 0 ? (
         <EmptyState
           title="No data in this range"

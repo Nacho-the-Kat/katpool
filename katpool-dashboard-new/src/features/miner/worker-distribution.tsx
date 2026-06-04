@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { useMinerWorkers } from "@/lib/api/hooks";
 import { formatHashrate } from "@/lib/format";
 
@@ -26,7 +26,7 @@ export function WorkerDistribution({ address }: { address: string }) {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={4} />
+        <ChartSkeleton height={300} />
       ) : items.length === 0 ? (
         <EmptyState
           title="No worker hashrate"

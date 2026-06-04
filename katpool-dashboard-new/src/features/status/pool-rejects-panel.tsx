@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { usePoolRejects } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 import { rejectReasonLabel } from "@/lib/reject-reasons";
@@ -30,7 +30,7 @@ export function PoolRejectsPanel() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={4} />
+        <ChartSkeleton height={300} />
       ) : items.length === 0 ? (
         <EmptyState
           title="No rejects in window"
