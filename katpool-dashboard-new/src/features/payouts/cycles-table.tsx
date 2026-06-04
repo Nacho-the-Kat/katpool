@@ -66,22 +66,22 @@ export function CyclesTable() {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Payout cycles">
+          <table className="w-full min-w-[680px] text-sm" aria-label="Payout cycles">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Cycle</th>
-                <th className="px-5 py-3 font-medium">Asset</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 text-right font-medium">Recipients</th>
-                <th className="px-5 py-3 text-right font-medium">Total</th>
-                <th className="px-5 py-3 text-right font-medium">When</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Cycle</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Asset</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Status</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Recipients</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Total</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">When</th>
               </tr>
             </thead>
             <tbody>
               {cycles.map((c) => (
                 <tr key={c.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
-                  <td className="px-5 py-3 font-mono text-xs text-muted-foreground">#{c.id}</td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5 font-mono text-xs text-muted-foreground">#{c.id}</td>
+                  <td className="px-3 py-3 sm:px-5">
                     <span className="inline-flex items-center gap-2">
                       <span
                         className={cn(
@@ -94,24 +94,24 @@ export function CyclesTable() {
                       </Badge>
                     </span>
                   </td>
-                  <td className="px-5 py-3">
+                  <td className="px-3 py-3 sm:px-5">
                     <CycleStatusBadge status={c.status} />
                   </td>
-                  <td className="px-5 py-3 text-right tnum">
+                  <td className="px-3 py-3 sm:px-5 text-right tnum">
                     {c.total_recipients > 0 ? (
                       formatNumber(c.total_recipients)
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-3 py-3 sm:px-5 text-right">
                     <span className="block font-medium tnum">{formatKas(c.total.kas)}</span>
                     {c.kind === "nacho" ? (
                       <span className="block text-xs text-muted-foreground">KAS value</span>
                     ) : null}
                   </td>
                   <td
-                    className="px-5 py-3 text-right text-muted-foreground"
+                    className="px-3 py-3 sm:px-5 text-right text-muted-foreground"
                     title={formatDateTime(c.settled_at ?? c.planned_at)}
                   >
                     {formatRelative(c.settled_at ?? c.planned_at)}

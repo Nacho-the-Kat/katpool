@@ -59,14 +59,14 @@ export function MinerPayouts({ address }: { address: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm" aria-label="Payout history">
+          <table className="w-full min-w-[640px] text-sm" aria-label="Payout history">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-5 py-3 font-medium">Asset</th>
-                <th className="px-5 py-3 text-right font-medium">Amount</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Tx</th>
-                <th className="px-5 py-3 text-right font-medium">When</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Asset</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">Amount</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Status</th>
+                <th className="px-3 py-3 sm:px-5 font-medium">Tx</th>
+                <th className="px-3 py-3 sm:px-5 text-right font-medium">When</th>
               </tr>
             </thead>
             <tbody>
@@ -76,7 +76,7 @@ export function MinerPayouts({ address }: { address: string }) {
                 const when = p.confirmed_at ?? p.submitted_at ?? p.planned_at;
                 return (
                   <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
-                    <td className="px-5 py-3">
+                    <td className="px-3 py-3 sm:px-5">
                       <span className="inline-flex items-center gap-2">
                         <span
                           className={cn(
@@ -89,16 +89,16 @@ export function MinerPayouts({ address }: { address: string }) {
                         </Badge>
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right">
+                    <td className="px-3 py-3 sm:px-5 text-right">
                       <span className="block font-medium tnum">{formatKas(p.amount.kas)}</span>
                       {usd != null ? (
                         <span className="block text-xs text-muted-foreground tnum">{formatUsd(usd)}</span>
                       ) : null}
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-3 py-3 sm:px-5">
                       <PayoutStatusBadge status={p.status} reason={p.failure_reason} />
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-3 py-3 sm:px-5">
                       {tx ? (
                         <a
                           href={explorerTx(tx)}
@@ -113,7 +113,7 @@ export function MinerPayouts({ address }: { address: string }) {
                       )}
                     </td>
                     <td
-                      className="px-5 py-3 text-right text-muted-foreground"
+                      className="px-3 py-3 sm:px-5 text-right text-muted-foreground"
                       title={formatDateTime(when)}
                     >
                       {formatRelative(when)}

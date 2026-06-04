@@ -7,7 +7,7 @@ import { WalletSearch } from "./wallet-search";
 /** The persistent application chrome: sidebar, top bar, and content slot. */
 export function AppShell({ children }: { children: ReactNode }) {
   return (
-    <div className="app-aurora min-h-screen">
+    <div className="app-aurora min-h-screen overflow-x-hidden">
       <div className="flex w-full">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">

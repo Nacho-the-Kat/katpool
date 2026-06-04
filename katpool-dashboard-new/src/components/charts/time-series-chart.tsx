@@ -6,6 +6,7 @@ import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
 import { withAlpha } from "./color";
 import { areaGradient, chartTooltip, crosshair, splitLine } from "./theme";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 export interface SeriesDef {
   name: string;
@@ -37,10 +38,13 @@ export function TimeSeriesChart({
   smooth = true,
 }: TimeSeriesChartProps) {
   const tokens = useChartTokens();
+  // A top-right legend collides with the plot on narrow screens; center it.
+  const isNarrow = useMediaQuery("(max-width: 639px)");
 
   const option = useMemo<EChartsCoreOption>(() => {
     const palette = tokens.series;
     const single = series.length === 1;
+    const multi = series.length > 1;
     const primary = series[0];
     const last = primary?.points[primary.points.length - 1];
     const primaryColor = palette[(primary?.colorIndex ?? 0) % palette.length] ?? "#49eacb";
@@ -102,7 +106,8 @@ export function TimeSeriesChart({
         // Reserve room on the right for the leading-edge value pill + its pulse
         // ripple so neither clips against the card edge.
         right: single && last ? 78 : 16,
-        top: 16,
+        // Reserve a row for the multi-series legend so it never overlaps the plot.
+        top: multi ? 32 : 16,
         bottom: showZoom ? 56 : 24,
         containLabel: true,
       },
@@ -112,10 +117,17 @@ export function TimeSeriesChart({
         valueFormatter: (v: unknown) => valueFormatter(Number(v)),
         ...chartTooltip(tokens),
       },
-      legend:
-        series.length > 1
-          ? { top: 0, right: 8, textStyle: { color: tokens.muted }, icon: "roundRect", itemWidth: 10, itemHeight: 10 }
-          : undefined,
+      legend: multi
+        ? {
+            type: "scroll",
+            top: 0,
+            ...(isNarrow ? { left: "center" as const } : { right: 8 }),
+            textStyle: { color: tokens.muted },
+            icon: "roundRect",
+            itemWidth: 10,
+            itemHeight: 10,
+          }
+        : undefined,
       xAxis: {
         type: "time",
         axisLine: { show: false },
@@ -148,7 +160,7 @@ export function TimeSeriesChart({
         : undefined,
       series: [...lineSeries, ...pulse],
     };
-  }, [series, tokens, valueFormatter, showZoom, smooth]);
+  }, [series, tokens, valueFormatter, showZoom, smooth, isNarrow]);
 
   return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }
