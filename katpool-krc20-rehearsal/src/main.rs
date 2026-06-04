@@ -186,6 +186,8 @@ async fn main() -> Result<()> {
             instance_id: args.instance_id.clone(),
             // Unused by run_once; only run_loop schedules on it.
             poll_interval: Duration::from_secs(60),
+            // Rehearsal drives run_once directly; no contender, so no wait.
+            lock_acquire_wait: Duration::ZERO,
             cycle_span_daa: args.cycle_span_daa,
             mode: ExecutionMode::DryRun,
             lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),

@@ -427,10 +427,12 @@ async fn main() -> Result<()> {
     };
 
     // ---- KRC-20 NACHO payout engine (M5.5b, opt-in) -----------------
-    // Same single-leader discipline as the KAS engine, but a distinct
-    // advisory-lock namespace so the two never contend. Shares the treasury
-    // key/address and kaspad node (separate gRPC connection). Disabled and
-    // dry-run by default.
+    // Same single-leader discipline as the KAS engine and the *shared*
+    // treasury-spend lock, so the two serialize. Because both tick on the same
+    // poll_interval from startup, this engine phase-staggers and waits a bounded
+    // interval for the lock (lock_acquire_wait) so it defers to an in-flight KAS
+    // payout instead of starving. Shares the treasury key/address and kaspad
+    // node (separate gRPC connection). Disabled and dry-run by default.
     let krc20_payout_handle = if cfg.krc20_payout_enabled {
         let secret = match &cfg.krc20_payout.key_source {
             KeySource::File(path) => load_from_path(path)
@@ -463,6 +465,12 @@ async fn main() -> Result<()> {
             Krc20PayoutEngineConfig {
                 instance_id: cfg.instance_id.clone(),
                 poll_interval: cfg.krc20_payout.poll_interval,
+                // Bounded wait for the shared treasury lock: a quarter of the
+                // poll interval comfortably outlasts an in-flight KAS payout
+                // tick (so this engine merely defers to it) yet stays well under
+                // one period. Phase-staggering already keeps real contention
+                // rare; this is the safety net.
+                lock_acquire_wait: cfg.krc20_payout.poll_interval / 4,
                 cycle_span_daa: cfg.krc20_payout.cycle_span_daa,
                 mode,
                 lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
