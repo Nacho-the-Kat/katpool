@@ -1,7 +1,6 @@
 import {
   Activity,
   Blocks,
-  Cpu,
   LayoutDashboard,
   Pickaxe,
   Trophy,
@@ -12,6 +11,8 @@ import {
 export interface NavItem {
   href: string;
   label: string;
+  /** Condensed label for the mobile bottom bar (falls back to first word). */
+  shortLabel?: string;
   icon: LucideIcon;
   /** Match exactly (true) or by prefix (false). */
   exact?: boolean;
@@ -20,11 +21,10 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/start", label: "Start Mining", icon: Pickaxe, cta: true },
+  { href: "/start", label: "Start Mining", shortLabel: "Start", icon: Pickaxe, cta: true },
   { href: "/", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/blocks", label: "Blocks", icon: Blocks },
   { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/leaders", label: "Leaderboard", icon: Trophy },
-  { href: "/miners", label: "Miner Lookup", icon: Cpu },
+  { href: "/leaders", label: "Leaderboard", shortLabel: "Leaders", icon: Trophy },
   { href: "/status", label: "Status", icon: Activity },
 ];

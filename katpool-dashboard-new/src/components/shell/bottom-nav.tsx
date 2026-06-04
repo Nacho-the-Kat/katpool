@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 /** Fixed bottom navigation for mobile (primary destinations only). */
 export function BottomNav() {
   const pathname = usePathname();
-  // Quick-access bar: the CTA plus the four destinations miners hit most.
-  // Leaderboard + Status stay one tap away in the drawer menu.
-  const HIDDEN = new Set(["/leaders", "/status"]);
+  // Quick-access bar: the CTA plus the destinations miners hit most.
+  // Status stays one tap away in the drawer menu.
+  const HIDDEN = new Set(["/status"]);
   const items = NAV_ITEMS.filter((i) => !HIDDEN.has(i.href)).slice(0, 5);
 
   return (
@@ -30,8 +30,16 @@ export function BottomNav() {
               active || item.cta ? "text-primary" : "text-muted-foreground",
             )}
           >
+            {/* Reserved-height bar so the active marker doesn't shift layout
+                and state isn't communicated by colour alone. */}
+            <span
+              className={cn(
+                "h-0.5 w-5 rounded-full transition-colors",
+                active ? "bg-primary" : "bg-transparent",
+              )}
+            />
             <Icon className="size-5" />
-            {item.label.split(" ")[0]}
+            {item.shortLabel ?? item.label.split(" ")[0]}
           </Link>
         );
       })}

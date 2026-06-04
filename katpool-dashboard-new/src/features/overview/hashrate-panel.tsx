@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Panel } from "@/components/dashboard/panel";
 import { RangeToggle } from "@/components/dashboard/range-toggle";
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
-import { ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { usePoolHashrateHistory } from "@/lib/api/hooks";
 import { formatHashrate } from "@/lib/format";
 import { resolveRange, type RangeKey } from "@/lib/range";
@@ -40,6 +40,11 @@ export function HashratePanel() {
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
         <LoadingRows rows={6} />
+      ) : series[0]?.points.length === 0 ? (
+        <EmptyState
+          title="No data in this range"
+          description="Try a wider range, or check back once the pool has more history."
+        />
       ) : (
         <TimeSeriesChart series={series} valueFormatter={(v) => formatHashrate(v)} showZoom height={320} />
       )}

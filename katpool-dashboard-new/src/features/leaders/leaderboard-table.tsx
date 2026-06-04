@@ -65,7 +65,7 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" aria-label="Top miners by hashrate">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">#</th>

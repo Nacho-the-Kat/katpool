@@ -42,13 +42,13 @@ const DEFAULT_PORTS: StratumPort[] = [
 
 /** Region subdomain prefixes (cutover-stratum-compatibility §1 inventory). */
 const REGION_PREFIXES: { label: string; prefix: string }[] = [
-  { label: "North America · West", prefix: "na-west" },
-  { label: "North America · East", prefix: "na-east" },
+  { label: "San Francisco", prefix: "na-west" },
+  { label: "New York City", prefix: "na-east" },
   { label: "Europe", prefix: "eu" },
-  { label: "Asia-Pacific", prefix: "ap" },
+  { label: "Singapore", prefix: "ap" },
   { label: "Hong Kong", prefix: "hkg" },
-  { label: "South America", prefix: "sa" },
-  { label: "Australia", prefix: "au" },
+  { label: "São Paulo", prefix: "sa" },
+  { label: "Sydney", prefix: "au" },
 ];
 
 const DEFAULT_HOST = "kas.katpool.com";

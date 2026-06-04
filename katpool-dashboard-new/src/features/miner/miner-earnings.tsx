@@ -19,7 +19,7 @@ function Line({
 }) {
   const usd = sompiToUsd(amount.sompi, kasUsd);
   return (
-    <div className="flex items-center justify-between py-2">
+    <div className="flex items-center justify-between py-2.5">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-right">
         <span className={emphasize ? "block text-sm font-semibold text-primary metric" : "block text-sm font-medium metric"}>

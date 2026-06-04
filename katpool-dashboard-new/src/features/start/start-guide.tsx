@@ -18,6 +18,13 @@ import { CopyButton } from "@/components/dashboard/copy-button";
 import { miningConfig } from "@/lib/mining";
 import { formatNumber } from "@/lib/format";
 
+/** Popular kHeavyHash ASICs surfaced on the connect card. */
+const ASIC_MODELS = [
+  "IceRiver KS-series",
+  "Bitmain Antminer KS3 / KS5",
+  "Goldshell KA-series",
+] as const;
+
 /** A labelled, copyable monospace field (connection settings). */
 function CopyField({ label, value }: { label: string; value: string }) {
   return (
@@ -116,7 +123,7 @@ export function StartGuide() {
               </a>
             </Button>
             <Button asChild variant="outline" size="lg">
-              <Link href="/miners">Track a miner</Link>
+              <Link href="/leaders">View leaderboard</Link>
             </Button>
           </div>
         </div>
@@ -151,9 +158,9 @@ export function StartGuide() {
           <a href="#connect">below</a>.
         </Step>
         <Step n={3} icon={LineChart} title="Watch it live">
-          Your rig appears within a minute. Paste your address into{" "}
-          <Link href="/miners">Miner Lookup</Link> to follow hashrate, workers, shares, balance and
-          payouts in real time.
+          Your rig appears within a minute. Paste your address into the search bar at the top — or
+          find it on the <Link href="/leaders">leaderboard</Link> — to follow hashrate, workers,
+          shares, balance and payouts in real time.
         </Step>
       </div>
 
@@ -163,7 +170,7 @@ export function StartGuide() {
           className="lg:col-span-2"
           eyebrow="Connect"
           title="Connection settings"
-          description="Works with any kHeavyHash miner (BzMiner, lolMiner, IceRiver, Goldshell…)."
+          description="Works with every kHeavyHash ASIC — IceRiver, Bitmain Antminer KS, and Goldshell."
         >
           <div className="space-y-3">
             <CopyField label="Stratum URL" value={stratumUrl} />
@@ -180,16 +187,21 @@ export function StartGuide() {
 
             <div className="space-y-2 pt-2">
               <p className="text-[0.6875rem] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-                Example commands
+                On your ASIC
               </p>
-              <CopyField
-                label="lolMiner"
-                value={`lolMiner --algo KASPA --pool ${primary.host}:${recommendedPort.port} --user ${userExample}`}
-              />
-              <CopyField
-                label="BzMiner"
-                value={`bzminer -a kaspa -w ${userExample} -p stratum+tcp://${primary.host}:${recommendedPort.port}`}
-              />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Open the miner&apos;s web dashboard, go to{" "}
+                <span className="font-medium text-foreground">Settings → Pools</span>, and enter the
+                values above as <span className="font-medium text-foreground">Pool 1</span> (URL,
+                worker, password). Save — the rig reconnects to katpool automatically.
+              </p>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {ASIC_MODELS.map((model) => (
+                  <Badge key={model} variant="outline">
+                    {model}
+                  </Badge>
+                ))}
+              </div>
             </div>
           </div>
         </Panel>
@@ -199,17 +211,17 @@ export function StartGuide() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Port</th>
-                  <th className="px-3 py-2 text-right font-medium">Start diff</th>
-                  <th className="px-3 py-2 text-right font-medium" />
+                  <th className="px-4 py-2.5 font-medium">Port</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Start diff</th>
+                  <th className="px-4 py-2.5 text-right font-medium" />
                 </tr>
               </thead>
               <tbody>
                 {cfg.ports.map((p) => (
                   <tr key={p.port} className="border-b border-border/60 last:border-0">
-                    <td className="px-3 py-2 font-mono">{p.port}</td>
-                    <td className="px-3 py-2 text-right tnum">{formatNumber(p.seed)}</td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-4 py-2.5 font-mono">{p.port}</td>
+                    <td className="px-4 py-2.5 text-right tnum">{formatNumber(p.seed)}</td>
+                    <td className="px-4 py-2.5 text-right">
                       <CopyButton value={`${primary.host}:${p.port}`} label={`Copy ${primary.host}:${p.port}`} />
                     </td>
                   </tr>
@@ -299,8 +311,8 @@ export function StartGuide() {
           <div>
             <dt className="text-sm font-medium text-foreground">Which miners are supported?</dt>
             <dd className="mt-1 text-sm text-muted-foreground">
-              Any kHeavyHash miner — BzMiner, lolMiner, and ASICs like IceRiver and Goldshell all work
-              with the settings above.
+              Every kHeavyHash ASIC — IceRiver KS-series, Bitmain Antminer KS-series, and Goldshell
+              KA-series. Kaspa is ASIC-only; CPU and GPU mining is no longer competitive.
             </dd>
           </div>
           <div>

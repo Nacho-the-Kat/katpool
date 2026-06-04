@@ -38,7 +38,7 @@ function HeroStat({
         {loading || value == null ? (
           <Skeleton className="h-6 w-20" />
         ) : (
-          <span className="text-lg font-semibold metric">{value}</span>
+          <span className="text-base font-semibold metric sm:text-lg">{value}</span>
         )}
         {extra}
       </div>
@@ -73,7 +73,9 @@ export function OverviewHero() {
   const shareLabel =
     netShare == null || netShare > 100
       ? null
-      : `${netShare.toFixed(netShare < 1 ? 3 : 2)}%`;
+      : netShare > 0 && netShare < 0.001
+        ? "<0.001%"
+        : `${netShare.toFixed(netShare < 1 ? 3 : 2)}%`;
 
   const loading = stats.isLoading;
   const netLoading = network.isLoading;
@@ -117,9 +119,11 @@ export function OverviewHero() {
               )}
             </p>
 
-            <div className="mt-5 -mb-1">
-              {hashSpark.length > 1 ? <Sparkline data={hashSpark} colorIndex={0} height={56} /> : null}
-            </div>
+            {hashSpark.length > 1 ? (
+              <div className="mt-5 -mb-1" aria-hidden>
+                <Sparkline data={hashSpark} colorIndex={0} height={56} />
+              </div>
+            ) : null}
           </div>
 
           {/* Supporting metrics — hairline-separated data grid */}

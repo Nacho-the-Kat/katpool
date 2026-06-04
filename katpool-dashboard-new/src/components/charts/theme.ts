@@ -10,6 +10,10 @@ import type { ChartTokens } from "./use-tokens";
 /** Glassy, rounded tooltip container styled from live theme tokens. */
 export function chartTooltip(tokens: ChartTokens) {
   return {
+    // Keep the tooltip inside the canvas so the host card's `overflow-hidden`
+    // never clips it, and let it glide rather than snap between points.
+    confine: true,
+    transitionDuration: 0.2,
     backgroundColor: withAlpha(tokens.tooltipBg, 0.9),
     borderColor: tokens.border,
     borderWidth: 1,

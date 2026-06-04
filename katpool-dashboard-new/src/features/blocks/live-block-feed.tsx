@@ -96,6 +96,7 @@ export function LiveBlockFeed() {
     <Panel
       eyebrow="Real-time"
       title="Live blocks"
+      description={`The ${FEED_SIZE} most recent blocks the pool has found`}
       actions={
         <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <span className="size-2 rounded-full bg-success live-dot" />

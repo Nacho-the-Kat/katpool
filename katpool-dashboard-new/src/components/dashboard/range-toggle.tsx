@@ -21,6 +21,7 @@ export function RangeToggle({ value, onChange, options = RANGE_KEYS }: RangeTogg
       {options.map((key) => (
         <button
           key={key}
+          type="button"
           role="radio"
           aria-checked={value === key}
           onClick={() => onChange(key)}

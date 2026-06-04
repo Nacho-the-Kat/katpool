@@ -36,9 +36,9 @@ export function BlocksSummary() {
       ) : (
         <DonutChart
           data={items}
-          valueFormatter={(v) => `${formatNumber(v)} blocks`}
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "block" : "blocks"}`}
           centerValue={formatNumber(total)}
-          centerLabel="blocks"
+          centerLabel={total === 1 ? "block" : "blocks"}
           height={300}
         />
       )}

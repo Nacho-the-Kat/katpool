@@ -10,6 +10,7 @@ import {
   DataZoomComponent,
   MarkLineComponent,
   GraphicComponent,
+  TitleComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
@@ -26,6 +27,7 @@ echarts.use([
   DataZoomComponent,
   MarkLineComponent,
   GraphicComponent,
+  TitleComponent,
   CanvasRenderer,
 ]);
 
@@ -35,10 +37,22 @@ interface EChartProps {
   /** Fixed pixel height; the chart fills its container width responsively. */
   height?: number;
   notMerge?: boolean;
+  /**
+   * Components to fully replace on update (e.g. `["series"]`). Lets live data
+   * refreshes swap series cleanly — no stale slices — while merging the rest,
+   * so an open tooltip/crosshair survives the refresh instead of vanishing.
+   */
+  replaceMerge?: string[];
 }
 
 /** A disposable, resize-aware ECharts canvas. */
-export function EChart({ option, className, height = 300, notMerge = false }: EChartProps) {
+export function EChart({
+  option,
+  className,
+  height = 300,
+  notMerge = false,
+  replaceMerge,
+}: EChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -56,8 +70,8 @@ export function EChart({ option, className, height = 300, notMerge = false }: EC
   }, []);
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge });
-  }, [option, notMerge]);
+    chartRef.current?.setOption(option, { notMerge, replaceMerge });
+  }, [option, notMerge, replaceMerge]);
 
   return <div ref={ref} className={cn("w-full", className)} style={{ height }} />;
 }

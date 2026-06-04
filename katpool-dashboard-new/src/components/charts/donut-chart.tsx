@@ -31,6 +31,13 @@ export function DonutChart({
 
   const option = useMemo<EChartsCoreOption>(() => {
     const single = data.length === 1;
+    // With only 1–2 slices a right-hand vertical legend leaves the ring
+    // marooned at the left with dead space. Center the ring and drop the
+    // legend under it so the chart always reads balanced.
+    const compact = data.length <= 2;
+    const ringX = compact ? "50%" : "32%";
+    const ringY = compact ? "44%" : "50%";
+
     return {
       animationDuration: 700,
       animationEasing: "cubicOut" as const,
@@ -42,50 +49,46 @@ export function DonutChart({
       },
       legend: {
         type: "scroll",
-        orient: "vertical",
-        right: 8,
-        top: "middle",
+        // Long client/worker names would otherwise overrun the canvas.
+        formatter: (name: string) => (name.length > 18 ? `${name.slice(0, 17)}…` : name),
         textStyle: { color: tokens.muted, fontSize: 12 },
         itemWidth: 10,
         itemHeight: 10,
-        itemGap: 12,
         icon: "roundRect",
+        ...(compact
+          ? { orient: "horizontal" as const, bottom: 0, left: "center" as const, itemGap: 18 }
+          : { orient: "vertical" as const, right: 8, top: "middle" as const, itemGap: 12 }),
       },
-      graphic:
+      // The headline lives in a `title` anchored at the ring's exact centre
+      // with both axes centred — far more reliable than hand-offsetting a
+      // graphic group (which anchors by its top edge and reads low/small).
+      title:
         centerValue != null
           ? {
-              type: "group",
-              left: "32%",
-              top: "center",
-              children: [
-                {
-                  type: "text",
-                  style: {
-                    text: centerValue,
-                    fill: tokens.text,
-                    font: "600 22px var(--font-sans, sans-serif)",
-                    textAlign: "center",
-                  },
-                  top: -10,
-                },
-                {
-                  type: "text",
-                  style: {
-                    text: centerLabel ?? "",
-                    fill: tokens.muted,
-                    font: "12px var(--font-sans, sans-serif)",
-                    textAlign: "center",
-                  },
-                  top: 16,
-                },
-              ],
+              text: centerValue,
+              subtext: centerLabel ?? "",
+              left: ringX,
+              top: ringY,
+              textAlign: "center" as const,
+              textVerticalAlign: "middle" as const,
+              itemGap: 6,
+              textStyle: {
+                color: tokens.text,
+                fontSize: 28,
+                fontWeight: 700 as const,
+              },
+              subtextStyle: {
+                color: tokens.muted,
+                fontSize: 12,
+                fontWeight: 500 as const,
+              },
             }
           : undefined,
       series: [
         {
           type: "pie",
           radius: ["62%", "84%"],
-          center: ["32%", "50%"],
+          center: [ringX, ringY],
           avoidLabelOverlap: true,
           // A single category reads as one continuous ring — no seam.
           itemStyle: {
@@ -101,5 +104,7 @@ export function DonutChart({
     };
   }, [data, tokens, valueFormatter, centerLabel, centerValue]);
 
-  return <EChart option={option} height={height} notMerge />;
+  return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }
+
+const REPLACE_SERIES = ["series"];

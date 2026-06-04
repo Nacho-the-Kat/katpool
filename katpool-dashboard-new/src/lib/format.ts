@@ -54,6 +54,51 @@ export function formatUsd(value: number | null | undefined): string {
   return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
+const SUBSCRIPT_DIGITS = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"] as const;
+
+function toSubscript(n: number): string {
+  return String(n)
+    .split("")
+    .map((d) => SUBSCRIPT_DIGITS[Number(d)] ?? d)
+    .join("");
+}
+
+/**
+ * USD price formatter tuned for tokens spanning many orders of magnitude.
+ * - ≥ $1: two decimals.
+ * - $0.01–$1: up to four decimals (trailing zeros trimmed).
+ * - < $0.01: compact subscript-zero notation, e.g. `$0.0₄1234` (= $0.00001234),
+ *   the convention used across crypto price UIs — keeps a fixed footprint while
+ *   preserving significant figures no matter how small the price gets.
+ */
+export function formatUsdPrice(value: number | null | undefined, sig = 4): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value === 0) return "$0.00";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  if (abs >= 0.01) {
+    return `${sign}${abs.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: abs >= 1 ? 2 : 4,
+    })}`;
+  }
+
+  // Sub-cent: render as $0.0<sub-zero-count><significant digits>.
+  let exp = Math.floor(Math.log10(abs));
+  let significand = Math.round((abs / 10 ** exp) * 10 ** (sig - 1));
+  // Rounding can carry into the next power of ten (e.g. 9.999 → 10.00).
+  if (significand >= 10 ** sig) {
+    significand = Math.round(significand / 10);
+    exp += 1;
+  }
+  const zeros = -exp - 1;
+  const digits = String(significand).replace(/0+$/, "") || "0";
+  return `${sign}$0.0${toSubscript(zeros)}${digits}`;
+}
+
 /** Signed percentage with one decimal, for delta chips. */
 export function formatPercent(value: number | null | undefined, digits = 1): string {
   if (value == null || !Number.isFinite(value)) return "—";

@@ -95,7 +95,7 @@ export function StatCard({
         </div>
 
         {spark && spark.length > 1 ? (
-          <div className="mt-4 -mb-1">
+          <div className="mt-4 -mb-1" aria-hidden>
             <Sparkline data={spark} colorIndex={colorIndex} />
           </div>
         ) : null}

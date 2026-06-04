@@ -34,7 +34,9 @@ export function HBarChart({
     return {
       animationDuration: 600,
       animationEasing: "cubicOut" as const,
-      grid: { left: 8, right: 48, top: 8, bottom: 8, containLabel: true },
+      // Reserve room on the right for the unit-bearing value label (e.g.
+      // "3 sessions") so it never clips against the card edge.
+      grid: { left: 8, right: 64, top: 8, bottom: 8, containLabel: true },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow", shadowStyle: { color: withAlpha(color, 0.08) } },
@@ -43,7 +45,14 @@ export function HBarChart({
       },
       xAxis: {
         type: "value",
-        axisLabel: { color: tokens.muted, fontSize: 11, formatter: (v: number) => valueFormatter(v) },
+        // Counts are whole numbers; keep ticks integer and unit-free (the unit
+        // lives on the bar label + tooltip) so short ranges don't overlap.
+        minInterval: 1,
+        axisLabel: {
+          color: tokens.muted,
+          fontSize: 11,
+          formatter: (v: number) => v.toLocaleString("en-US"),
+        },
         splitLine: splitLine(tokens),
       },
       yAxis: {
@@ -86,5 +95,7 @@ export function HBarChart({
     };
   }, [data, tokens, valueFormatter, colorIndex]);
 
-  return <EChart option={option} height={height} notMerge />;
+  return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }
+
+const REPLACE_SERIES = ["series"];

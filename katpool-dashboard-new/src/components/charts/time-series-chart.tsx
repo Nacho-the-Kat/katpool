@@ -99,7 +99,9 @@ export function TimeSeriesChart({
       animationEasing: "cubicOut" as const,
       grid: {
         left: 8,
-        right: single && last ? 64 : 16,
+        // Reserve room on the right for the leading-edge value pill + its pulse
+        // ripple so neither clips against the card edge.
+        right: single && last ? 78 : 16,
         top: 16,
         bottom: showZoom ? 56 : 24,
         containLabel: true,
@@ -148,5 +150,7 @@ export function TimeSeriesChart({
     };
   }, [series, tokens, valueFormatter, showZoom, smooth]);
 
-  return <EChart option={option} height={height} notMerge />;
+  return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }
+
+const REPLACE_SERIES = ["series"];
