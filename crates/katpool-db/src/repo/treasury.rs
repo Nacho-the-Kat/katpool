@@ -29,6 +29,10 @@ pub struct TreasurySnapshot {
     pub blue_score: i64,
     /// Operator-facing free-form note.
     pub notes: Option<String>,
+    /// Spendable treasury UTXO count at capture time. `None` for snapshot
+    /// paths that do not observe it (e.g. key rotation) and for rows that
+    /// predate the consolidation engine; the consolidation tick always sets it.
+    pub utxo_count: Option<i32>,
 }
 
 /// Append a new snapshot. Always succeeds modulo connection errors.
@@ -59,12 +63,44 @@ where
     Ok(id)
 }
 
+/// Append a consolidation-engine snapshot: the spendable KAS balance, the
+/// spendable UTXO `count`, and the chain DAA score.
+///
+/// This path observes only the fields the consolidation engine reads from
+/// kaspad, so `nacho_balance` and `blue_score` are recorded as `0` (the
+/// engine does not query them); `utxo_count` is the meaningful new signal.
+pub async fn insert_snapshot<'e, E>(
+    executor: E,
+    kas_balance_sompi: i64,
+    utxo_count: i32,
+    daa_score: i64,
+    notes: Option<&str>,
+) -> Result<i64, DbError>
+where
+    E: PgExecutor<'e>,
+{
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO treasury_snapshot
+            (kas_balance_sompi, nacho_balance, daa_score, blue_score, notes, utxo_count)
+         VALUES ($1, 0, $2, 0, $3, $4)
+         RETURNING id",
+    )
+    .bind(kas_balance_sompi)
+    .bind(daa_score)
+    .bind(notes)
+    .bind(utxo_count)
+    .fetch_one(executor)
+    .await?;
+    Ok(id)
+}
+
 /// Latest snapshot, or `None` if the table is empty.
 pub async fn latest<'e, E: PgExecutor<'e>>(
     executor: E,
 ) -> Result<Option<TreasurySnapshot>, DbError> {
     sqlx::query_as::<_, TreasurySnapshot>(
-        "SELECT id, captured_at, kas_balance_sompi, nacho_balance, daa_score, blue_score, notes
+        "SELECT id, captured_at, kas_balance_sompi, nacho_balance, daa_score, blue_score, notes,
+                utxo_count
            FROM treasury_snapshot
           ORDER BY captured_at DESC
           LIMIT 1",
@@ -80,7 +116,8 @@ pub async fn list_recent<'e, E: PgExecutor<'e>>(
     limit: i64,
 ) -> Result<Vec<TreasurySnapshot>, DbError> {
     sqlx::query_as::<_, TreasurySnapshot>(
-        "SELECT id, captured_at, kas_balance_sompi, nacho_balance, daa_score, blue_score, notes
+        "SELECT id, captured_at, kas_balance_sompi, nacho_balance, daa_score, blue_score, notes,
+                utxo_count
            FROM treasury_snapshot
           ORDER BY captured_at DESC
           LIMIT $1",

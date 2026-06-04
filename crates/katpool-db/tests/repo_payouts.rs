@@ -232,6 +232,29 @@ async fn treasury_insert_then_latest() {
     assert_eq!(latest.kas_balance_sompi, 2_000);
     assert_eq!(latest.nacho_balance, 60_000);
     assert!(latest.notes.is_none());
+    // The full-field insert path does not populate utxo_count.
+    assert_eq!(latest.utxo_count, None);
+}
+
+#[tokio::test]
+async fn treasury_insert_snapshot_records_utxo_count() {
+    let (pool, _ctr) = fresh_pool().await;
+    let id = treasury::insert_snapshot(&pool, 1_234_567, 61_205, 9_000, Some("consolidation tick"))
+        .await
+        .expect("insert snapshot");
+    assert!(id > 0);
+
+    let latest = treasury::latest(&pool)
+        .await
+        .expect("latest")
+        .expect("present");
+    assert_eq!(latest.kas_balance_sompi, 1_234_567);
+    assert_eq!(latest.utxo_count, Some(61_205));
+    assert_eq!(latest.daa_score, 9_000);
+    // Consolidation snapshots do not observe these fields.
+    assert_eq!(latest.nacho_balance, 0);
+    assert_eq!(latest.blue_score, 0);
+    assert_eq!(latest.notes.as_deref(), Some("consolidation tick"));
 }
 
 #[tokio::test]

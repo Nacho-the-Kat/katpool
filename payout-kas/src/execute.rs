@@ -273,7 +273,11 @@ pub async fn broadcast_cycle<C: KaspadClient>(
 /// (`feerate × effective_mass`, floored at the minimum relay fee), fold the
 /// difference back into the treasury change output, and re-sign if the change
 /// moved. A change output that would fall to dust is dropped into the fee.
-fn sign_batch_with_exact_fee(
+///
+/// Shared with the consolidation engine ([`crate::consolidate`]), whose N→1
+/// self-send batches (`payouts: []`, change to the treasury) take the same
+/// exact-fee path so a merged coin never underprices its mass.
+pub(crate) fn sign_batch_with_exact_fee(
     batch: &PlannedBatch,
     treasury_script: &ScriptPublicKey,
     secret: &TreasurySecret,

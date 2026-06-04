@@ -17,6 +17,21 @@ use kaspa_consensus_core::{
 /// consensus params (not hardcoded) so it tracks any future upstream change.
 pub const MAINNET_MAX_BLOCK_MASS: u64 = MAINNET_PARAMS.prior_block_mass_limits.compute;
 
+/// Mempool standard-transaction mass limit (grams).
+///
+/// rusty-kaspa's mempool refuses to relay or accept any transaction whose
+/// compute or transient mass exceeds `MAXIMUM_STANDARD_TRANSACTION_MASS`,
+/// independent of the higher consensus block mass limit. A transaction that
+/// fits a block (`≤ MAINNET_MAX_BLOCK_MASS`, `500_000`) but exceeds this tighter
+/// `100_000` bound is rejected at broadcast as non-standard, so any transaction
+/// we intend to *submit* must respect this limit — not the block limit. The
+/// value is a network-agnostic mempool constant (identical on testnet) and is
+/// not exposed via consensus params, so it is pinned here.
+///
+/// Source: rusty-kaspa `mining/src/mempool/check_transaction_standard.rs`
+/// (`MAXIMUM_STANDARD_TRANSACTION_MASS = 100_000`).
+pub const MAX_STANDARD_TX_MASS: u64 = 100_000;
+
 /// Minimum payout output per `docs/kips.md` §3 (~0.019 KAS).
 pub const MIN_PAYOUT_OUTPUT_SOMPI: u64 = 1_900_000;
 
@@ -86,6 +101,17 @@ impl MassEvaluator {
     #[must_use]
     pub const fn block_mass_limit(&self) -> u64 {
         self.block_mass_limit
+    }
+
+    /// Mempool standard-transaction mass limit ([`MAX_STANDARD_TX_MASS`]).
+    ///
+    /// This is the binding bound for any transaction we intend to **broadcast**:
+    /// the mempool rejects anything above it as non-standard even though it
+    /// would fit a block. Planners that produce relayable transactions must
+    /// size against this, not [`Self::block_mass_limit`].
+    #[must_use]
+    pub const fn standard_tx_mass_limit(&self) -> u64 {
+        MAX_STANDARD_TX_MASS
     }
 
     /// Evaluate all three masses for a populated (non-coinbase) transaction.

@@ -34,7 +34,7 @@ use katpool_payout_rehearsal::{ENVELOPE_SCHEMA, RehearsalEvidence, RehearsalPara
 use katpool_secrets::load_from_path;
 use payout_kas::{
     DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI, ExecutionMode, GrpcKaspadClient, PayoutEngine,
-    PayoutEngineConfig, TickOutcome,
+    PayoutEngineConfig, TREASURY_SPEND_LOCK_NAMESPACE, TickOutcome,
 };
 use serde_json::json;
 use tracing::info;
@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
             cycle_span_daa: args.cycle_span_daa,
             threshold_sompi: args.threshold_sompi,
             mode: ExecutionMode::DryRun,
-            lock_namespace: "payout-kas:kas-leader".to_owned(),
+            lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
         },
     )
     .context("building payout engine")?;
