@@ -132,6 +132,11 @@ pub struct Payout {
     pub submitted_at: Option<DateTime<Utc>>,
     /// When the tx was confirmed past maturity.
     pub confirmed_at: Option<DateTime<Utc>>,
+    /// DAA score of the block that first carried this payout's treasury change
+    /// coin (the accepting height). Recorded once the change coin is observed
+    /// on chain, so confirmation can advance by depth even after that coin is
+    /// later spent. `None` until first observed (and for KRC-20 rows).
+    pub accepted_daa_score: Option<i64>,
     /// Why the payout failed (if `status = Failed`).
     pub failure_reason: Option<String>,
 }
@@ -468,7 +473,7 @@ where
          VALUES ($1, $2, $3)
          RETURNING id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                    krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
-                   confirmed_at, failure_reason",
+                   confirmed_at, accepted_daa_score, failure_reason",
     )
     .bind(cycle_id)
     .bind(wallet_id.0)
@@ -498,7 +503,7 @@ where
             SET amount_sompi = payout.amount_sompi
          RETURNING id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                    krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
-                   confirmed_at, failure_reason",
+                   confirmed_at, accepted_daa_score, failure_reason",
     )
     .bind(cycle_id)
     .bind(wallet_id.0)
@@ -516,7 +521,7 @@ pub async fn get_payout<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, Payout>(
         "SELECT id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                 krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
-                confirmed_at, failure_reason
+                confirmed_at, accepted_daa_score, failure_reason
            FROM payout
           WHERE id = $1",
     )
@@ -696,7 +701,7 @@ pub async fn list_for_cycle<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, Payout>(
         "SELECT id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                 krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
-                confirmed_at, failure_reason
+                confirmed_at, accepted_daa_score, failure_reason
            FROM payout
           WHERE cycle_id = $1
           ORDER BY amount_sompi DESC, id ASC",
@@ -716,7 +721,7 @@ pub async fn list_for_wallet<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, Payout>(
         "SELECT id, cycle_id, wallet_id, amount_sompi, status, tx_hash,
                 krc20_commit_hash, krc20_reveal_hash, planned_at, submitted_at,
-                confirmed_at, failure_reason
+                confirmed_at, accepted_daa_score, failure_reason
            FROM payout
           WHERE wallet_id = $1
           ORDER BY planned_at DESC
@@ -724,6 +729,31 @@ pub async fn list_for_wallet<'e, E: PgExecutor<'e>>(
     )
     .bind(wallet_id.0)
     .bind(limit)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// On-chain tx hashes of every payout not yet in a terminal state
+/// (`confirmed`/`failed`) — KAS `tx_hash` plus KRC-20 commit/reveal hashes.
+///
+/// The consolidation engine must not spend a treasury coin produced by one of
+/// these transactions (the payout's change output): confirmation detects
+/// acceptance from that change coin, so sweeping it before the payout settles
+/// would strand the payout. Returns raw 32-byte hashes; callers match them
+/// against each spendable UTXO's `transaction_id`.
+pub async fn in_flight_spend_tx_hashes<'e, E: PgExecutor<'e>>(
+    executor: E,
+) -> Result<Vec<Vec<u8>>, DbError> {
+    sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT h
+           FROM payout p
+           CROSS JOIN LATERAL (
+               VALUES (p.tx_hash), (p.krc20_commit_hash), (p.krc20_reveal_hash)
+           ) AS v(h)
+          WHERE p.status NOT IN ('confirmed', 'failed')
+            AND h IS NOT NULL",
+    )
     .fetch_all(executor)
     .await
     .map_err(DbError::from)
@@ -750,20 +780,26 @@ pub async fn mark_payout_submitted<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
-/// Mark a payout accepted (first network confirmation). Idempotent and
-/// monotonic: only advances from `submitted`/`accepted`, never regresses
-/// a `confirmed` row.
+/// Mark a payout accepted, durably recording its accepting DAA score.
+///
+/// The score (the change coin's `block_daa_score`) is written first-write-wins
+/// so later passes can confirm by depth even after that coin is spent. Idempotent
+/// and monotonic: only advances from `submitted`/`accepted`, never regresses a
+/// `confirmed` row, and never moves an already-recorded accepting height.
 pub async fn mark_payout_accepted<'e, E: PgExecutor<'e>>(
     executor: E,
     payout_id: i64,
+    accepted_daa_score: i64,
 ) -> Result<(), DbError> {
     sqlx::query(
         "UPDATE payout
-            SET status = 'accepted'
+            SET status = 'accepted',
+                accepted_daa_score = COALESCE(accepted_daa_score, $2)
           WHERE id = $1
             AND status IN ('submitted', 'accepted')",
     )
     .bind(payout_id)
+    .bind(accepted_daa_score)
     .execute(executor)
     .await?;
     Ok(())

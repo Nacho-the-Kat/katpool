@@ -287,6 +287,7 @@ mod tests {
             planned_at: Utc.with_ymd_and_hms(2026, 5, 31, 12, 0, 1).unwrap(),
             submitted_at: None,
             confirmed_at: None,
+            accepted_daa_score: None,
             failure_reason: None,
         }
     }

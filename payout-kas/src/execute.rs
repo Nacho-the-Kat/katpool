@@ -371,7 +371,10 @@ pub async fn confirm_cycle<C: KaspadClient>(
             continue;
         };
         let on_chain = change_daa.get(&txid_bytes).copied();
-        let in_mempool = if on_chain.is_some() {
+        // Accepting height recorded by an earlier pass; lets us confirm by depth
+        // even when the change coin has since been spent (e.g. consolidated).
+        let recorded_accept_daa = p.accepted_daa_score.and_then(|v| u64::try_from(v).ok());
+        let in_mempool = if on_chain.is_some() || recorded_accept_daa.is_some() {
             false
         } else {
             client
@@ -383,10 +386,17 @@ pub async fn confirm_cycle<C: KaspadClient>(
             virtual_daa_score: virtual_daa,
             in_mempool,
             change_block_daa_score: on_chain,
+            recorded_accept_daa,
         });
         match state {
             ConfirmationState::Accepted => {
-                payout::mark_payout_accepted(pool, p.id).await?;
+                // Persist the accepting height first-write-wins, so a later pass
+                // can confirm by depth after the change coin is gone.
+                let accept_daa = on_chain
+                    .or(recorded_accept_daa)
+                    .and_then(|v| i64::try_from(v).ok())
+                    .unwrap_or(0);
+                payout::mark_payout_accepted(pool, p.id, accept_daa).await?;
                 report.accepted += 1;
             }
             ConfirmationState::Confirmed => {

@@ -1,12 +1,13 @@
 //! The consolidation engine: lock → snapshot → plan → sign → broadcast.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use kaspa_addresses::Address;
 use kaspa_consensus_core::tx::{ScriptPublicKey, TransactionId};
 use kaspa_txscript::pay_to_address_script;
-use katpool_db::repo::{audit, treasury};
+use katpool_db::repo::{audit, payout, treasury};
 use katpool_idempotency::{AdvisoryLock, advisory_key};
 use katpool_secrets::TreasurySecret;
 use katpool_storagemass::{FeeRate, MassEvaluator, TreasuryUtxo, plan_consolidation};
@@ -222,15 +223,27 @@ impl<C: KaspadClient> ConsolidationEngine<C> {
         let treasury_script = pay_to_address_script(&self.treasury_address);
         let virtual_daa = self.client.virtual_daa_score().await?;
 
+        // Change outputs of payouts that have not yet confirmed. Confirmation
+        // detects acceptance from the payout's treasury change coin, so sweeping
+        // it before the payout settles would strand that payout (and its cycle)
+        // forever. Exclude any treasury coin produced by such a transaction.
+        let protected: HashSet<[u8; 32]> = payout::in_flight_spend_tx_hashes(&self.pool)
+            .await?
+            .into_iter()
+            .filter_map(|h| <[u8; 32]>::try_from(h.as_slice()).ok())
+            .collect();
+
         // Spendable (mature) treasury coins only — immature coinbase coins
         // cannot be spent, so they neither count toward the ceiling nor fund a
-        // consolidation transaction.
+        // consolidation transaction. Unconfirmed-payout change coins are held
+        // back (see `protected`) so consolidation never strands a payout.
         let utxos: Vec<TreasuryUtxo> = self
             .client
             .treasury_utxos(&self.treasury_address)
             .await?
             .into_iter()
             .filter(|s| is_spendable(s.entry.block_daa_score, s.entry.is_coinbase, virtual_daa))
+            .filter(|s| !protected.contains(&s.outpoint.transaction_id.as_bytes()))
             .map(crate::client::TreasuryUtxoSnapshot::into_treasury_utxo)
             .collect();
 

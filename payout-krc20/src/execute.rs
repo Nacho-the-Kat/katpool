@@ -670,6 +670,10 @@ async fn handle_reveal_submitted<C: KaspadClient + Sync>(
         virtual_daa_score: virtual_daa,
         in_mempool,
         change_block_daa_score: on_chain_daa,
+        // The reveal return coin is held back from consolidation until this
+        // payout settles (see `payout::in_flight_spend_tx_hashes`), so the live
+        // observation above is sufficient and no recorded fallback is needed.
+        recorded_accept_daa: None,
     });
 
     match state {

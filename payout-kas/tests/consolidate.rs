@@ -369,3 +369,81 @@ async fn hysteresis_starts_above_trigger_and_sweeps_down_to_target() {
     );
     assert_eq!(r4.planned_batches, 0);
 }
+
+#[tokio::test]
+async fn does_not_sweep_unconfirmed_payout_change_outputs() {
+    let (pool, _ctr) = fresh_pool().await;
+    let (secret, addr) = treasury();
+    let script = pay_to_address_script(&addr);
+
+    // Record an in-flight (submitted) payout whose transaction produced the
+    // treasury coins under test — every `fragmented` coin shares txid [7u8; 32].
+    // Its change output must not be swept until the payout confirms, or the
+    // payout's own confirmation (which detects the change coin) would strand.
+    let wallet_id: i64 =
+        sqlx::query_scalar("INSERT INTO wallet (address, network) VALUES ($1, $2) RETURNING id")
+            .bind("kaspatest:qq5fysv96t636u4slda59daza6tn5j5p5x5953hs6dstajuw0u6l6ez5wz3gd")
+            .bind("testnet-10")
+            .fetch_one(&pool)
+            .await
+            .expect("wallet");
+    let cycle_id: i64 = sqlx::query_scalar(
+        "INSERT INTO payout_cycle (kind, daa_start, daa_end, idempotency_key)
+         VALUES ('kas', 0, 1, 'kas-protect-test') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("cycle");
+    sqlx::query(
+        "INSERT INTO payout (cycle_id, wallet_id, amount_sompi, status, tx_hash, submitted_at)
+         VALUES ($1, $2, 100, 'submitted', $3, now())",
+    )
+    .bind(cycle_id)
+    .bind(wallet_id)
+    .bind(vec![7_u8; 32])
+    .execute(&pool)
+    .await
+    .expect("payout");
+
+    let mock = MockKaspad::default();
+    mock.set_virtual_daa(2_000);
+    mock.set_utxos(fragmented(10, &script)); // 10 > trigger 5, but all protected
+
+    let engine = ConsolidationEngine::new(
+        pool.clone(),
+        mock.clone(),
+        secret,
+        addr,
+        engine_config(ExecutionMode::Live, 5, 2),
+    );
+
+    // Every spendable coin is a protected change output ⇒ nothing to sweep.
+    let ConsolidationTickOutcome::Ran(report) = engine.run_once().await.expect("tick") else {
+        panic!("leader");
+    };
+    assert_eq!(report.planned_batches, 0, "protected coins are not swept");
+    assert!(report.submitted_txids.is_empty());
+    let snap = treasury::latest(&pool)
+        .await
+        .expect("latest")
+        .expect("snap");
+    assert_eq!(
+        snap.utxo_count,
+        Some(0),
+        "protected change outputs are excluded from the spendable set"
+    );
+
+    // Once the payout confirms, its change output is releasable and sweeps.
+    sqlx::query("UPDATE payout SET status = 'confirmed', confirmed_at = now() WHERE cycle_id = $1")
+        .bind(cycle_id)
+        .execute(&pool)
+        .await
+        .expect("confirm");
+    let ConsolidationTickOutcome::Ran(report2) = engine.run_once().await.expect("tick2") else {
+        panic!("leader");
+    };
+    assert!(
+        report2.planned_batches > 0,
+        "confirmed-payout change is now eligible for consolidation"
+    );
+}

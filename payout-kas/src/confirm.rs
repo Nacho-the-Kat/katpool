@@ -44,18 +44,33 @@ pub struct ConfirmationInputs {
     /// Whether the txid is still in the mempool.
     pub in_mempool: bool,
     /// `block_daa_score` of an on-chain coin produced by this tx (the treasury
-    /// change output), if one is observed; `None` otherwise.
+    /// change output), if one is observed *this pass*; `None` otherwise.
     pub change_block_daa_score: Option<u64>,
+    /// Accepting DAA score durably recorded from a *previous* pass (the change
+    /// coin's height, persisted the first time it was seen). Lets confirmation
+    /// advance by depth even after the change coin has been spent, so a swept
+    /// change output can never strand an already-accepted payout. `None` until
+    /// acceptance has been observed once.
+    pub recorded_accept_daa: Option<u64>,
 }
 
 /// Fold raw chain reads into a [`ConfirmationState`].
 ///
-/// A positive on-chain signal (`change_block_daa_score`) is authoritative:
-/// the tx is at least Accepted, and Confirmed once matured. Without it, mempool
-/// presence means Pending, and absence is deliberately Unknown (not Failed).
+/// An accepting DAA score — observed live this pass (`change_block_daa_score`)
+/// or durably recorded from an earlier pass (`recorded_accept_daa`) — is
+/// authoritative: the tx is at least Accepted, and Confirmed once matured past
+/// the depth. The recorded score wins even when the change coin is no longer
+/// observable, so spending it cannot regress an accepted payout to Unknown.
+/// Without any accepting score, mempool presence means Pending and absence is
+/// deliberately Unknown (not Failed).
 #[must_use]
 pub const fn classify_confirmation(inputs: ConfirmationInputs) -> ConfirmationState {
-    match inputs.change_block_daa_score {
+    // Prefer the durably-recorded height; fall back to the live observation.
+    let accept_daa = match inputs.recorded_accept_daa {
+        Some(daa) => Some(daa),
+        None => inputs.change_block_daa_score,
+    };
+    match accept_daa {
         Some(daa) => {
             if inputs.virtual_daa_score >= daa.saturating_add(KAS_PAYOUT_CONFIRMATION_DAA) {
                 ConfirmationState::Confirmed
@@ -91,6 +106,7 @@ mod tests {
             virtual_daa_score: virtual_daa,
             in_mempool,
             change_block_daa_score: change,
+            recorded_accept_daa: None,
         }
     }
 
@@ -133,6 +149,33 @@ mod tests {
             classify_confirmation(inputs(v, true, Some(change))),
             ConfirmationState::Confirmed
         );
+    }
+
+    #[test]
+    fn recorded_score_confirms_even_after_change_coin_is_spent() {
+        // Change coin gone this pass and not in mempool — would be Unknown — but
+        // a previously-recorded accepting height past depth still Confirms.
+        let recorded = 1_000;
+        let v = recorded + KAS_PAYOUT_CONFIRMATION_DAA;
+        let i = ConfirmationInputs {
+            virtual_daa_score: v,
+            in_mempool: false,
+            change_block_daa_score: None,
+            recorded_accept_daa: Some(recorded),
+        };
+        assert_eq!(classify_confirmation(i), ConfirmationState::Confirmed);
+    }
+
+    #[test]
+    fn recorded_score_below_depth_stays_accepted_not_unknown() {
+        let recorded = 1_000;
+        let i = ConfirmationInputs {
+            virtual_daa_score: recorded + 1, // only 1 DAA past acceptance
+            in_mempool: false,
+            change_block_daa_score: None,
+            recorded_accept_daa: Some(recorded),
+        };
+        assert_eq!(classify_confirmation(i), ConfirmationState::Accepted);
     }
 
     #[test]
