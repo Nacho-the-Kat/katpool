@@ -83,7 +83,7 @@ export function HalvingModule() {
         <div className="space-y-5">
           {/* Countdown */}
           {data.next_halving ? (
-            <div className="flex items-end justify-between gap-3">
+            <div className="flex items-end gap-3">
               {remaining && !remaining.done ? (
                 <div className="flex items-start gap-2">
                   <Segment value={remaining.d} label="days" />

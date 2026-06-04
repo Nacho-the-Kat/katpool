@@ -20,9 +20,9 @@ export function MobileNav() {
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border bg-card p-4 shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left">
+        <Dialog.Content className="dark fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border bg-brand-bg p-4 text-foreground shadow-xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left">
           <div className="flex items-center justify-between">
-            <Brand className="px-1" />
+            <Brand className="px-1.5" />
             <Dialog.Close asChild>
               <Button variant="ghost" size="icon" aria-label="Close menu">
                 <X className="size-5" />

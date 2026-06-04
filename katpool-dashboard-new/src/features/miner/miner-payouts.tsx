@@ -64,7 +64,7 @@ export function MinerPayouts({ address }: { address: string }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" aria-label="Payout history">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Asset</th>
@@ -86,7 +86,7 @@ export function MinerPayouts({ address }: { address: string }) {
                     </td>
                     <td className="px-5 py-3 text-right tnum">{formatKas(p.amount.kas)}</td>
                     <td className="px-5 py-3">
-                      <Badge variant={STATUS[p.status]}>{p.status}</Badge>
+                      <Badge variant={STATUS[p.status] ?? "outline"}>{p.status}</Badge>
                     </td>
                     <td className="px-5 py-3">
                       {tx ? (

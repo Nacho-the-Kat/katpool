@@ -39,9 +39,9 @@ export function PoolRejectsPanel() {
       ) : (
         <DonutChart
           data={items}
-          valueFormatter={(v) => `${formatNumber(v)} shares`}
+          valueFormatter={(v) => `${formatNumber(v)} ${v === 1 ? "share" : "shares"}`}
           centerValue={formatNumber(data?.total ?? 0)}
-          centerLabel="rejects"
+          centerLabel={(data?.total ?? 0) === 1 ? "reject" : "rejects"}
           height={300}
         />
       )}

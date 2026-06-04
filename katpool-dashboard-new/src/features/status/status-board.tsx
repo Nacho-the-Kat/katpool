@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleAlert, CircleSlash } from "lucide-react";
+import { CheckCircle2, CircleAlert, CircleSlash, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Panel } from "@/components/dashboard/panel";
 import {
@@ -13,7 +13,7 @@ import { formatCompact, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { PoolRejectsPanel } from "./pool-rejects-panel";
 
-type Health = "ok" | "degraded" | "down";
+type Health = "ok" | "degraded" | "down" | "pending";
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -24,18 +24,19 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+const PILL_STYLE: Record<Health, { icon: typeof CheckCircle2; tone: string; spin?: boolean }> = {
+  ok: { icon: CheckCircle2, tone: "text-success bg-success/10 border-success/30" },
+  degraded: { icon: CircleAlert, tone: "text-warning bg-warning/10 border-warning/30" },
+  down: { icon: CircleSlash, tone: "text-destructive bg-destructive/10 border-destructive/30" },
+  pending: { icon: Loader2, tone: "text-muted-foreground bg-muted/50 border-border", spin: true },
+};
+
 function StatusPill({ state, label, detail }: { state: Health; label: string; detail: string }) {
-  const Icon = state === "ok" ? CheckCircle2 : state === "degraded" ? CircleAlert : CircleSlash;
-  const tone =
-    state === "ok"
-      ? "text-success bg-success/10 border-success/30"
-      : state === "degraded"
-        ? "text-warning bg-warning/10 border-warning/30"
-        : "text-destructive bg-destructive/10 border-destructive/30";
+  const { icon: Icon, tone, spin } = PILL_STYLE[state];
   return (
     <Card className="flex items-center gap-4 p-5">
       <span className={cn("flex size-11 items-center justify-center rounded-xl border", tone)}>
-        <Icon className="size-5" />
+        <Icon className={cn("size-5", spin && "animate-spin")} />
       </span>
       <div>
         <p className="font-medium">{label}</p>
@@ -56,19 +57,19 @@ export function StatusBoard() {
   const lastBlockAge = topBlock ? formatRelative(topBlock.found_at) : "—";
   const treasuryAge = stats.data?.treasury ? formatRelative(stats.data.treasury.captured_at) : "—";
 
-  const poolState: Health = stats.isError ? "down" : stats.isLoading ? "degraded" : "ok";
+  const poolState: Health = stats.isError ? "down" : stats.isLoading ? "pending" : "ok";
   const degraded = network.data?.degraded ?? [];
   const netState: Health = network.isError
     ? "down"
-    : degraded.length > 0
-      ? "degraded"
-      : network.isLoading
+    : network.isLoading
+      ? "pending"
+      : degraded.length > 0
         ? "degraded"
         : "ok";
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2" role="status" aria-live="polite">
         <StatusPill
           state={poolState}
           label="Pool API"
@@ -86,9 +87,11 @@ export function StatusBoard() {
           detail={
             netState === "down"
               ? "All upstream sources unavailable"
-              : degraded.length > 0
-                ? `Degraded: ${degraded.join(", ")}`
-                : "Kaspa API + CoinGecko healthy"
+              : netState === "pending"
+                ? "Connecting…"
+                : degraded.length > 0
+                  ? `Degraded: ${degraded.join(", ")}`
+                  : "Kaspa API + CoinGecko healthy"
           }
         />
       </div>

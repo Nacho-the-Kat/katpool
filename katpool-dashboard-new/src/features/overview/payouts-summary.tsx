@@ -50,7 +50,7 @@ export function PayoutsSummary() {
             icon={<Coins className="size-4" />}
             label="KAS paid (confirmed)"
             value={formatKas(data.payouts.kas_confirmed.kas)}
-            sub={formatUsd(sompiToUsd(data.payouts.kas_confirmed.sompi, kasUsd))}
+            sub={kasUsd != null ? formatUsd(sompiToUsd(data.payouts.kas_confirmed.sompi, kasUsd)) : undefined}
           />
           <Row
             icon={<Sparkles className="size-4" />}
@@ -65,7 +65,7 @@ export function PayoutsSummary() {
                 icon={<Landmark className="size-4" />}
                 label="Treasury KAS balance"
                 value={formatKas(data.treasury.kas_balance.kas)}
-                sub={formatUsd(sompiToUsd(data.treasury.kas_balance.sompi, kasUsd))}
+                sub={kasUsd != null ? formatUsd(sompiToUsd(data.treasury.kas_balance.sompi, kasUsd)) : undefined}
               />
             </>
           ) : null}

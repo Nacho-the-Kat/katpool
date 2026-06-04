@@ -9,11 +9,13 @@ export default function BlocksPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Blocks" description="Every block the pool has found, with live lifecycle status." />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <BlocksTable />
         </div>
-        <BlocksSummary />
+        <div className="lg:sticky lg:top-20">
+          <BlocksSummary />
+        </div>
       </div>
     </div>
   );

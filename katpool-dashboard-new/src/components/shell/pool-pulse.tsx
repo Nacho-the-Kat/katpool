@@ -8,24 +8,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function PoolPulse() {
   const { data, isLoading, isError } = usePoolStats();
 
+  // Colour the pulse by real connection state: red when unreachable, a calm
+  // amber while first connecting, green only once live data is in hand.
+  const tone = isError ? "bg-destructive" : isLoading ? "bg-warning" : "bg-success";
+  const status = isError ? "Pool unreachable" : isLoading ? "Connecting…" : "Live";
+
   return (
     <div className="mt-4 rounded-xl border border-border bg-elevated/60 p-3 elevation-1">
       <div className="flex items-center gap-2">
         <span className="relative flex size-2">
-          <span
-            className={`absolute inline-flex size-full animate-ping rounded-full opacity-75 ${
-              isError ? "bg-destructive" : "bg-success"
-            }`}
-          />
-          <span
-            className={`relative inline-flex size-2 rounded-full ${
-              isError ? "bg-destructive" : "bg-success"
-            }`}
-          />
+          {!isError ? (
+            <span className={`absolute inline-flex size-full animate-ping rounded-full opacity-75 ${tone}`} />
+          ) : null}
+          <span className={`relative inline-flex size-2 rounded-full ${tone}`} />
         </span>
-        <span className="text-xs font-medium text-muted-foreground">
-          {isError ? "Pool unreachable" : "Live"}
-        </span>
+        <span className="text-xs font-medium text-muted-foreground">{status}</span>
       </div>
       <div className="mt-2 space-y-1">
         <div className="flex items-center justify-between text-xs">

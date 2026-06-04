@@ -17,7 +17,7 @@ export default function LeadersPage() {
       />
       <LeaderboardTable limit={100} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="p-5 lg:col-span-2">
           <h3 className="text-sm font-semibold tracking-tight">How ranking works</h3>
           <ul className="mt-3 space-y-3 text-sm text-muted-foreground">

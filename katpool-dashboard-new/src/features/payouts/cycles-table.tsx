@@ -62,7 +62,7 @@ export function CyclesTable() {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" aria-label="Payout cycles">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="px-5 py-3 font-medium">Cycle</th>
@@ -85,7 +85,13 @@ export function CyclesTable() {
                   <td className="px-5 py-3">
                     <CycleStatusBadge status={c.status} />
                   </td>
-                  <td className="px-5 py-3 text-right tnum">{formatNumber(c.total_recipients)}</td>
+                  <td className="px-5 py-3 text-right tnum">
+                    {c.total_recipients > 0 ? (
+                      formatNumber(c.total_recipients)
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-right tnum">{formatKas(c.total.kas)}</td>
                   <td
                     className="px-5 py-3 text-right text-muted-foreground"

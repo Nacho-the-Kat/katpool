@@ -47,7 +47,10 @@ export function PayoutFlow() {
     return out;
   }, [data]);
 
-  const hasData = series.some((s) => s.points.length > 1);
+  // A single settled cycle is still real, distributed value — a one-series
+  // view renders it as a pulsed point with its value label rather than hiding
+  // it behind the empty state.
+  const hasData = series.some((s) => s.points.length > 0);
 
   return (
     <Panel

@@ -4,22 +4,24 @@ import { cn } from "@/lib/utils";
 
 const POOL_NAME = process.env.NEXT_PUBLIC_POOL_NAME ?? "katpool";
 
-/** Wordmark + glyph used in the sidebar and mobile header. */
+/**
+ * Horizontal wordmark (glyph + name) used in the sidebar and mobile header.
+ *
+ * The PNG carries its own deep-teal background (`#060e11`); surfaces that host
+ * it match that exact fill so the mark blends in with no visible plate or
+ * framing.
+ */
 export function Brand({ className }: { className?: string }) {
   return (
-    <Link href="/" className={cn("flex items-center gap-2.5", className)} aria-label={`${POOL_NAME} home`}>
+    <Link href="/" className={cn("flex items-center", className)} aria-label={`${POOL_NAME} home`}>
       <Image
-        src="/brand/katpool-icon.png"
-        alt=""
-        width={32}
-        height={32}
+        src="/katpool-wordmark.png"
+        alt={POOL_NAME}
+        width={2500}
+        height={800}
         priority
-        className="size-8 rounded-lg shadow-[var(--shadow-glow)]"
+        className="h-9 w-auto select-none"
       />
-      <span className="text-base font-semibold tracking-tight">
-        {POOL_NAME}
-        <span className="text-primary">.</span>
-      </span>
     </Link>
   );
 }
