@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     const now = Math.floor(Date.now() / 1000);
 
     // Create API calls for each time window
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const fetchPromises = Object.entries(timeWindows).map(([key, window]) => {
       const end = now;
       const start = end - window.duration;

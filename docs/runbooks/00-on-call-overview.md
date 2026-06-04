@@ -27,7 +27,7 @@ fires, someone responds. Severity matrix:
 |---|---|
 | Telegram operator chat | First place to declare an incident |
 | GitHub issue (incident template) | Source of truth for incident state |
-| Status page (status.katpool.xyz) | Public-facing updates for SEV-1 and SEV-2 |
+| Status page (status.katpool.com) | Public-facing updates for SEV-1 and SEV-2 |
 | ntfy.sh push | Where alerts arrive |
 
 ## First 5 minutes of any incident

@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const start = end - (8 * 24 * 60 * 60); // 8 days ago
     const step = '1h'; // Get hourly data points for more accuracy
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query_range`);
     
     // Construct and encode the full query parameter

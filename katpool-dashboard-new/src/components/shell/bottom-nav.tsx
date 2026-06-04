@@ -8,7 +8,10 @@ import { cn } from "@/lib/utils";
 /** Fixed bottom navigation for mobile (primary destinations only). */
 export function BottomNav() {
   const pathname = usePathname();
-  const items = NAV_ITEMS.slice(0, 5);
+  // Quick-access bar: the CTA plus the four destinations miners hit most.
+  // Leaderboard + Status stay one tap away in the drawer menu.
+  const HIDDEN = new Set(["/leaders", "/status"]);
+  const items = NAV_ITEMS.filter((i) => !HIDDEN.has(i.href)).slice(0, 5);
 
   return (
     <nav className="glass fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-border px-2 py-1.5 lg:hidden">
@@ -24,7 +27,7 @@ export function BottomNav() {
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex flex-1 flex-col items-center gap-0.5 rounded-md py-1 text-[10px] font-medium transition-colors",
-              active ? "text-primary" : "text-muted-foreground",
+              active || item.cta ? "text-primary" : "text-muted-foreground",
             )}
           >
             <Icon className="size-5" />

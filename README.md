@@ -14,7 +14,7 @@ Railway TCP edges, and observed by a self-hosted Grafana LGTM stack.
 > **In active development.** The implementation plan and current phase
 > are tracked in [`docs/architecture.md`](docs/architecture.md) and the
 > root plan document. Production is the previous-generation pool at
-> `kas.katpool.xyz` until cutover (Phase 10).
+> `kas.katpool.com` until cutover (Phase 10).
 
 ## At a glance
 

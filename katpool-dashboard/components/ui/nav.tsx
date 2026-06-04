@@ -26,7 +26,7 @@ export default function Nav() {
         <ul className="flex grow justify-start flex-wrap items-center">
           <li className="relative group">
             <Link
-              href="https://katpool.xyz"
+              href="https://katpool.com"
               className="flex items-center px-3 py-2 text-sm font-medium transition-colors"
             >
               <Image
@@ -130,7 +130,7 @@ export default function Nav() {
       {/* Mobile Navigation */}
       <nav className="flex lg:hidden fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-lg z-[9999]">
         <div className="flex items-center justify-between w-full px-4 py-3">
-          <Link href="https://katpool.xyz" className="flex-shrink-0">
+          <Link href="https://katpool.com" className="flex-shrink-0">
             <Image
               src="/images/navlogo.png"
               alt="Navigation Logo"

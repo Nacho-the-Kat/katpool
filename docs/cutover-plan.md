@@ -33,9 +33,9 @@ connecting to the new pool.
 
 - Post on Telegram channel: scheduled maintenance window, expected
   duration < 5 minutes user-visible
-- Update status.katpool.xyz banner with cutover date and time
+- Update status.katpool.com banner with cutover date and time
 - Email operators of largest miners (if any) directly
-- Update kas.katpool.xyz landing page with the window
+- Update kas.katpool.com landing page with the window
 
 ### T-72h: Long shadow run starts
 
@@ -109,9 +109,9 @@ connecting to the new pool.
 ### T-0: DNS flip + start
 
 - Flip CNAME records:
-  - `kas.katpool.xyz` → Railway TCP edge (us-east) → NetCup VPS
-  - `kas-eu.katpool.xyz` → Railway TCP edge (eu-west)
-  - `kas-ap.katpool.xyz` → Railway TCP edge (ap-southeast)
+  - `kas.katpool.com` → Railway TCP edge (us-east) → NetCup VPS
+  - `kas-eu.katpool.com` → Railway TCP edge (eu-west)
+  - `kas-ap.katpool.com` → Railway TCP edge (ap-southeast)
 - `systemctl start katpool` on the new VPS.
 - Watch logs: expect "katpool started OK", first stratum
   connection within seconds, first share within ~30 s, first

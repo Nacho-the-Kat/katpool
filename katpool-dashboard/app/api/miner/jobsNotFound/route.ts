@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const start = end - (48 * 60 * 60); // 48 hours ago
     const step = 12 * 60 * 60; // 12 hour steps
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query_range`);
     
     // Construct and encode the full query parameter

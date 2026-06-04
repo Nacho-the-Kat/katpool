@@ -70,7 +70,7 @@ export default function Pricing() {
                   <span className="font-medium text-gray-400">‎ ‎ pool fee</span>
                 </div>
                 <div className="text-gray-400 mb-6">Standard pool fee before any discounts.</div>
-                <a className="btn-sm text-white bg-gradient-to-t from-customPrimary to-customPrimary hover:to-customSecondary w-full shadow-lg group" href="https://app.katpool.xyz" target="_blank" rel="noopener noreferrer">
+                <a className="btn-sm text-white bg-gradient-to-t from-customPrimary to-customPrimary hover:to-customSecondary w-full shadow-lg group" href="https://app.katpool.com" target="_blank" rel="noopener noreferrer">
                   Get Connected Now{' '}
                   <span className="tracking-normal text-customSecondary group-hover:translate-x-0.5 transition-transform duration-150 ease-in-out ml-1">
                     -&gt;

@@ -3,11 +3,11 @@
 # One app, one anycast IPv4, deployed to the 7 legacy regions. Each of the
 # 8 legacy stratum ports is a TCP service with the `proxy_proto` handler
 # (v2) so HAProxy on the machine receives the real miner IP and forwards it
-# to the NetCup origin. All legacy *.katpool.xyz names plus the new .com
+# to the NetCup origin. All legacy *.katpool.com names plus the new .com
 # mirror resolve to this app's anycast IP.
 #
 # Set the origin before first deploy:
-#   fly secrets set KATPOOL_ORIGIN_HOST=kas-origin.katpool.xyz
+#   fly secrets set KATPOOL_ORIGIN_HOST=kas-origin.katpool.com
 # Allocate a DEDICATED anycast IPv4 (raw TCP does NOT work on fly's shared
 # IPv4 — that path needs TLS SNI / HTTP Host to route) plus a v6:
 #   fly ips allocate-v4            # dedicated; do NOT use --shared here

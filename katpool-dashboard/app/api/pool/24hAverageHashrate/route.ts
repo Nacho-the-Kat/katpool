@@ -10,7 +10,7 @@ export async function GET() {
   const traceId = headersList.get('x-trace-id') || undefined;
 
   try {
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query`)
     url.searchParams.append('query', 'avg_over_time(pool_hash_rate_GHps[24h])')
     

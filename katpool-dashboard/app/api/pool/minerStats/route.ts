@@ -46,7 +46,7 @@ export async function GET() {
     const start = 1735689600; // Jan 1 2025 at 12am midnight UTC
     const step = 24 * 60 * 60; // 24 hours in seconds
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query_range`);
     url.searchParams.append('query', 'added_miner_shares_1min_count');
     url.searchParams.append('start', start.toString());

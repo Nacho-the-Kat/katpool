@@ -49,8 +49,8 @@ export async function GET() {
     const start = end - (48 * 60 * 60);
     const step = 300;
 
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
-    const metricsBaseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
+    const metricsBaseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
 
     // Prepare URLs for parallel requests
     const hashrateUrl = new URL(`${metricsBaseUrl}/api/v1/query_range`);

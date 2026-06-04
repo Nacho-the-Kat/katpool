@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const endTime = end ? parseInt(end) : Math.floor(Date.now() / 1000);
     const startTime = start ? parseInt(start) : endTime - (60 * 60); // Default to last hour
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query_range`);
     
     // Query for active workers count over 10-minute periods, filtering out inactive workers and those without ASIC type

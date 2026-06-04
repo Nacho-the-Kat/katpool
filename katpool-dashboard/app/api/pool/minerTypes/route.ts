@@ -15,7 +15,7 @@ export async function GET() {
     const start = end - (10 * 60); // Last 10 minutes
     const step = 10; // 1-minute intervals
 
-    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.METRICS_BASE_URL || 'http://kas.katpool.com:8080';
     const url = new URL(`${baseUrl}/api/v1/query_range`);
     url.searchParams.append('query', 'active_workers_10m_count');
     url.searchParams.append('start', start.toString());

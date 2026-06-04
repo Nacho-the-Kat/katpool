@@ -55,7 +55,7 @@ npm run build               # production build (standalone output)
 
 | Variable | Required | Description |
 |---|---|---|
-| `KATPOOL_API_BASE_URL` | yes | katpool v1 API base, e.g. `https://kas.katpool.xyz/api/v1` |
+| `KATPOOL_API_BASE_URL` | yes | katpool v1 API base, e.g. `https://kas.katpool.com/api/v1` |
 | `KASPA_API_BASE_URL` | no | Kaspa public API (default `https://api.kaspa.org`) |
 | `COINGECKO_API_KEY` | no\* | CoinGecko key (server-side). \*Recommended to avoid rate limits |
 | `COINGECKO_PLAN` | no | `demo` (default) or `pro` — selects host + auth header |

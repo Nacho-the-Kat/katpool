@@ -17,7 +17,7 @@ Sources: live legacy `config/received_config.json`, the legacy
 `katpool-app` `docker-compose.yml` (binds ports `1111–8888`), and the
 operator.
 
-- **Origin**: `kas.katpool.xyz` — the unified pool host on the NetCup
+- **Origin**: `kas.katpool.com` — the unified pool host on the NetCup
   VPS. Not one of the regional names.
 - **Geo edge**: 7 regional subdomains, each a *thin TCP forwarder*
   hosted on **fly.io**, exposing **all 8 ports** and forwarding
@@ -32,14 +32,14 @@ operator.
 
 | Hostname | Region | fly.io region code¹ |
 |---|---|---|
-| `kas.katpool.xyz` (origin) | NetCup (Germany) — pool origin | n/a |
-| `na-west.katpool.xyz` | California, US | `sjc` |
-| `na-east.katpool.xyz` | Virginia, US | `iad` |
-| `eu.katpool.xyz` | Germany | `fra` |
-| `ap.katpool.xyz` | Singapore | `sin` |
-| `hkg.katpool.xyz` | Hong Kong | `hkg` |
-| `sa.katpool.xyz` | Brazil | `gru` |
-| `au.katpool.xyz` | Australia | `syd` |
+| `kas.katpool.com` (origin) | NetCup (Germany) — pool origin | n/a |
+| `na-west.katpool.com` | California, US | `sjc` |
+| `na-east.katpool.com` | Virginia, US | `iad` |
+| `eu.katpool.com` | Germany | `fra` |
+| `ap.katpool.com` | Singapore | `sin` |
+| `hkg.katpool.com` | Hong Kong | `hkg` |
+| `sa.katpool.com` | Brazil | `gru` |
+| `au.katpool.com` | Australia | `syd` |
 
 ¹ Region codes are the expected fly.io mapping; confirm against
 `flyctl platform regions` at implementation time (Gap-validation T1).
@@ -130,7 +130,7 @@ unsuitable**: Railway assigns an immutable, Railway-chosen proxy port
 (e.g. `…:15140`) and
 [does not allow choosing a custom port](https://station.railway.com/questions/railway-tcp-proxy-port-d05d9190);
 custom domains via CNAME still force connecting on Railway's port. A
-miner dialing `eu.katpool.xyz:7777` cannot be served. **Decision: use
+miner dialing `eu.katpool.com:7777` cannot be served. **Decision: use
 fly.io anycast** (Section 2), which also matches the legacy edge. The
 edge portion of ADR-0005 is superseded by ADR-0022; the fly app is in
 `ops/edge/flyio/`.

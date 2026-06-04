@@ -13,13 +13,13 @@ Treat as SEV-1 — by definition, miners can see this.
 
 ```bash
 # From an external host (not the pool VPS itself)
-curl -fsS https://kas.katpool.xyz/health
-curl -fsS https://kas.katpool.xyz/ready
+curl -fsS https://kas.katpool.com/health
+curl -fsS https://kas.katpool.com/ready
 
 # Public stratum endpoint
-nc -zv kas.katpool.xyz 3333    # primary stratum port
-nc -zv kas.katpool.xyz 5555
-nc -zv kas.katpool.xyz 8888
+nc -zv kas.katpool.com 3333    # primary stratum port
+nc -zv kas.katpool.com 5555
+nc -zv kas.katpool.com 8888
 ```
 
 If those fail, identify the layer:

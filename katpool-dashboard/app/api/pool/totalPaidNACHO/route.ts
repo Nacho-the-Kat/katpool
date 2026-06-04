@@ -13,7 +13,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const wallet = searchParams.get('wallet');
     
-    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.xyz:8080';
+    const baseUrl = process.env.API_BASE_URL || 'http://kas.katpool.com:8080';
     const url = wallet 
       ? `${baseUrl}/api/pool/totalPaidNACHO?wallet=${encodeURIComponent(wallet)}`
       : `${baseUrl}/api/pool/totalPaidNACHO`;
