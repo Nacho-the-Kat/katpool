@@ -5,7 +5,7 @@ import { AddressDisplay } from "@/components/dashboard/address-display";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFullRebate, useMinerProfile } from "@/lib/api/hooks";
-import { formatRelative } from "@/lib/format";
+import { formatDateTime, formatRelative } from "@/lib/format";
 import { SetAsMineToggle } from "./set-as-mine-toggle";
 
 /** Miner page header: address, network, rebate tier, first/last seen. */
@@ -37,10 +37,12 @@ export function MinerHeader({ address }: { address: string }) {
           ) : (
             <>
               <p>
-                First seen <span title={data.first_seen_at}>{formatRelative(data.first_seen_at)}</span>
+                First seen{" "}
+                <span title={formatDateTime(data.first_seen_at)}>{formatRelative(data.first_seen_at)}</span>
               </p>
               <p>
-                Last seen <span title={data.last_seen_at}>{formatRelative(data.last_seen_at)}</span>
+                Last seen{" "}
+                <span title={formatDateTime(data.last_seen_at)}>{formatRelative(data.last_seen_at)}</span>
               </p>
             </>
           )}

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Info } from "lucide-react";
 import { Panel } from "@/components/dashboard/panel";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
 import { useFirmware } from "@/lib/api/hooks";
 import { formatNumber } from "@/lib/format";
 
@@ -35,7 +35,7 @@ export function FirmwarePanel() {
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
-        <LoadingRows rows={5} />
+        <ChartSkeleton height={300} />
       ) : items.length === 0 ? (
         <EmptyState
           icon={<Info className="size-7" />}

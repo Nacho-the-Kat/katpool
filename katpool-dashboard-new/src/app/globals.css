@@ -239,6 +239,19 @@
   animation: live-pulse 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Brief teal wash as a freshly-arrived row settles into a live table. */
+@keyframes row-flash {
+  0% {
+    background-color: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.row-flash {
+  animation: row-flash 1.6s ease-out;
+}
+
 @keyframes shimmer {
   100% {
     transform: translateX(100%);

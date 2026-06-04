@@ -95,3 +95,18 @@ export function LoadingRows({ rows = 5, className }: { rows?: number; className?
     </div>
   );
 }
+
+/**
+ * A single full-height skeleton sized to the chart it stands in for, so the
+ * panel doesn't jolt when loaded data swaps a row-list skeleton for a chart.
+ */
+export function ChartSkeleton({ height = 300, className }: { height?: number; className?: string }) {
+  return (
+    <Skeleton
+      className={cn("w-full rounded-xl", className)}
+      style={{ height }}
+      aria-busy="true"
+      aria-live="polite"
+    />
+  );
+}

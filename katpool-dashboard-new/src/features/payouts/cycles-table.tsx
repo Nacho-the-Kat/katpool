@@ -6,8 +6,10 @@ import { Panel } from "@/components/dashboard/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { LiveBadge } from "@/components/dashboard/live-badge";
 import { CycleStatusBadge } from "./cycle-status-badge";
 import { usePayoutCycles } from "@/lib/api/hooks";
+import { useHighlightNew } from "@/lib/use-highlight-new";
 import { formatDateTime, formatKas, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -17,19 +19,22 @@ const PAGE = 25;
 export function CyclesTable() {
   const [stack, setStack] = useState<number[]>([]);
   const before = stack[stack.length - 1];
-  const { data, isLoading, isError, refetch } = usePayoutCycles(PAGE, before);
+  const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = usePayoutCycles(PAGE, before);
 
   // "Planned" cycles are an internal pre-broadcast bookkeeping state with no
   // distributed value yet; they only add noise to the public ledger, so hide
   // them and surface cycles from the moment they actually broadcast.
   const cycles = (data?.cycles ?? []).filter((c) => c.status !== "planned");
+  const onFirstPage = stack.length === 0;
+  const fresh = useHighlightNew(onFirstPage ? cycles.map((c) => c.id) : []);
 
   return (
     <Panel
       title="Payout cycles"
       description="KAS and NACHO distribution cycles, newest first"
       actions={
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="mr-1 hidden sm:inline-flex" />
           <Button
             variant="outline"
             size="icon"
@@ -79,7 +84,13 @@ export function CyclesTable() {
             </thead>
             <tbody>
               {cycles.map((c) => (
-                <tr key={c.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                <tr
+                  key={c.id}
+                  className={cn(
+                    "border-b border-border/60 transition-colors hover:bg-muted/40",
+                    fresh.has(c.id) && "row-flash",
+                  )}
+                >
                   <td className="px-3 py-3 sm:px-5 font-mono text-xs text-muted-foreground">#{c.id}</td>
                   <td className="px-3 py-3 sm:px-5">
                     <span className="inline-flex items-center gap-2">

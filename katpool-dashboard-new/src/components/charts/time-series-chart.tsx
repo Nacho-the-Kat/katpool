@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
@@ -41,6 +41,12 @@ export function TimeSeriesChart({
   // A top-right legend collides with the plot on narrow screens; center it.
   const isNarrow = useMediaQuery("(max-width: 639px)");
 
+  // Hold the formatter in a ref so an inline `valueFormatter` from the caller
+  // (a fresh function each render) doesn't bust the option memo and force a
+  // `setOption` — which would dismiss an open tooltip on every background poll.
+  const fmtRef = useRef(valueFormatter);
+  fmtRef.current = valueFormatter;
+
   const option = useMemo<EChartsCoreOption>(() => {
     const palette = tokens.series;
     const single = series.length === 1;
@@ -66,7 +72,7 @@ export function TimeSeriesChart({
           single && last
             ? {
                 show: true,
-                formatter: () => valueFormatter(last.v),
+                formatter: () => fmtRef.current(last.v),
                 color: tokens.text,
                 backgroundColor: withAlpha(tokens.tooltipBg, 0.9),
                 borderColor: withAlpha(color, 0.5),
@@ -114,7 +120,7 @@ export function TimeSeriesChart({
       tooltip: {
         trigger: "axis",
         axisPointer: crosshair(tokens),
-        valueFormatter: (v: unknown) => valueFormatter(Number(v)),
+        valueFormatter: (v: unknown) => fmtRef.current(Number(v)),
         ...chartTooltip(tokens),
       },
       legend: multi
@@ -137,7 +143,7 @@ export function TimeSeriesChart({
       },
       yAxis: {
         type: "value",
-        axisLabel: { color: tokens.muted, fontSize: 11, formatter: (v: number) => valueFormatter(v) },
+        axisLabel: { color: tokens.muted, fontSize: 11, formatter: (v: number) => fmtRef.current(v) },
         splitLine: splitLine(tokens),
       },
       dataZoom: showZoom
@@ -160,7 +166,7 @@ export function TimeSeriesChart({
         : undefined,
       series: [...lineSeries, ...pulse],
     };
-  }, [series, tokens, valueFormatter, showZoom, smooth, isNarrow]);
+  }, [series, tokens, showZoom, smooth, isNarrow]);
 
   return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }

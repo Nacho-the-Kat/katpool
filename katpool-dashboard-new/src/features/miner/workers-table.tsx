@@ -2,6 +2,7 @@
 
 import { Panel } from "@/components/dashboard/panel";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { LiveBadge } from "@/components/dashboard/live-badge";
 import { useMinerWorkers } from "@/lib/api/hooks";
 import { formatDateTime, formatHashrate, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -11,11 +12,16 @@ const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
 
 /** Per-worker breakdown for a miner. */
 export function WorkersTable({ address }: { address: string }) {
-  const { data, isLoading, isError, refetch } = useMinerWorkers(address);
+  const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useMinerWorkers(address);
   const workers = data?.workers ?? [];
 
   return (
-    <Panel title="Workers" description="Per-rig activity in the recent window" bodyClassName="p-0">
+    <Panel
+      title="Workers"
+      description="Per-rig activity in the recent window"
+      actions={<LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="hidden sm:inline-flex" />}
+      bodyClassName="p-0"
+    >
       {isError ? (
         <div className="p-5">
           <ErrorState onRetry={() => void refetch()} />

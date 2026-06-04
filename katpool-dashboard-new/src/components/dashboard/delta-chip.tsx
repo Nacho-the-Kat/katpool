@@ -15,7 +15,9 @@ export function DeltaChip({
   /** When true, down is good (e.g. reject rate). */
   invert?: boolean;
 }) {
-  if (value == null || !Number.isFinite(value) || Math.abs(value) < 0.05) {
+  // Unknown/absent change reads as an em dash — never a fabricated "0.0%".
+  const unknown = value == null || !Number.isFinite(value);
+  if (unknown || Math.abs(value) < 0.05) {
     return (
       <span
         className={cn(
@@ -23,8 +25,14 @@ export function DeltaChip({
           className,
         )}
       >
-        <Minus className="size-3" />
-        0.0%
+        {unknown ? (
+          "—"
+        ) : (
+          <>
+            <Minus className="size-3" />
+            0.0%
+          </>
+        )}
       </span>
     );
   }

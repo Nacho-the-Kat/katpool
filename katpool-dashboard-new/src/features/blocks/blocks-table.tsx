@@ -6,10 +6,13 @@ import { Panel } from "@/components/dashboard/panel";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { CopyButton } from "@/components/dashboard/copy-button";
+import { LiveBadge } from "@/components/dashboard/live-badge";
 import { BlockStatusBadge } from "./block-status-badge";
 import { useBlocks } from "@/lib/api/hooks";
+import { useHighlightNew } from "@/lib/use-highlight-new";
 import { formatDateTime, formatKas, formatNumber, formatRelative, truncateMiddle } from "@/lib/format";
 import { explorerBlock } from "@/lib/explorer";
+import { cn } from "@/lib/utils";
 
 const PAGE = 25;
 
@@ -17,9 +20,12 @@ const PAGE = 25;
 export function BlocksTable() {
   const [stack, setStack] = useState<number[]>([]);
   const before = stack[stack.length - 1];
-  const { data, isLoading, isError, refetch } = useBlocks(PAGE, before);
+  const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useBlocks(PAGE, before);
 
   const blocks = data?.blocks ?? [];
+  // Only flash new rows on the live (first) page — never while paging history.
+  const onFirstPage = stack.length === 0;
+  const fresh = useHighlightNew(onFirstPage ? blocks.map((b) => b.id) : []);
   // The reward field is populated on mainnet but null on TN10; only show the
   // column when at least one block carries a value, so it never reads as a
   // dead, unfinished column.
@@ -30,7 +36,8 @@ export function BlocksTable() {
       title="Recent blocks"
       description="Blocks found by the pool, newest first"
       actions={
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="mr-1 hidden sm:inline-flex" />
           <Button
             variant="outline"
             size="icon"
@@ -79,7 +86,13 @@ export function BlocksTable() {
             </thead>
             <tbody>
               {blocks.map((b) => (
-                <tr key={b.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                <tr
+                  key={b.id}
+                  className={cn(
+                    "border-b border-border/60 transition-colors hover:bg-muted/40",
+                    fresh.has(b.id) && "row-flash",
+                  )}
+                >
                   <td className="px-3 py-3 sm:px-5">
                     <span className="inline-flex items-center gap-1.5 font-mono text-xs">
                       {truncateMiddle(b.hash, 12, 8)}
@@ -89,7 +102,7 @@ export function BlocksTable() {
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label="View block on explorer"
-                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:size-6"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-6"
                       >
                         <ExternalLink className="size-3.5" />
                       </a>

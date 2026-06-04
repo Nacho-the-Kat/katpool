@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import { EChart } from "./echart";
 import { useChartTokens } from "./use-tokens";
@@ -28,6 +28,10 @@ export function HBarChart({
 }: HBarChartProps) {
   const tokens = useChartTokens();
 
+  // Keep an inline `valueFormatter` from busting the option memo on each poll.
+  const fmtRef = useRef(valueFormatter);
+  fmtRef.current = valueFormatter;
+
   const option = useMemo<EChartsCoreOption>(() => {
     const color = tokens.series[colorIndex % tokens.series.length] ?? "#49eacb";
     const sorted = [...data].sort((a, b) => a.value - b.value);
@@ -40,7 +44,7 @@ export function HBarChart({
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow", shadowStyle: { color: withAlpha(color, 0.08) } },
-        valueFormatter: (v: unknown) => valueFormatter(Number(v)),
+        valueFormatter: (v: unknown) => fmtRef.current(Number(v)),
         ...chartTooltip(tokens),
       },
       xAxis: {
@@ -88,12 +92,12 @@ export function HBarChart({
             position: "right",
             color: tokens.muted,
             fontSize: 11,
-            formatter: (p: { value: number }) => valueFormatter(p.value),
+            formatter: (p: { value: number }) => fmtRef.current(p.value),
           },
         },
       ],
     };
-  }, [data, tokens, valueFormatter, colorIndex]);
+  }, [data, tokens, colorIndex]);
 
   return <EChart option={option} height={height} replaceMerge={REPLACE_SERIES} />;
 }

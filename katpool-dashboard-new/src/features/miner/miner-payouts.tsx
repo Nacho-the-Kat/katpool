@@ -6,7 +6,9 @@ import { Panel } from "@/components/dashboard/panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
+import { LiveBadge } from "@/components/dashboard/live-badge";
 import { useMinerPayouts, useNetworkContext } from "@/lib/api/hooks";
+import { useHighlightNew } from "@/lib/use-highlight-new";
 import { formatDateTime, formatKas, formatRelative, formatUsd, sompiToUsd } from "@/lib/format";
 import { explorerTx } from "@/lib/explorer";
 import { cn } from "@/lib/utils";
@@ -18,17 +20,20 @@ const PAGE = 25;
 export function MinerPayouts({ address }: { address: string }) {
   const [stack, setStack] = useState<number[]>([]);
   const before = stack[stack.length - 1];
-  const { data, isLoading, isError, refetch } = useMinerPayouts(address, PAGE, before);
+  const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useMinerPayouts(address, PAGE, before);
   const network = useNetworkContext();
   const kasUsd = network.data?.prices.kas_usd ?? null;
   const payouts = data?.payouts ?? [];
+  const onFirstPage = stack.length === 0;
+  const fresh = useHighlightNew(onFirstPage ? payouts.map((p) => p.id) : []);
 
   return (
     <Panel
       title="Payout history"
       description="Your KAS and NACHO payouts, newest first"
       actions={
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="mr-1 hidden sm:inline-flex" />
           <Button variant="outline" size="icon" aria-label="Previous page" disabled={stack.length === 0} onClick={() => setStack((s) => s.slice(0, -1))}>
             <ChevronLeft className="size-4" />
           </Button>
@@ -75,7 +80,13 @@ export function MinerPayouts({ address }: { address: string }) {
                 const usd = kasUsd != null ? sompiToUsd(p.amount.sompi, kasUsd) : null;
                 const when = p.confirmed_at ?? p.submitted_at ?? p.planned_at;
                 return (
-                  <tr key={p.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+                  <tr
+                    key={p.id}
+                    className={cn(
+                      "border-b border-border/60 transition-colors hover:bg-muted/40",
+                      fresh.has(p.id) && "row-flash",
+                    )}
+                  >
                     <td className="px-3 py-3 sm:px-5">
                       <span className="inline-flex items-center gap-2">
                         <span
