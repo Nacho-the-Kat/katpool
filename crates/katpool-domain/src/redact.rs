@@ -6,7 +6,7 @@
 //! extends this to never emitting treasury address material into telemetry.
 //!
 //! This is the single canonical redactor for the workspace: the API layer
-//! ([`api::redact`]) and the runtime binary both route through it so every
+//! (`api::redact`) and the runtime binary both route through it so every
 //! emitted tag has identical, low-information shape. Response bodies still
 //! return the full address the caller already supplied — redaction applies
 //! only to the telemetry side (span fields, log lines), never to data the

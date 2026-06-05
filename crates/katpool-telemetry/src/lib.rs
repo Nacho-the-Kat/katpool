@@ -10,7 +10,7 @@
 //! 2. A formatting layer that emits either machine-readable **JSON** (one
 //!    object per event, suited to Loki/`journald` ingestion) or human-readable
 //!    text. Both carry event fields — including the `correlation_id` that the
-//!    domain attaches to every [`PoolEvent`](katpool_domain::PoolEvent) — so a
+//!    domain attaches to every `PoolEvent` — so a
 //!    single share or payout can be traced end-to-end across async tasks.
 //! 3. An optional OpenTelemetry OTLP/gRPC export layer
 //!    ([`tracing_opentelemetry`]) that ships spans to a collector (Tempo, per
@@ -26,7 +26,7 @@
 //!
 //! This crate never logs secret material itself. Callers must redact
 //! semi-sensitive identifiers (wallet/treasury addresses) before emitting them
-//! via [`katpool_domain::redact`]; treasury *key* material is structurally
+//! via `katpool_domain::redact`; treasury *key* material is structurally
 //! unloggable (`katpool_secrets::TreasurySecret` has no `Debug`/`Display`).
 
 #![cfg_attr(not(test), warn(missing_docs))]
