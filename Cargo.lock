@@ -3875,7 +3875,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4053,9 +4052,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "serde",
  "thiserror 2.0.18",
- "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]

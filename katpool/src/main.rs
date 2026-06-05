@@ -92,6 +92,21 @@
 //!   event-backlog drain at SIGTERM: the consumer persists everything already
 //!   on the bus before exiting, bounded by this budget.
 //!
+//! Telemetry (B1/B2; installed before config load so even a bad config logs):
+//! - `KATPOOL_LOG_FORMAT`            `text` (default) or `json`. `text` is the
+//!   `journalctl`-friendly single line; `json` emits one structured object per
+//!   event for Loki ingestion (recommended once log shipping exists). An
+//!   unrecognised value falls back to `text` rather than failing to boot.
+//! - `KATPOOL_OTLP_ENDPOINT`         OTLP/gRPC collector endpoint (e.g.
+//!   `http://tempo:4317`) for distributed-trace export (ADR-0004). Empty/unset
+//!   disables span export entirely (the default until the LGTM stack exists).
+//! - `OTEL_SERVICE_NAME`             overrides the exported `service.name`
+//!   (defaults to `KATPOOL_INSTANCE_ID`).
+//!
+//! Treasury and wallet addresses are redacted to a `prefix:…last4` tag in all
+//! logs/traces (`katpool_domain::redact`); treasury key material is structurally
+//! unloggable (`katpool_secrets::TreasurySecret`).
+//!
 //! Public read-only HTTP API (Phase 6 — opt-in, ADR-0021):
 //! - `KATPOOL_API_PORT`              bind address `host:port` (e.g.
 //!   `127.0.0.1:8080`); empty = disabled. Serves the unversioned `/health`
@@ -185,8 +200,9 @@ use kaspa_stratum_bridge::{
     BridgeConfig as BridgeServerConfig, KaspaApi, listen_and_serve_with_events, prom,
 };
 use katpool_db::{PoolConfig, build_pool};
-use katpool_domain::PoolEvent;
+use katpool_domain::{PoolEvent, redact};
 use katpool_secrets::{load_from_path, load_from_systemd_credential};
+use katpool_telemetry::TelemetryConfig;
 use payout_kas::{
     ConsolidationEngine, ConsolidationEngineConfig, DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI,
     ExecutionMode, GrpcKaspadClient, PayoutEngine, PayoutEngineConfig,
@@ -202,7 +218,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::signal;
 use tokio::sync::{broadcast, watch};
 use tracing::{error, info, warn};
-use tracing_subscriber::EnvFilter;
 
 use accountant::{
     AllocationEngine, ConsumerConfig, EventConsumer, FeeConfig, GeoIp, KaspadGrpcClient,
@@ -217,12 +232,14 @@ use accountant::{
 #[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .with_target(true)
-        .init();
+    // Install telemetry before anything else so even config-load failures are
+    // captured. `service.name` mirrors the instance id (read directly here so
+    // the subscriber is live before the full `RuntimeConfig` parse); format and
+    // OTLP export are env-driven (`KATPOOL_LOG_FORMAT`, `KATPOOL_OTLP_ENDPOINT`).
+    let telemetry_service =
+        std::env::var("KATPOOL_INSTANCE_ID").unwrap_or_else(|_| "katpool-runtime".to_owned());
+    let _telemetry = katpool_telemetry::init(&TelemetryConfig::from_env(telemetry_service))
+        .context("initializing telemetry")?;
 
     let arg_list: Vec<String> = std::env::args().skip(1).collect();
     let command = parse_args(&arg_list).context("parsing arguments")?;
@@ -244,7 +261,11 @@ async fn main() -> Result<()> {
         kaspad = %cfg.kaspad_url,
         stratum_port = %cfg.stratum_port,
         network = %cfg.network,
-        pool_addresses = ?cfg.pool_addresses.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        pool_addresses = ?cfg
+            .pool_addresses
+            .iter()
+            .map(|a| redact::address(&a.to_string()))
+            .collect::<Vec<_>>(),
         "katpool runtime starting"
     );
 
@@ -284,8 +305,9 @@ async fn main() -> Result<()> {
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("KATPOOL_POOL_ADDRESS is empty"))?;
     if cfg.pool_addresses.len() > 1 {
+        let coinbase_tag = redact::address(&coinbase_override.to_string());
         warn!(
-            "multiple pool addresses supplied; bridge coinbase override uses the first ({coinbase_override}); accountant reward extraction matches against all"
+            "multiple pool addresses supplied; bridge coinbase override uses the first ({coinbase_tag}); accountant reward extraction matches against all"
         );
     }
     let kaspa_api = KaspaApi::new(
@@ -471,7 +493,7 @@ async fn main() -> Result<()> {
             poll_secs = cfg.payout.poll_interval.as_secs(),
             cycle_span_daa = cfg.payout.cycle_span_daa,
             max_sompi_per_cycle = ?cfg.payout.max_sompi_per_cycle,
-            treasury = %coinbase_override,
+            treasury = %redact::address(&coinbase_override.to_string()),
             "payout-kas engine enabled"
         );
         let rx = shutdown_rx.clone();
@@ -544,7 +566,7 @@ async fn main() -> Result<()> {
             cycle_span_daa = cfg.krc20_payout.cycle_span_daa,
             ticker = %cfg.krc20_payout.ticker,
             max_nacho_per_cycle = ?cfg.krc20_payout.max_nacho_base_units_per_cycle,
-            treasury = %coinbase_override,
+            treasury = %redact::address(&coinbase_override.to_string()),
             "payout-krc20 engine enabled"
         );
         let rx = shutdown_rx.clone();
@@ -605,7 +627,7 @@ async fn main() -> Result<()> {
             target_utxo_count = cfg.consolidation.target_utxo_count,
             max_inputs_per_tx = cfg.consolidation.max_inputs_per_tx,
             max_txs_per_tick = cfg.consolidation.max_txs_per_tick,
-            treasury = %coinbase_override,
+            treasury = %redact::address(&coinbase_override.to_string()),
             "treasury consolidation engine enabled"
         );
         let rx = shutdown_rx.clone();
@@ -861,7 +883,7 @@ async fn run_payout_now(cfg: &RuntimeConfig, force_dry_run: bool) -> Result<()> 
         dry_run = mode.is_dry_run(),
         threshold_sompi = cfg.payout.threshold_sompi,
         cycle_span_daa = cfg.payout.cycle_span_daa,
-        treasury = %treasury_address,
+        treasury = %redact::address(&treasury_address.to_string()),
         "payout run-now: driving current cycle"
     );
 
