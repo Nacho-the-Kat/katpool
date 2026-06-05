@@ -122,6 +122,23 @@ pub fn app(state: AppState) -> Router {
     }
 }
 
+/// Build a router exposing **only** the unversioned liveness/readiness probes
+/// (`/health`, `/ready`, `/started`).
+///
+/// This is the orchestrator-facing surface (systemd/Railway/k8s), deliberately
+/// decoupled from the public data API: no rate limiter, no CORS, no cache, no
+/// `/api/v1`. It reuses the same handlers and [`ReadinessHandle`] as [`app`],
+/// so a dedicated health port reports the *same* DB-reachable + kaspad-synced
+/// readiness as the API does — with or without `KATPOOL_API_PORT` enabled.
+pub fn health_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(handlers::health::health))
+        .route("/ready", get(handlers::health::ready))
+        .route("/started", get(handlers::health::started))
+        .with_state(state)
+        .layer(TraceLayer::new_for_http())
+}
+
 /// Build a read-only CORS layer for an explicit origin, or `None` to install
 /// no CORS layer (same-origin only). A malformed origin disables CORS with a
 /// loud log rather than failing startup.
@@ -210,6 +227,23 @@ pub async fn serve_on(addr: SocketAddr, state: AppState) -> std::io::Result<()> 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, "katpool public API listening");
     serve(listener, state).await
+}
+
+/// Bind `addr` and serve only the liveness/readiness probes ([`health_router`])
+/// until the process exits.
+///
+/// Used by the runtime to expose health on a dedicated port
+/// (`KATPOOL_HEALTH_CHECK_PORT`) independent of the public data API. No rate
+/// limiter or connect-info is installed — orchestrator probes must never be
+/// throttled and carry no per-IP semantics.
+///
+/// # Errors
+/// Returns the bind error if the address is unavailable, or any fatal serve
+/// error thereafter.
+pub async fn serve_health_on(addr: SocketAddr, state: AppState) -> std::io::Result<()> {
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!(%addr, "katpool health-check endpoint listening");
+    axum::serve(listener, health_router(state).into_make_service()).await
 }
 
 /// Spawn the background database-reachability probe.
