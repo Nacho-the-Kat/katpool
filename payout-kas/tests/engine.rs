@@ -164,6 +164,7 @@ fn engine_config(namespace: &str, mode: ExecutionMode) -> PayoutEngineConfig {
         poll_interval: Duration::from_secs(60),
         cycle_span_daa: 10_000,
         threshold_sompi: DEFAULT_KAS_PAYOUT_THRESHOLD_SOMPI,
+        max_payout_sompi_per_cycle: None,
         mode,
         lock_namespace: namespace.to_owned(),
     }

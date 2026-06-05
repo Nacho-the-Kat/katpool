@@ -55,6 +55,7 @@ async fn harness(
         elite_krc20_threshold_base_units: 10_000_000_000_000_000,
         ttl: Duration::from_secs(60),
         http_timeout: Duration::from_secs(2),
+        ..KasplexConfig::default()
     };
     let classifier = KasplexTierClassifier::new(cfg).expect("build classifier");
     (classifier, nft_server, krc20_server)
@@ -192,6 +193,7 @@ async fn caches_result_within_ttl() {
         elite_krc20_threshold_base_units: 10_000_000_000_000_000,
         ttl: Duration::from_secs(60),
         http_timeout: Duration::from_secs(2),
+        ..KasplexConfig::default()
     };
     let cls = KasplexTierClassifier::new(cfg).unwrap();
 
@@ -251,6 +253,7 @@ async fn clear_cache_forces_refetch() {
         elite_krc20_threshold_base_units: 10_000_000_000_000_000,
         ttl: Duration::from_secs(60),
         http_timeout: Duration::from_secs(2),
+        ..KasplexConfig::default()
     };
     let cls = KasplexTierClassifier::new(cfg).unwrap();
     let _ = cls.classify(&test_wallet()).await.unwrap();

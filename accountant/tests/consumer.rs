@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use katpool_domain::{CorrelationId, PoolEvent, ShareRejectReason};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use tokio::time::sleep;
 
 use accountant::{ConsumerConfig, EventConsumer};
@@ -237,6 +237,81 @@ async fn run_drains_broadcast_until_closed() {
         .await
         .unwrap();
     assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn run_with_shutdown_drains_backlog_before_exiting() {
+    // A2: on shutdown the consumer must persist the events already on the bus
+    // (not abort mid-buffer). The sender stays alive (the channel never closes),
+    // so a clean exit proves the drain path — not a RecvError::Closed — ran.
+    let env = setup().await;
+    let (tx, rx) = broadcast::channel::<PoolEvent>(32);
+    let (sd_tx, sd_rx) = watch::channel(false);
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    let handle = tokio::spawn(consumer.run_with_shutdown(
+        rx,
+        sd_rx,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    ));
+
+    tx.send(share_credited(MINER_A, "rig-01", 1024.0, 1_000_000))
+        .unwrap();
+    tx.send(share_credited(MINER_B, "rig-02", 2048.0, 1_000_001))
+        .unwrap();
+
+    // Signal shutdown; the channel is still open (tx held), so the consumer can
+    // only finish by draining the backlog to idle and returning Ok.
+    sd_tx.send(true).unwrap();
+
+    tokio::time::timeout(Duration::from_secs(5), handle)
+        .await
+        .expect("consumer exits within the drain budget")
+        .unwrap()
+        .unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM share")
+        .fetch_one(&env.db)
+        .await
+        .unwrap();
+    assert_eq!(count, 2, "buffered events must be drained before exit");
+}
+
+#[tokio::test]
+async fn run_with_shutdown_honours_a_prelatched_signal() {
+    // The signal task may fire before the consumer task is scheduled; a shutdown
+    // already latched at subscribe time must still drain + exit cleanly.
+    let env = setup().await;
+    let (tx, rx) = broadcast::channel::<PoolEvent>(32);
+    let (sd_tx, sd_rx) = watch::channel(true); // already true
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    tx.send(share_credited(MINER_A, "rig-01", 1024.0, 1_000_000))
+        .unwrap();
+
+    let handle = tokio::spawn(consumer.run_with_shutdown(
+        rx,
+        sd_rx,
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    ));
+
+    tokio::time::timeout(Duration::from_secs(5), handle)
+        .await
+        .expect("consumer exits within the drain budget")
+        .unwrap()
+        .unwrap();
+    drop(sd_tx);
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*)::bigint FROM share")
+        .fetch_one(&env.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "the pre-latched drain must still persist the backlog"
+    );
 }
 
 #[tokio::test]

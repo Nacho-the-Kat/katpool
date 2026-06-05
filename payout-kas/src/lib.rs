@@ -54,7 +54,9 @@ pub use cycle::{
     CycleState, PayoutStatusCounts, derive_cycle_status, reconcile_cycle_status,
     resume_or_plan_kas_cycle,
 };
-pub use engine::{EngineError, PayoutEngine, PayoutEngineConfig, TickOutcome, TickReport};
+pub use engine::{
+    EngineError, PayoutEngine, PayoutEngineConfig, TickOutcome, TickReport, over_spend_cap,
+};
 pub use error::PayoutKasError;
 pub use execute::{
     ConfirmReport, ExecuteError, ExecutionMode, ExecutionReport, broadcast_cycle, confirm_cycle,
