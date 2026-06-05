@@ -34,6 +34,7 @@ pub mod correlation_id;
 pub mod difficulty;
 pub mod events;
 pub mod hash;
+pub mod redact;
 pub mod score;
 pub mod worker;
 

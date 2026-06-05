@@ -12,6 +12,51 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Structured telemetry wiring** (`katpool-telemetry`, was a scaffold; B1 of
+  the road-to-mainnet plan). A single `init(TelemetryConfig)` installs the
+  process-wide `tracing` subscriber the `katpool` binary now calls before
+  config load, so even a bad config logs. It composes a `RUST_LOG` env-filter,
+  a formatting layer selectable via `KATPOOL_LOG_FORMAT=text|json` (text stays
+  the default for `journalctl`; json emits one structured object per event for
+  Loki), and an optional OpenTelemetry OTLP/gRPC span-export layer wired only
+  when `KATPOOL_OTLP_ENDPOINT` is set (Tempo, ADR-0004 — off by default until
+  the LGTM stack exists). `init` returns a guard that flushes the tracer
+  provider on a clean exit. `OTEL_SERVICE_NAME` overrides `service.name`
+  (defaults to `KATPOOL_INSTANCE_ID`).
+- **NACHO Elite tier classifier wired into the runtime** (was inert; replaces
+  the hardcoded `StaticTierClassifier::standard()`). `KATPOOL_TIER_CLASSIFIER`
+  selects `static` (default) or `kasplex`; the kasplex classifier carries a
+  consecutive-failure circuit breaker (open → instant `Standard`, half-open
+  probe after cooldown) so an indexer outage cannot stall the block-maturity
+  classify loop, and degraded results are not cached so an Elite wallet
+  recovers within one cycle. The indexers are mainnet-only, so `static` remains
+  correct for the tn10 soak (ADR-0012).
+- **Per-cycle treasury spend cap** (G1 money-safety circuit breaker).
+  `KATPOOL_PAYOUT_MAX_SOMPI_PER_CYCLE` (KAS) and
+  `KATPOOL_KRC20_MAX_NACHO_PER_CYCLE` (NACHO base units) refuse a cycle whose
+  total non-failed outbound exceeds the cap **before any broadcast/settle** —
+  the primary guard against a poisoned floor-price quote draining the treasury.
+  Disabled by default; the mainnet template recommends setting both.
+
+### Security
+
+- **Treasury/wallet address redaction in runtime logs and traces** (B2). The
+  unified binary now emits addresses as a `prefix:…last4` tag
+  (`katpool_domain::redact`, the single canonical redactor the `api` layer also
+  routes through) instead of the full string, at every treasury log site
+  (payout/krc20/consolidation engine startup, run-now, and the startup pool
+  -address list). Treasury key material remains structurally unloggable
+  (`katpool_secrets::TreasurySecret` has no `Debug`/`Display`/`Serialize`).
+
+### Changed
+
+- **Graceful shutdown now drains the event backlog instead of aborting it**
+  (A2). At SIGTERM the runtime stops the bridge producer first, then
+  `EventConsumer::run_with_shutdown` persists everything already on the
+  broadcast bus — bounded by an idle gap and a hard
+  `KATPOOL_SHUTDOWN_DRAIN_SECS` ceiling (default 10) — before exiting, instead
+  of dropping in-flight `PoolEvent`s on `task.abort()`.
+
 - **Public read-only HTTP API** (`api` crate, embedded in the `katpool`
   runtime behind `KATPOOL_API_PORT`; ADR-0021). An env-gated `axum` task —
   spawned exactly like the prom exporter, empty port = disabled — exposing the

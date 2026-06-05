@@ -12,26 +12,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
-# Phase 7 wiring binary, partially-active.
-#
-# Phase 3 M3d activates the bridge + accountant composition (the
-# `katpool` binary runs the stratum bridge + the accountant event
-# consumer + the maturity tracker in one process with a shared
-# broadcast channel).
-#
-# Phase 4 will wire `payout-kas`, Phase 5 `payout-krc20`, Phase 6
-# `api`, Phase 7 closes out the remaining scaffold-only deps
-# (`katpool-config`, `katpool-secrets`, `katpool-telemetry`,
-# `katpool-metrics`). Until each phase lands, machete must ignore
-# the corresponding dep below.
+# Unified runtime binary. Composes the stratum bridge, the accountant
+# event consumer + maturity tracker, the KAS/KRC-20 payout engines, and
+# the read-only API into one process with a shared broadcast channel.
+# Telemetry (`katpool-telemetry`) and treasury custody (`katpool-secrets`)
+# are wired; `katpool-config` (YAML layer) and `katpool-metrics` remain
+# scaffold-only and are machete-ignored below until their slices land.
 [package.metadata.cargo-machete]
 ignored = [
-    # Phase 7 telemetry/metrics/config — currently no direct
-    # use; wired in Phase 7's main composition.
+    # Phase 7 metrics/config — currently no direct use; wired in
+    # later Phase 7 slices (LGTM metrics export, YAML config layer).
     "katpool-config",
     "katpool-metrics",
-    "katpool-telemetry",
-    # Workspace deps the binary doesn't yet use; Phase 7 will.
+    # Workspace deps the binary doesn't yet use.
     "thiserror",
 ]
 
@@ -64,5 +57,4 @@ tokio = { workspace = true, features = ["sync", "macros", "rt-multi-thread", "ti
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
