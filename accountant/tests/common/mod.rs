@@ -94,6 +94,41 @@ pub fn block_found(
     }
 }
 
+pub fn session_opened(
+    conn_id: u64,
+    wallet_addr: Option<&str>,
+    worker_name: Option<&str>,
+    remote_ip: &str,
+) -> PoolEvent {
+    PoolEvent::SessionOpened {
+        conn_id,
+        wallet: wallet_addr.map(wallet),
+        worker: worker_name.map(worker),
+        remote_ip: remote_ip.to_owned(),
+        remote_app: None,
+        connected_at: Utc::now(),
+        correlation_id: CorrelationId::new_v4(),
+    }
+}
+
+pub fn session_closed(
+    conn_id: u64,
+    wallet_addr: Option<&str>,
+    worker_name: Option<&str>,
+    remote_ip: &str,
+) -> PoolEvent {
+    PoolEvent::SessionClosed {
+        conn_id,
+        wallet: wallet_addr.map(wallet),
+        worker: worker_name.map(worker),
+        remote_ip: remote_ip.to_owned(),
+        remote_app: None,
+        connected_at: Utc::now(),
+        ts: Utc::now(),
+        correlation_id: CorrelationId::new_v4(),
+    }
+}
+
 pub fn block_accepted(hash_hex: &str, correlation_id: CorrelationId) -> PoolEvent {
     PoolEvent::BlockAccepted {
         hash: hash(hash_hex),

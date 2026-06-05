@@ -18,8 +18,8 @@ use accountant::{ConsumerConfig, EventConsumer};
 
 mod common;
 use common::{
-    HASH_A, HASH_B, MINER_A, MINER_B, block_accepted, block_found, hash as h, setup,
-    share_credited, wallet as w,
+    HASH_A, HASH_B, MINER_A, MINER_B, block_accepted, block_found, hash as h, session_closed,
+    session_opened, setup, share_credited, wallet as w,
 };
 
 fn cfg() -> ConsumerConfig {
@@ -345,4 +345,147 @@ async fn run_continues_after_broadcast_lag() {
         .await
         .unwrap();
     assert_eq!(count, 2, "expected 2 shares after lag-skip; got {count}");
+}
+
+// ---- session lifecycle (B1) ----------------------------------------
+
+/// Count of currently-open session rows for the given text IP.
+async fn open_rows_for_ip(db: &sqlx::PgPool, ip: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM connection_session
+          WHERE host(remote_ip)::text = $1 AND disconnected_at IS NULL",
+    )
+    .bind(ip)
+    .fetch_one(db)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn session_opened_persists_a_live_row_with_its_worker() {
+    let env = setup().await;
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    consumer
+        .handle_event(session_opened(
+            1,
+            Some(MINER_A),
+            Some("rig-01"),
+            "203.0.113.7",
+        ))
+        .await;
+
+    // One live session, attributed to one worker, from the start.
+    let summary = katpool_db::repo::connection_session::active_summary(&env.db)
+        .await
+        .unwrap();
+    assert_eq!(summary.sessions, 1, "one open session");
+    assert_eq!(summary.workers, 1, "worker bound at open, not at close");
+
+    let worker_id_is_set: bool = sqlx::query_scalar(
+        "SELECT worker_id IS NOT NULL FROM connection_session
+          WHERE host(remote_ip)::text = '203.0.113.7'",
+    )
+    .fetch_one(&env.db)
+    .await
+    .unwrap();
+    assert!(worker_id_is_set, "worker_id written on the open row");
+}
+
+#[tokio::test]
+async fn session_open_then_close_finalizes_the_same_row() {
+    let env = setup().await;
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    consumer
+        .handle_event(session_opened(
+            7,
+            Some(MINER_A),
+            Some("rig-01"),
+            "203.0.113.8",
+        ))
+        .await;
+    assert_eq!(open_rows_for_ip(&env.db, "203.0.113.8").await, 1);
+
+    consumer
+        .handle_event(session_closed(
+            7,
+            Some(MINER_A),
+            Some("rig-01"),
+            "203.0.113.8",
+        ))
+        .await;
+
+    // The same row is finalized — no duplicate, and it no longer counts as
+    // active.
+    let total: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM connection_session
+          WHERE host(remote_ip)::text = '203.0.113.8'",
+    )
+    .fetch_one(&env.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        total, 1,
+        "close updates the open row, never inserts a second"
+    );
+    assert_eq!(open_rows_for_ip(&env.db, "203.0.113.8").await, 0);
+}
+
+#[tokio::test]
+async fn session_close_without_open_records_a_completed_row() {
+    let env = setup().await;
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    // A disconnect with no prior open (e.g. a pre-authorize blip, or an open
+    // the accountant missed): fall back to inserting an already-closed row.
+    consumer
+        .handle_event(session_closed(
+            99,
+            Some(MINER_A),
+            Some("rig-01"),
+            "203.0.113.9",
+        ))
+        .await;
+
+    let (total, closed): (i64, i64) = sqlx::query_as(
+        "SELECT count(*)::bigint,
+                count(*) FILTER (WHERE disconnected_at IS NOT NULL)::bigint
+           FROM connection_session
+          WHERE host(remote_ip)::text = '203.0.113.9'",
+    )
+    .fetch_one(&env.db)
+    .await
+    .unwrap();
+    assert_eq!(total, 1, "exactly one completed row recorded at close");
+    assert_eq!(closed, 1, "the fallback row is already finalized");
+    assert_eq!(open_rows_for_ip(&env.db, "203.0.113.9").await, 0);
+}
+
+#[tokio::test]
+async fn session_opened_without_a_worker_leaves_worker_id_null() {
+    let env = setup().await;
+    let consumer = EventConsumer::new(env.db.clone(), cfg());
+
+    // Bare-address authorize (no `.worker` suffix): the connection carries no
+    // worker identity anywhere, so the open row's worker_id is correctly NULL
+    // and is never backfilled. This locks that contract in.
+    consumer
+        .handle_event(session_opened(2, Some(MINER_A), None, "203.0.113.10"))
+        .await;
+
+    let summary = katpool_db::repo::connection_session::active_summary(&env.db)
+        .await
+        .unwrap();
+    assert_eq!(summary.sessions, 1, "session is live");
+    assert_eq!(summary.workers, 0, "anonymous session has no bound worker");
+
+    let worker_id_is_null: bool = sqlx::query_scalar(
+        "SELECT worker_id IS NULL FROM connection_session
+          WHERE host(remote_ip)::text = '203.0.113.10'",
+    )
+    .fetch_one(&env.db)
+    .await
+    .unwrap();
+    assert!(worker_id_is_null, "no phantom worker is invented at open");
 }

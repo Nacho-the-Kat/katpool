@@ -165,7 +165,7 @@ async fn close_all_open_finalizes_orphans() {
 }
 
 #[tokio::test]
-async fn session_bind_worker_then_increment_counters() {
+async fn session_open_with_worker_then_increment_counters() {
     let (pool, _ctr) = fresh_pool().await;
     let w = wallet::ensure(&pool, &sample_wallet_addr(), "mainnet")
         .await
@@ -174,9 +174,11 @@ async fn session_bind_worker_then_increment_counters() {
         .await
         .expect("worker");
 
+    // worker_id is bound at open (authorize), so list_for_worker finds the
+    // live session immediately — no post-open backfill step.
     let sid = connection_session::open(
         &pool,
-        None,
+        Some(wk.id),
         IpAddr::V4(Ipv4Addr::LOCALHOST),
         Some("rig"),
         None,
@@ -184,9 +186,6 @@ async fn session_bind_worker_then_increment_counters() {
     )
     .await
     .expect("open");
-    connection_session::bind_worker(&pool, sid, wk.id)
-        .await
-        .expect("bind");
     connection_session::increment_counters(&pool, sid, 100, 2, 1)
         .await
         .expect("inc");

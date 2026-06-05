@@ -58,12 +58,18 @@ against a local production build pointed at the live tn10 API.
   conversion in `app/api/network/route.ts` is correct (the Kaspa API returns
   TH/s). Document/standardize the env per network so the comparison is always
   apples-to-apples.
-- **B1 (Medium, data richness): `connection_session.worker_id` is always NULL.**
-  Sessions are inserted only at close via `record_closed` (the bridge holds no
-  DB handle at accept), and the long-lived authorized worker is never recorded
-  as a closed+authorized row. Distinct-worker analytics are therefore
-  impossible; geo/firmware can only report sessions (hence F2). Revisit if
-  per-worker geo/firmware counts are desired.
+- **B1 (Medium, data richness): `connection_session.worker_id` recording.**
+  *Resolved by PR #71* — sessions now `open` a live row at `mining.authorize`
+  with `worker_id` bound up-front (correlated to the close by connection id),
+  so `count(DISTINCT worker_id)` over open rows is populated for authorized
+  miners. The earlier "always NULL" symptom (and F2) reflected the pre-#71
+  close-only `record_closed` path. The one remaining null case is a *bare*
+  authorize (address with no `.worker` suffix): such a connection carries no
+  worker identity anywhere — its shares are also unattributed (the bridge gates
+  `ShareCredited` on a non-empty `WorkerName`) — so the null is correct, not a
+  gap. A worker-name fallback would invent phantom workers inconsistent with
+  the share path, so it is deliberately *not* added. Locked in by accountant
+  session-handler tests + the `connection_session` repo tests.
 - **B5 (Medium, reliability): Overview pool-hashrate chart intermittently
   (~1/3) stays on its skeleton** with no client error; the endpoint is fast and
   healthy (~0.4 s, 289 points). Correlates with occasional cold BFF/edge
