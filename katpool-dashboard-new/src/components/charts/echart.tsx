@@ -45,6 +45,12 @@ interface EChartProps {
   replaceMerge?: string[];
 }
 
+interface PendingUpdate {
+  option: EChartsCoreOption;
+  notMerge: boolean;
+  replaceMerge?: string[];
+}
+
 /** A disposable, resize-aware ECharts canvas. */
 export function EChart({
   option,
@@ -55,6 +61,12 @@ export function EChart({
 }: EChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
+  // True while the pointer is over the canvas. Applying new data mid-hover
+  // strands the axis pointer (it freezes and stops tracking) and resets pie
+  // emphasis (a visible flicker) — a known ECharts setOption-during-hover
+  // interaction. We hold the latest update here and flush it on pointer-leave.
+  const hoveringRef = useRef(false);
+  const pendingRef = useRef<PendingUpdate | null>(null);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -62,8 +74,29 @@ export function EChart({
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
     ro.observe(ref.current);
+
+    const zr = chart.getZr();
+    const onMove = () => {
+      hoveringRef.current = true;
+    };
+    const onOut = () => {
+      hoveringRef.current = false;
+      const pending = pendingRef.current;
+      if (pending) {
+        pendingRef.current = null;
+        chart.setOption(pending.option, {
+          notMerge: pending.notMerge,
+          replaceMerge: pending.replaceMerge,
+        });
+      }
+    };
+    zr.on("mousemove", onMove);
+    zr.on("globalout", onOut);
+
     return () => {
       ro.disconnect();
+      zr.off("mousemove", onMove);
+      zr.off("globalout", onOut);
       chart.dispose();
       chartRef.current = null;
     };
@@ -72,13 +105,12 @@ export function EChart({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
-    // Clear any live tooltip/axis pointer *before* swapping series models on a
-    // refresh. With `replaceMerge: ["series"]`, a mousemove hit-test can land on
-    // stale shapes during the swap and strand the pointer — it freezes and stops
-    // tracking the cursor. Tearing the tip down first closes that race; the next
-    // mousemove re-shows it cleanly. (Apache ECharts replaceMerge interaction.)
-    chart.dispatchAction({ type: "hideTip" });
-    chart.dispatchAction({ type: "updateAxisPointer", currTrigger: "leave" });
+    // Defer live refreshes while the user is exploring the chart; the newest
+    // update is applied the instant the pointer leaves (see onOut above).
+    if (hoveringRef.current) {
+      pendingRef.current = { option, notMerge, replaceMerge };
+      return;
+    }
     chart.setOption(option, { notMerge, replaceMerge });
   }, [option, notMerge, replaceMerge]);
 
