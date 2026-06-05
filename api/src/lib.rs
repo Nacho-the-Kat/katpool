@@ -141,6 +141,25 @@ fn cors_layer(origin: Option<&str>) -> Option<CorsLayer> {
     }
 }
 
+/// Token-replenish interval for a sustained rate, in requests per second.
+///
+/// `tower_governor`'s `GovernorConfigBuilder::per_second(n)` is a foot-gun: it
+/// sets the replenish *period* to `n` seconds (one token every `n`s, i.e.
+/// `1/n` req/s) — the inverse of what the name implies. Sizing the limiter by
+/// that method throttles to a trickle (e.g. `per_second(100)` ⇒ one token every
+/// 100s). We instead derive the period from true throughput: one token every
+/// `1s / rate`, so `rate` tokens accrue per second with `burst_size` capacity.
+fn replenish_period(rate_per_second: u64) -> Duration {
+    // `rate_per_second` is validated > 0 (`ApiConfig::validate`). Clamp into the
+    // u32 that `Duration / u32` needs; a rate above u32::MAX is nonsensical for
+    // a read-only API, and `.max(1)` keeps the period non-zero so `finish()`
+    // never silently drops the limiter.
+    let rate = u32::try_from(rate_per_second).unwrap_or(u32::MAX).max(1);
+    // Floor at 1ns: for rate > 1e9 the integer `Duration / u32` truncates to
+    // zero, which `finish()` treats as "no limiter".
+    (Duration::from_secs(1) / rate).max(Duration::from_nanos(1))
+}
+
 /// Serve the API on an already-bound listener until the process exits.
 ///
 /// Wraps [`app`] with the per-IP rate limiter and serves with
@@ -154,7 +173,7 @@ pub async fn serve(listener: tokio::net::TcpListener, state: AppState) -> std::i
     let router = app(state);
 
     let governor_conf = GovernorConfigBuilder::default()
-        .per_second(config.rate_per_second)
+        .period(replenish_period(config.rate_per_second))
         .burst_size(config.rate_burst)
         .finish();
 
@@ -207,4 +226,26 @@ pub fn spawn_db_readiness_probe(pool: PgPool, readiness: ReadinessHandle) -> Joi
             readiness.set_db_reachable(ok);
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replenish_period;
+    use std::time::Duration;
+
+    #[test]
+    fn replenish_period_is_the_inverse_of_rate() {
+        // rate (req/s) -> one token every (1s / rate)
+        assert_eq!(replenish_period(1), Duration::from_secs(1));
+        assert_eq!(replenish_period(5), Duration::from_millis(200));
+        assert_eq!(replenish_period(100), Duration::from_millis(10));
+        assert_eq!(replenish_period(1000), Duration::from_millis(1));
+    }
+
+    #[test]
+    fn replenish_period_never_zero() {
+        // Even an absurd rate must keep the period > 0 so `finish()` keeps the
+        // limiter installed rather than silently disabling it.
+        assert!(replenish_period(u64::MAX) > Duration::ZERO);
+    }
 }
