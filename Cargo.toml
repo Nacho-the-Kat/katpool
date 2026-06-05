@@ -52,23 +52,23 @@ publish = false
 # Workspace-wide dependency versions. Individual crates reference via `serde = { workspace = true }`.
 # Versions are bumped only via PR with a passing `cargo deny check` run.
 [workspace.dependencies]
-# rusty-kaspa tn10-toc3 (commit 1015a62) — git-sourced because none of these
+# rusty-kaspa v2.0.0 (commit 90dbf07) — git-sourced because none of these
 # crates are published to crates.io as of 2026-05-25. The bridge/ crate
 # uses them; see bridge/UPSTREAM.md for the vendoring rationale.
 # deny.toml [sources] allow-git permits this single repo.
-kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-hashes         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-math           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-pow            = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-addresses      = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-txscript       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-rpc-core       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-rpc-service    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-grpc-client    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-notify         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-core           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspa-utils          = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
-kaspad               = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "tn10-toc3" }
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-hashes         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-math           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-pow            = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-addresses      = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-txscript       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-rpc-core       = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-rpc-service    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-grpc-client    = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-notify         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-core           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspa-utils          = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
+kaspad               = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
 
 # Additional bridge support crates (crates.io)
 dirs = "5"

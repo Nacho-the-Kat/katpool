@@ -168,15 +168,17 @@ pub fn verify_signed(signed: &SignedBatch) -> Result<(), SignError> {
     let verifiable = PopulatedTransaction::new(&signed.tx, signed.entries.clone());
     let reused = SigHashReusedValuesUnsync::new();
     let sig_cache: Cache<_, bool> = Cache::new(signed.entries.len() as u64);
-    // Mirror the post-Toccata consensus engine: covenants and ZK hardening are
-    // active on every network we target (tn10-toc3 / post-Crescendo mainnet), so
-    // the self-check validates under the exact rules kaspad will apply. Standard
-    // P2PK spends carry no covenant binding, hence the default (empty) covenant
-    // context from `EngineContext::new` is sufficient.
+    // Mirror the post-Toccata consensus engine (kaspa v2.0.0): covenants are
+    // active on every network we target (post-Toccata tn10 / mainnet), so the
+    // self-check validates under the exact rules kaspad applies. `EngineFlags`
+    // `Default` sets `sigop_script_units: Gram(1000)`, which equals the
+    // consensus `mass_per_sig_op` (1000) on all networks — see
+    // `tx_validation_in_utxo_context::check_scripts`. Standard P2PK spends carry
+    // no covenant binding, hence the default (empty) covenant context from
+    // `EngineContext::new` is sufficient.
     let ctx = EngineContext::new(&sig_cache).with_reused(&reused);
     let flags = EngineFlags {
         covenants_enabled: true,
-        zk_hardening_enabled: true,
         ..Default::default()
     };
     for (idx, (input, entry)) in verifiable.populated_inputs().enumerate() {
