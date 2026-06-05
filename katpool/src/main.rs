@@ -69,10 +69,12 @@
 //!   when fronted by the trusted forwarder with the origin stratum ports
 //!   firewalled to the forwarder egress.
 //! - `KATPOOL_PROM_PORT`             default empty (disabled)
-//! - `KATPOOL_HEALTH_CHECK_PORT`     **no-op in the unified runtime** — it is
-//!   carried into `BridgeServerConfig.health_check_port` for the standalone
-//!   bridge binary but `listen_and_serve_with_events` never serves it here.
-//!   Liveness/readiness come from the API on `KATPOOL_API_PORT` (ADR-0021).
+//! - `KATPOOL_HEALTH_CHECK_PORT`     bind address (`host:port` or `:port`);
+//!   empty = disabled. Serves a dedicated liveness/readiness surface
+//!   (`/health` `/ready` `/started` only) using the same readiness source as
+//!   the API, so orchestrators can probe even when `KATPOOL_API_PORT` is off
+//!   (ADR-0021). The legacy `BridgeServerConfig.health_check_port` field still
+//!   carries the raw value for the standalone bridge binary but is unused here.
 //! - `KATPOOL_MATURITY_POLL_SECS`    default 15
 //! - `KATPOOL_COINBASE_MATURITY`     default 1000 (DAA-score depth)
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
@@ -109,7 +111,8 @@
 //!
 //! Public read-only HTTP API (Phase 6 — opt-in, ADR-0021):
 //! - `KATPOOL_API_PORT`              bind address `host:port` (e.g.
-//!   `127.0.0.1:8080`); empty = disabled. Serves the unversioned `/health`
+//!   `127.0.0.1:8080`) or `:port` (all interfaces); empty = disabled. Serves
+//!   the unversioned `/health`
 //!   `/ready` `/started` probes plus the versioned `/api/v1` read-only data
 //!   surface. `/ready` is DB-reachable AND kaspad-synced; the kaspad-sync
 //!   signal reuses the maturity tracker's existing poll (no second gRPC
@@ -377,29 +380,49 @@ async fn main() -> Result<()> {
         cfg.instance_id.clone(),
     );
 
-    // ---- public read-only API (Phase 6, opt-in) --------------------
-    // Env-gated like the prom exporter (ADR-0021 A1). When enabled it owns
-    // the `/health` `/ready` `/started` probes and the `/api/v1` surface.
-    // Readiness reuses work the runtime already does: DB reachability from a
-    // periodic `SELECT 1`, and kaspad-sync mirrored from the maturity
-    // tracker's existing poll via a `watch` channel — so the API opens no
-    // second gRPC connection. The tracker keeps the observer end; we keep
-    // `tracker` shadowed with it attached only when the API is on.
-    let tracker = if let Some(api_addr) = cfg.api_bind {
+    // ---- read-only API + health probes (Phase 6, opt-in) -----------
+    // Env-gated like the prom exporter (ADR-0021 A1). Two independent surfaces
+    // share one readiness source: the public API (`KATPOOL_API_PORT`) serves
+    // `/health` `/ready` `/started` plus `/api/v1`; the dedicated health port
+    // (`KATPOOL_HEALTH_CHECK_PORT`) serves only the probes, so orchestrators
+    // can health-check even when the public API is off. Readiness reuses work
+    // the runtime already does: DB reachability from a periodic `SELECT 1`, and
+    // kaspad-sync mirrored from the maturity tracker's existing poll via a
+    // `watch` channel — so no second gRPC connection is opened. The plumbing is
+    // set up once and shared by both surfaces; the kaspad-sync observer attaches
+    // to the tracker (shadowed below) only when at least one surface is enabled.
+    let tracker = if cfg.api_bind.is_some() || cfg.health_bind.is_some() {
         let readiness = ReadinessHandle::new();
         let (sync_tx, sync_rx) = watch::channel(false);
         api::spawn_db_readiness_probe(db.clone(), readiness.clone());
         spawn_readiness_bridge(sync_rx, readiness.clone());
         let state = AppState::new(db.clone(), readiness, cfg.api_config.clone());
-        tokio::spawn(async move {
-            if let Err(e) = api::serve_on(api_addr, state).await {
-                error!(error = %e, "public API server exited with error");
-            }
-        });
-        info!(addr = %api_addr, "public read-only API enabled");
+
+        if let Some(api_addr) = cfg.api_bind {
+            let state = state.clone();
+            tokio::spawn(async move {
+                if let Err(e) = api::serve_on(api_addr, state).await {
+                    error!(error = %e, "public API server exited with error");
+                }
+            });
+            info!(addr = %api_addr, "public read-only API enabled");
+        } else {
+            info!("public read-only API disabled (set KATPOOL_API_PORT to enable)");
+        }
+
+        if let Some(health_addr) = cfg.health_bind {
+            tokio::spawn(async move {
+                if let Err(e) = api::serve_health_on(health_addr, state).await {
+                    error!(error = %e, "health-check endpoint exited with error");
+                }
+            });
+            info!(addr = %health_addr, "health-check endpoint enabled");
+        }
+
         tracker.with_sync_observer(sync_tx)
     } else {
         info!("public read-only API disabled (set KATPOOL_API_PORT to enable)");
+        info!("health-check endpoint disabled (set KATPOOL_HEALTH_CHECK_PORT to enable)");
         tracker
     };
 
@@ -1023,6 +1046,11 @@ struct RuntimeConfig {
     /// Bind address for the public read-only API (`KATPOOL_API_PORT`).
     /// `None` disables the API (mirrors the prom exporter's env gate).
     api_bind: Option<SocketAddr>,
+    /// Bind address for the dedicated liveness/readiness probe endpoint
+    /// (`KATPOOL_HEALTH_CHECK_PORT`). Serves only `/health` `/ready`
+    /// `/started`, reusing the same readiness plumbing as the API so health
+    /// is observable with or without `api_bind`. `None` disables it.
+    health_bind: Option<SocketAddr>,
     /// API knobs (rate limit, cache TTLs, timeout, CORS). Parsed
     /// unconditionally; only consumed when `api_bind` is `Some`.
     api_config: ApiConfig,
@@ -1201,15 +1229,11 @@ impl RuntimeConfig {
 
         // Public read-only API (Phase 6). `KATPOOL_API_PORT` is a full bind
         // address (`host:port`), mirroring `KATPOOL_PROM_PORT`; empty disables.
-        let api_bind = optional("KATPOOL_API_PORT")
-            .map(|s| {
-                s.parse::<SocketAddr>().map_err(|e| {
-                    anyhow::anyhow!(
-                        "KATPOOL_API_PORT=`{s}`: {e} (expected host:port, e.g. 127.0.0.1:8080)"
-                    )
-                })
-            })
-            .transpose()?;
+        let api_bind = optional_bind_addr("KATPOOL_API_PORT")?;
+        // Dedicated liveness/readiness probe port (ADR-0021). Serves only
+        // `/health` `/ready` `/started`, independent of the public API, so
+        // orchestrators can health-check even when `KATPOOL_API_PORT` is off.
+        let health_bind = optional_bind_addr("KATPOOL_HEALTH_CHECK_PORT")?;
         let api_config =
             ApiConfig::from_env().map_err(|e| anyhow::anyhow!("API configuration: {e}"))?;
 
@@ -1287,6 +1311,7 @@ impl RuntimeConfig {
             event_record_path,
             geoip_db_path: optional("KATPOOL_GEOIP_DB"),
             api_bind,
+            health_bind,
             api_config,
             maturity: MaturityConfig {
                 poll_interval: Duration::from_secs(poll_secs),
@@ -1387,6 +1412,23 @@ fn optional_u128(var: &str) -> Result<Option<u128>> {
                 .map_err(|e| anyhow::anyhow!("{var}=`{s}`: {e}"))
         })
         .transpose()
+}
+
+/// Parse a bind string as `host:port`, accepting a leading `:` (e.g. `:9301`)
+/// as shorthand for `0.0.0.0:port` to match the `KATPOOL_PROM_PORT` operator
+/// convention. `var` is only used to frame the error message.
+fn parse_bind_addr(var: &str, s: &str) -> Result<SocketAddr> {
+    let normalized = s
+        .strip_prefix(':')
+        .map_or_else(|| s.to_owned(), |port| format!("0.0.0.0:{port}"));
+    normalized.parse::<SocketAddr>().map_err(|e| {
+        anyhow::anyhow!("{var}=`{s}`: {e} (expected host:port, e.g. 127.0.0.1:8080, or :PORT)")
+    })
+}
+
+/// Bind address from `var`, or `None` when empty/unset (feature disabled).
+fn optional_bind_addr(var: &str) -> Result<Option<SocketAddr>> {
+    optional(var).map(|s| parse_bind_addr(var, &s)).transpose()
 }
 
 fn optional_bool(var: &str) -> Result<Option<bool>> {
@@ -1516,10 +1558,31 @@ fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_args, parse_stratum_ports};
+    use super::{Command, parse_args, parse_bind_addr, parse_stratum_ports};
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn bind_addr_accepts_host_and_port() -> anyhow::Result<()> {
+        let addr = parse_bind_addr("KATPOOL_API_PORT", "127.0.0.1:8080")?;
+        assert_eq!(addr.to_string(), "127.0.0.1:8080");
+        Ok(())
+    }
+
+    #[test]
+    fn bind_addr_colon_port_means_all_interfaces() -> anyhow::Result<()> {
+        let addr = parse_bind_addr("KATPOOL_HEALTH_CHECK_PORT", ":9301")?;
+        assert_eq!(addr.to_string(), "0.0.0.0:9301");
+        Ok(())
+    }
+
+    #[test]
+    fn bind_addr_rejects_malformed() {
+        assert!(parse_bind_addr("KATPOOL_API_PORT", "8080").is_err());
+        assert!(parse_bind_addr("KATPOOL_API_PORT", "not-an-addr").is_err());
+        assert!(parse_bind_addr("KATPOOL_API_PORT", ":notaport").is_err());
     }
 
     #[test]

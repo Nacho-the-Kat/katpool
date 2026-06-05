@@ -12,6 +12,16 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Dedicated liveness/readiness probe port** (A4 of the road-to-mainnet plan).
+  `KATPOOL_HEALTH_CHECK_PORT` was a no-op in the unified runtime — the value was
+  carried into `BridgeServerConfig` but never served, so health checks required
+  the full public API on `KATPOOL_API_PORT`. It now binds a minimal server
+  (`api::serve_health_on`) exposing only `/health` `/ready` `/started` — no rate
+  limiter, no CORS, no `/api/v1` — off the *same* readiness source as the API
+  (shared `ReadinessHandle`, one DB probe, one kaspad-sync mirror; no second
+  gRPC connection). Orchestrators can now probe independently of the public API.
+  Both `KATPOOL_API_PORT` and `KATPOOL_HEALTH_CHECK_PORT` accept `host:port` or
+  `:port` (all interfaces), matching the `KATPOOL_PROM_PORT` convention.
 - **Structured telemetry wiring** (`katpool-telemetry`, was a scaffold; B1 of
   the road-to-mainnet plan). A single `init(TelemetryConfig)` installs the
   process-wide `tracing` subscriber the `katpool` binary now calls before
