@@ -47,7 +47,7 @@ use tracing_subscriber::{EnvFilter, Layer as _};
 /// Crate version constant.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Default tracing directive used when `RUST_LOG` is unset or unparseable.
+/// Default tracing directive used when `RUST_LOG` is unset or unparsable.
 pub const DEFAULT_LOG_DIRECTIVE: &str = "info";
 
 /// Default OpenTelemetry service name when none is supplied.
@@ -100,7 +100,7 @@ pub struct TelemetryConfig {
     /// OTLP/gRPC collector endpoint (e.g. `http://tempo:4317`). `None` disables
     /// span export entirely.
     pub otlp_endpoint: Option<String>,
-    /// Directive applied when `RUST_LOG` is unset/unparseable.
+    /// Directive applied when `RUST_LOG` is unset/unparsable.
     pub default_directive: String,
 }
 
