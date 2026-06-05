@@ -146,7 +146,11 @@ export function formatRelative(iso: string | number | Date): string {
   return RTF.format(Math.round(deltaSec / unitSec), unit);
 }
 
-/** Absolute timestamp, UTC, compact. */
+/**
+ * Absolute timestamp in the viewer's local timezone, compact. The trailing
+ * `timeZoneName: "short"` makes the zone explicit (e.g. "PDT") so a local time
+ * is never mistaken for UTC.
+ */
 export function formatDateTime(iso: string | number | Date): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
