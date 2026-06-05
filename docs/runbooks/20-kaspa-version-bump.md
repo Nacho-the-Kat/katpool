@@ -16,23 +16,34 @@ confirmed blocks, zero rewards). Rationale:
 
 ## Inputs you need first
 
-0. **Confirm the release supports the network you deploy.** Upstream splits
-   its build lines by network and the tag naming reflects it:
-   - `tn10-toc{N}` (e.g. `tn10-toc3`) — **testnet-10** builds.
-   - `v1.X.Y-toc.{N}` (e.g. `v1.3.0-toc.5`) — **mainnet** builds. These are
-     network-gated *against* tn10: the binary exits immediately with
-     `This branch does not currently support testnet-10. Please use the tn10
-     branch for TN10.` Do **not** point `katpool-kaspad-tn10` at one.
-   - `1.2.2-toc.4` exists only as the unreleased `toccata` branch (no tagged
+0. **Confirm the release supports the network you deploy.** During Toccata
+   development upstream split its build lines by network, and the tag naming
+   reflected it:
+   - `tn10-toc{N}` (e.g. `tn10-toc3`) — **testnet-10** development builds.
+   - `v1.X.Y-toc.{N}` (e.g. `v1.3.0-toc.5`) — **mainnet pre-release** builds.
+     These pre-releases were network-gated *against* tn10: the binary exits
+     immediately with `This branch does not currently support testnet-10.
+     Please use the tn10 branch for TN10.` Do **not** point
+     `katpool-kaspad-tn10` at one.
+   - `1.2.2-toc.4` existed only as the unreleased `toccata` branch (no tagged
      release, hence no prebuilt node binary).
 
-   Before bumping tn10, verify a tn10-capable **release** exists
-   (`git ls-remote --tags https://github.com/kaspanet/rusty-kaspa | grep tn10`)
-   and that the network actually moved (a healthy toc3 node still completing
-   IBD and `Accepted block … via submit block` means tn10 is still on toc3 —
-   no bump needed). History: PR #67 bumped to `v1.3.0-toc.5` on the mistaken
-   belief it was a tn10 upgrade; the node failed to boot and the change was
-   reverted. The crate side still served as a valid *mainnet* dry run.
+   **The final `v2.0.0` (Mainnet Toccata) release is NOT gated** — it runs
+   every network via flags (`--testnet --netsuffix=10` for tn10), the normal
+   rusty-kaspa posture. The gating above was a property of the intermediate
+   `v1.X.Y-toc.{N}` *pre-releases* only. Always verify empirically before a
+   bump rather than inferring from the tag: download the candidate binary and
+   boot it isolated (separate `--appdir` + non-default ports, ~15s) — a tn10
+   node logs `kaspa-testnet-10/datadir`, the tn10 DNS seeders, and peers on
+   `protocol version 10`; a gated binary exits with the message above.
+
+   Also verify the network actually moved (a healthy node still completing IBD
+   and `Accepted block … via submit block` on the *current* pin means no bump
+   is needed). History: PR #67 bumped to the gated `v1.3.0-toc.5` pre-release
+   on the mistaken belief it was a tn10 upgrade; the node failed to boot and
+   the change was reverted (the crate side still served as a valid *mainnet*
+   dry run). PR #81 then moved both node and crates to the un-gated final
+   `v2.0.0` on tn10.
 1. The target git **tag** (e.g. `tn10-toc4`) and its commit short SHA.
 2. The upstream **`rust-version`** for that tag — read it from the
    rusty-kaspa workspace `Cargo.toml` at that tag.

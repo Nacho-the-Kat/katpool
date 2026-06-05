@@ -4,8 +4,10 @@
 //! rejects any transaction whose fee is below the minimum relay fee
 //! (`RejectInsufficientFee`) or whose change output is dust (`RejectDust`).
 //! Both rules are mirrored verbatim from rusty-kaspa
-//! `mining/src/mempool/check_transaction_standard.rs` (tag `tn10-toc3`) so the
-//! offline planner reserves exactly what the live node will require:
+//! `mining/src/mempool/check_transaction_standard.rs` (tag `v2.0.0`; the
+//! post-Toccata `100_000` sompi/kg floor and `max(compute, transient)` fee-mass
+//! rule are unchanged from `tn10-toc3`) so the offline planner reserves exactly
+//! what the live node will require:
 //!
 //! - `minimum_required_transaction_relay_fee(mass) = (mass * min_relay) / 1000`,
 //!   floored at `min_relay` when the product underflows to zero.

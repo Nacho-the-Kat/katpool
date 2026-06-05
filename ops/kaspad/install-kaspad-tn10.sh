@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install kaspad-tn10 — Toccata-aware rusty-kaspa for testnet-10.
 #
-# Idempotent. Downloads the pinned upstream `tn10-toc{N}` release zip, verifies
+# Idempotent. Downloads the pinned upstream release zip, verifies
 # its SHA-256 against the pinned digest below, extracts the kaspad
 # binary, and installs the systemd unit. Reuses an existing checkout
 # and skips download steps that have already completed successfully.
@@ -11,22 +11,24 @@
 #   sudo ./install-kaspad-tn10.sh
 #   sudo systemctl enable --now katpool-kaspad-tn10
 #
-# To upgrade later when the upstream cuts `tn10-toc3` or similar, bump
+# To upgrade later when upstream cuts a new tn10-capable release, bump
 # the `TN10_RELEASE_TAG` + `TN10_LINUX_SHA256` constants below and
 # re-run this script.
 
 set -euo pipefail
 
 # ---------- Pinned upstream release ----------------------------------
-# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/tn10-toc3
-# This release scheduled the Toccata ZK hardening hardfork at testnet-10
-# DAA score 476,232,000 (activated 2026-05-28 ~16:00 UTC). It changes the
-# SMT/seqcommit computation, so a tn10-toc2 node cannot complete IBD
-# against the post-activation network (peers reject its pruning-point SMT
-# with `seq_commit mismatch`). Bumping these two constants is the only
-# change required to track a future tn10-toc{N}.
-TN10_RELEASE_TAG=tn10-toc3
-TN10_LINUX_SHA256=3804314f478e5f8c853e86745c8324f644d906f6d719360648641574bf9dc391
+# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v2.0.0
+# The final Mainnet Toccata release (commit 90dbf07). Unlike the earlier
+# `v1.3.0-toc.5` pre-release, v2.0.0 is NOT network-gated: it runs as a
+# testnet-10 node via `--testnet --netsuffix=10` (verified: boots, pulls
+# the tn10 DNS seeders, connects to live tn10 peers on P2P protocol v10,
+# completes IBD of the same chain the prior tn10-toc3 node ran). This is
+# the same Toccata that activated on tn10 at DAA 476,232,000 (2026-05-28),
+# now carried by the final mainnet binary. Bumping these two constants is
+# the only change required to track a future release.
+TN10_RELEASE_TAG=v2.0.0
+TN10_LINUX_SHA256=99dc1f7e7e5c4dd7c3a79b9bce20d63c4c4ac6d2a3bd48ab1734b3d567c1b47c
 TN10_LINUX_ZIP=rusty-kaspa-${TN10_RELEASE_TAG}-linux-amd64.zip
 TN10_DOWNLOAD_URL=https://github.com/kaspanet/rusty-kaspa/releases/download/${TN10_RELEASE_TAG}/${TN10_LINUX_ZIP}
 
