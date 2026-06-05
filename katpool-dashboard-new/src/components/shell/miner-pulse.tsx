@@ -49,6 +49,7 @@ function MinerPulseCard({ address }: { address: string }) {
   const { data, isLoading, isError } = useMinerProfile(address);
 
   const tone = isError ? "bg-destructive" : isLoading ? "bg-warning" : "bg-success";
+  const status = isError ? "Offline" : isLoading ? "Connecting…" : "Live";
 
   return (
     <Link
@@ -67,7 +68,10 @@ function MinerPulseCard({ address }: { address: string }) {
             Your miner
           </span>
         </div>
-        <ArrowUpRight className="size-3.5 text-muted-foreground transition-colors group-hover:text-primary" />
+        <span className="flex items-center gap-1">
+          <span className="text-[0.625rem] font-medium text-muted-foreground">{status}</span>
+          <ArrowUpRight className="size-3.5 text-muted-foreground transition-colors group-hover:text-primary" />
+        </span>
       </div>
       <p className="mt-1.5 truncate font-mono text-xs text-foreground">
         {truncateMiddle(address, 10, 6)}

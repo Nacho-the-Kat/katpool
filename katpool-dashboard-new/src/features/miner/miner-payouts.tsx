@@ -23,7 +23,10 @@ export function MinerPayouts({ address }: { address: string }) {
   const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useMinerPayouts(address, PAGE, before);
   const network = useNetworkContext();
   const kasUsd = network.data?.prices.kas_usd ?? null;
-  const payouts = data?.payouts ?? [];
+  // "Planned" is an internal pre-broadcast bookkeeping state with no on-chain
+  // action yet; hide it (matching the pool cycles ledger) and show payouts only
+  // once they actually broadcast.
+  const payouts = (data?.payouts ?? []).filter((p) => p.status !== "planned");
   const onFirstPage = stack.length === 0;
   const fresh = useHighlightNew(onFirstPage ? payouts.map((p) => p.id) : []);
 
