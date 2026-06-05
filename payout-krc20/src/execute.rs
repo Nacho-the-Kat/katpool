@@ -531,7 +531,7 @@ async fn handle_pending<C: KaspadClient + Sync>(
     // frozen onto the row so every later reconstruction reproduces this exact
     // commit/reveal. Fund it from the live spendable set reconciled with this
     // sweep's in-flight commits, so siblings chain instead of double-spending.
-    let mut utxos = fetch_spendable_utxos(client, ctx.treasury_address).await?;
+    let mut utxos = fetch_spendable_utxos(pool, client, ctx.treasury_address).await?;
     ledger.reconcile(&mut utxos);
     let plan = plan_from_utxos(ctx, &utxos, Krc20FeePolicy::Adaptive(ctx.fee_rate))?;
     verify_p2sh(ctx, &plan)?;
@@ -623,7 +623,7 @@ async fn handle_commit_submitted<C: KaspadClient + Sync>(
             // fees; only re-broadcast if it reproduces the recorded txid —
             // otherwise treasury UTXOs drifted and a new commit would be a
             // distinct spend.
-            let utxos = fetch_spendable_utxos(client, ctx.treasury_address).await?;
+            let utxos = fetch_spendable_utxos(pool, client, ctx.treasury_address).await?;
             let plan = plan_from_utxos(ctx, &utxos, ctx.frozen_policy()?)?;
             let rebuilt = commit_txid(&plan, &ctx.treasury_script)?;
             if rebuilt != recorded {
@@ -758,16 +758,31 @@ async fn broadcast_reveal<C: KaspadClient + Sync>(
 
 // ---- helpers --------------------------------------------------------
 
-/// Fetch the treasury's live UTXO set, filtered to mature/spendable coins.
+/// Fetch the treasury's live UTXO set, filtered to mature/spendable coins, with
+/// the change/return coins of not-yet-terminal payouts held back.
+///
+/// Confirmation (KAS and KRC-20 alike) detects acceptance from a payout's
+/// treasury change/return coin, so funding a commit from it before that payout
+/// settles would strand the payout at a non-terminal status forever — the same
+/// hazard consolidation and KAS payouts guard against (see
+/// [`payout::in_flight_spend_tx_hashes`]). Applied to both the fresh-funding and
+/// resume-rebuild paths so a resumed commit reproduces its recorded txid.
 async fn fetch_spendable_utxos<C: KaspadClient + Sync>(
+    pool: &PgPool,
     client: &C,
     treasury_address: &Address,
 ) -> Result<Vec<TreasuryUtxo>, Krc20ExecuteError> {
     let virtual_daa = client.virtual_daa_score().await?;
+    let protected: HashSet<[u8; 32]> = payout::in_flight_spend_tx_hashes(pool)
+        .await?
+        .into_iter()
+        .filter_map(|h| <[u8; 32]>::try_from(h.as_slice()).ok())
+        .collect();
     let snapshots = client.treasury_utxos(treasury_address).await?;
     Ok(snapshots
         .into_iter()
         .filter(|s| is_spendable(s.entry.block_daa_score, s.entry.is_coinbase, virtual_daa))
+        .filter(|s| !protected.contains(&s.outpoint.transaction_id.as_bytes()))
         .map(TreasuryUtxoSnapshot::into_treasury_utxo)
         .collect())
 }
