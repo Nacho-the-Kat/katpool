@@ -20,7 +20,7 @@
 //! Only `planned` rows are ever signed ([`crate::CycleState::pending`]), so a
 //! resumed cycle cannot re-pay a recipient already on the wire.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kaspa_addresses::Address;
 use kaspa_consensus_core::tx::{PopulatedTransaction, ScriptPublicKey, TransactionId};
@@ -185,12 +185,23 @@ pub async fn broadcast_cycle<C: KaspadClient>(
         by_id.insert(id, *p);
     }
 
-    // Live treasury UTXOs, filtered to mature/spendable coins.
+    // Live treasury UTXOs, filtered to mature/spendable coins. Also hold back
+    // the change coins of payouts that are not yet terminal: confirmation
+    // detects acceptance from a payout's treasury change coin, so spending it
+    // here (to fund another recipient) before that payout settles would strand
+    // it at `submitted` forever — the same hazard consolidation guards against
+    // (see `payout::in_flight_spend_tx_hashes`).
     let virtual_daa = client.virtual_daa_score().await?;
+    let protected: HashSet<[u8; 32]> = payout::in_flight_spend_tx_hashes(pool)
+        .await?
+        .into_iter()
+        .filter_map(|h| <[u8; 32]>::try_from(h.as_slice()).ok())
+        .collect();
     let snapshots = client.treasury_utxos(treasury_address).await?;
     let utxos: Vec<TreasuryUtxo> = snapshots
         .into_iter()
         .filter(|s| is_spendable(s.entry.block_daa_score, s.entry.is_coinbase, virtual_daa))
+        .filter(|s| !protected.contains(&s.outpoint.transaction_id.as_bytes()))
         .map(crate::client::TreasuryUtxoSnapshot::into_treasury_utxo)
         .collect();
     report.spendable_utxos = utxos.len();
