@@ -35,13 +35,23 @@ against a local production build pointed at the live tn10 API.
 
 ## Follow-ups (backend / configuration — not dashboard rendering)
 
-- **B2 (High, accuracy): Pool hashrate ≫ network hashrate.** The pool reports
-  ~1.4 TH/s from a single miner while the tn10 node reports ~40 MH/s network
-  (difficulty ~2M). A pool cannot exceed its network, and tn10 difficulty would
-  have risen sharply if a 1.4 TH/s miner were doing network-valid work. The
-  share-difficulty → hashrate conversion in the pool is the prime suspect and
-  should be validated against node-observed difficulty. This is the single most
-  important data-accuracy item; the dashboard faithfully renders the API value.
+- **B2 (resolved 2026-06-05 — not a pool bug; a cross-convention comparison
+  artifact).** Investigated against the live tn10 DB and node. The pool's
+  share-difficulty → hashrate conversion is the standard kaspa-stratum
+  convention and is correct: a share of difficulty `D` represents `D × 2^32`
+  expected hashes, which is exactly what the difficulty-1 target
+  `2^224 - 1 / D` that the bridge sends to (and the ASIC honours) implies.
+  Measured: Σ(difficulty)=394,442 over 300 s ⇒ ≈5.6 TH/s, the single
+  Goldshell's real stratum-side rate. The apparent "≫ network" was a
+  units mismatch with the *baseline*: the Kaspa API's network hashrate is
+  derived from the node's block difficulty (1,652,213 ⇒ `difficulty × 2 /
+  block_time(0.1 s)` = 33.0 MH/s, matching the API's `3.304e-05`), a different
+  scale than stratum share difficulty. On a low-difficulty testnet the two
+  scales make a single ASIC look larger than the whole network; at mainnet
+  difficulty (~EH/s) the ratio is sane. Locked in by regression tests
+  (`bridge/src/hasher.rs` diff→target; `katpool-db` `hashrate_hs` convention +
+  the live 5.6 TH/s sample). Defence-in-depth on the render side already
+  suppresses an implausible (>100%) ratio (F5). No pool code change required.
 - **B3 (Medium, config): Network context must match the pool's network per
   environment.** The Railway (tn10) deployment correctly uses
   `api-tn10.kaspa.org`; local dev uses mainnet `api.kaspa.org`. The `×1e12`
