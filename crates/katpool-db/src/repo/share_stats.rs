@@ -35,6 +35,19 @@ use crate::repo::{WalletId, WorkerId};
 /// `2^32` is exact in `f64` (only 33 significant bits).
 const HASHES_PER_DIFFICULTY: f64 = 4_294_967_296.0;
 
+/// Estimated hashrate (H/s) from a summed share-difficulty `weight`
+/// accumulated over `secs` wall-clock seconds, using the `2^32`-hashes-
+/// per-difficulty stratum convention (see [`HASHES_PER_DIFFICULTY`]).
+///
+/// This is the single definition of the pool's hashrate estimate; every
+/// per-wallet/-worker/-bucket/leaderboard figure routes through it so they
+/// cannot drift apart. Callers guarantee `secs > 0` (the window validators
+/// reject empty/inverted ranges), so no divide-by-zero guard is needed here.
+#[must_use]
+fn hashrate_hs(weight: f64, secs: f64) -> f64 {
+    weight * HASHES_PER_DIFFICULTY / secs
+}
+
 /// Per-miner accepted-share aggregates over a time window.
 #[derive(Debug, Clone, Copy, PartialEq, sqlx::FromRow)]
 pub struct AcceptedShareStats {
@@ -130,7 +143,7 @@ where
     .await?;
     let weight = weight.unwrap_or(0.0);
     let secs = (until - since).num_seconds().max(1) as f64;
-    Ok(weight * HASHES_PER_DIFFICULTY / secs)
+    Ok(hashrate_hs(weight, secs))
 }
 
 /// Pool-wide estimated hashrate over the same window.
@@ -159,7 +172,7 @@ where
     .await?;
     let weight = weight.unwrap_or(0.0);
     let secs = (until - since).num_seconds().max(1) as f64;
-    Ok(weight * HASHES_PER_DIFFICULTY / secs)
+    Ok(hashrate_hs(weight, secs))
 }
 
 /// Combined accepted + rejected counts for a wallet — both since
@@ -270,7 +283,7 @@ where
     .await?;
     let weight = weight.unwrap_or(0.0);
     let secs = (until - since).num_seconds().max(1) as f64;
-    Ok(weight * HASHES_PER_DIFFICULTY / secs)
+    Ok(hashrate_hs(weight, secs))
 }
 
 /// Distinct active wallets and workers (≥ 1 accepted share) since
@@ -357,7 +370,7 @@ fn points_from_rows(
                 })?;
             Ok(HashratePoint {
                 bucket_start,
-                hashrate: weight.unwrap_or(0.0) * HASHES_PER_DIFFICULTY / bucket_secs_f,
+                hashrate: hashrate_hs(weight.unwrap_or(0.0), bucket_secs_f),
             })
         })
         .collect()
@@ -464,7 +477,7 @@ where
                 network,
                 accepted_shares,
                 total_weight,
-                hashrate_hs: total_weight * HASHES_PER_DIFFICULTY / secs,
+                hashrate_hs: hashrate_hs(total_weight, secs),
             }
         })
         .collect())
@@ -559,4 +572,42 @@ where
     .fetch_all(executor)
     .await?;
     points_from_rows(rows, bucket_secs_f)
+}
+
+#[cfg(test)]
+mod tests {
+    // Pinning exact, expected float values here is intentional — these are
+    // the conversion constants, not lossy measurements.
+    #![allow(clippy::float_cmp)]
+
+    use super::{HASHES_PER_DIFFICULTY, hashrate_hs};
+
+    #[test]
+    fn hashrate_uses_two_pow_32_per_difficulty() {
+        // The convention: one difficulty-1 share == 2^32 expected hashes.
+        assert_eq!(HASHES_PER_DIFFICULTY, 4_294_967_296.0);
+        // 1.0 summed-difficulty over 1 s ⇒ exactly 2^32 H/s.
+        assert_eq!(hashrate_hs(1.0, 1.0), HASHES_PER_DIFFICULTY);
+        // Empty window ⇒ zero hashrate.
+        assert_eq!(hashrate_hs(0.0, 300.0), 0.0);
+    }
+
+    #[test]
+    fn hashrate_is_linear_in_weight_and_inverse_in_time() {
+        let base = hashrate_hs(1.0, 1.0);
+        let double = 2.0 * base;
+        let half = base / 2.0;
+        assert!((hashrate_hs(2.0, 1.0) - double).abs() < 1e-3);
+        assert!((hashrate_hs(1.0, 2.0) - half).abs() < 1e-3);
+    }
+
+    #[test]
+    fn hashrate_matches_live_tn10_sample() {
+        // Ground-truth sample measured from the live tn10 DB (2026-06-05):
+        // Σ(difficulty) = 394_442.79 over a 300 s window ⇒ ≈5.6 TH/s, which
+        // is the single Goldshell ASIC's real stratum-side rate. Guards the
+        // estimator against an order-of-magnitude regression.
+        let hs = hashrate_hs(394_442.79, 300.0);
+        assert!((hs - 5.6e12).abs() < 0.3e12, "expected ≈5.6 TH/s, got {hs}");
+    }
 }
