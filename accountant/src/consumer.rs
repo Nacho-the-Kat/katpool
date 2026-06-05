@@ -35,6 +35,21 @@
 //! Callers can `await` the returned `JoinHandle` to observe a
 //! clean shutdown.
 //!
+//! ## Graceful shutdown drain
+//!
+//! [`EventConsumer::run_with_shutdown`] adds an explicit shutdown
+//! signal so the runtime can drain the broadcast backlog at SIGTERM
+//! instead of aborting the task mid-buffer. On the signal the consumer
+//! stops blocking on new events and drains everything already on the
+//! bus, finishing once the channel is idle for `drain_idle` (no event
+//! for that gap) or the hard `drain_budget` elapses, then returns
+//! `Ok(())`. The runtime stops the producer (the stratum bridge listener)
+//! first, so in steady state every event that reached the bus before
+//! shutdown is persisted. The narrow residual — events the bridge's
+//! detached per-connection tasks emit *after* the signal — is bounded by
+//! `drain_idle` and is the documented limit until the vendored bridge
+//! grows a cooperative shutdown of its own (ADR-0002 follow-up).
+//!
 //! ## Failure isolation
 //!
 //! Per-event DB errors are logged, counted, and swallowed. A
@@ -47,6 +62,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use katpool_db::repo::block::{self, EnsureOutcome};
@@ -54,7 +70,8 @@ use katpool_db::repo::share_reject::{self, DbShareRejectReason};
 use katpool_db::repo::{SessionId, connection_session, share, wallet, worker};
 use katpool_domain::{PoolEvent, WalletAddress, WorkerName};
 use sqlx::PgPool;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
+use tokio::time::{Instant, timeout};
 use tracing::{debug, error, info, warn};
 
 use crate::error::EventError;
@@ -142,6 +159,13 @@ pub enum ConsumerConfigError {
     },
 }
 
+/// Whether the consumer event loop should keep running or exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopStep {
+    Continue,
+    Exit,
+}
+
 /// The consumer task. Holds the DB pool + the consumer's
 /// configuration; `run` consumes both and drives the event loop.
 pub struct EventConsumer {
@@ -184,13 +208,65 @@ impl EventConsumer {
     /// sender. Per-event errors are logged + counted, never
     /// returned.
     pub async fn run(self, mut rx: broadcast::Receiver<PoolEvent>) -> Result<(), anyhow::Error> {
-        info!(instance = %self.cfg.instance_id, "accountant consumer starting");
+        self.startup_session_sweep().await;
+        loop {
+            if matches!(self.step(rx.recv().await).await, LoopStep::Exit) {
+                return Ok(());
+            }
+        }
+    }
 
-        // Finalize any sessions left open by a previous process
-        // incarnation. Bridge + accountant share one process, so a
-        // restart already dropped every socket; surviving miners
-        // reconnect and re-open. Best-effort: a sweep failure must not
-        // stop the consumer from draining live events.
+    /// Drive the consumer until the broadcast channel closes **or** `shutdown`
+    /// flips to `true`, then drain the in-bus backlog before returning.
+    ///
+    /// On the shutdown signal the consumer stops blocking on new events and
+    /// drains everything already buffered, finishing once the bus has been
+    /// idle for `drain_idle` or the hard `drain_budget` elapses (whichever
+    /// comes first), then returns `Ok(())`. See the module-level "Graceful
+    /// shutdown drain" note for the producer-stop ordering this relies on.
+    /// Per-event errors are logged + counted, never returned.
+    pub async fn run_with_shutdown(
+        self,
+        mut rx: broadcast::Receiver<PoolEvent>,
+        mut shutdown: watch::Receiver<bool>,
+        drain_idle: Duration,
+        drain_budget: Duration,
+    ) -> Result<(), anyhow::Error> {
+        self.startup_session_sweep().await;
+
+        // A shutdown that already latched before we subscribed must still be
+        // honoured (the signal task may fire before this task is scheduled).
+        if *shutdown.borrow() {
+            self.drain_backlog(&mut rx, drain_idle, drain_budget).await;
+            return Ok(());
+        }
+
+        loop {
+            tokio::select! {
+                recv = rx.recv() => {
+                    if matches!(self.step(recv).await, LoopStep::Exit) {
+                        return Ok(());
+                    }
+                }
+                changed = shutdown.changed() => {
+                    // Sender dropped (`Err`) is treated as a shutdown request:
+                    // the runtime is tearing down regardless.
+                    if changed.is_err() || *shutdown.borrow() {
+                        info!(instance = %self.cfg.instance_id, "shutdown signalled; draining event backlog");
+                        self.drain_backlog(&mut rx, drain_idle, drain_budget).await;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Finalize any sessions left open by a previous process incarnation.
+    /// Bridge + accountant share one process, so a restart already dropped
+    /// every socket; surviving miners reconnect and re-open. Best-effort: a
+    /// sweep failure must not stop the consumer from draining live events.
+    async fn startup_session_sweep(&self) {
+        info!(instance = %self.cfg.instance_id, "accountant consumer starting");
         match connection_session::close_all_open(&self.db).await {
             Ok(n) if n > 0 => {
                 info!(instance = %self.cfg.instance_id, closed = n, "closed orphaned sessions at startup");
@@ -200,24 +276,70 @@ impl EventConsumer {
                 warn!(instance = %self.cfg.instance_id, error = %e, "startup session sweep failed");
             }
         }
+    }
 
-        loop {
-            match rx.recv().await {
-                Ok(event) => self.handle_event(event).await,
-                Err(broadcast::error::RecvError::Lagged(n)) => {
-                    record_lag(&self.cfg.instance_id);
-                    warn!(
-                        instance = %self.cfg.instance_id,
-                        skipped = n,
-                        "broadcast channel lag; events dropped"
-                    );
-                }
-                Err(broadcast::error::RecvError::Closed) => {
-                    info!(instance = %self.cfg.instance_id, "broadcast channel closed; consumer exiting");
-                    return Ok(());
-                }
+    /// Apply one received broadcast result. Returns whether the loop should
+    /// continue or exit (the channel closed).
+    async fn step(&self, recv: Result<PoolEvent, broadcast::error::RecvError>) -> LoopStep {
+        match recv {
+            Ok(event) => {
+                self.handle_event(event).await;
+                LoopStep::Continue
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                record_lag(&self.cfg.instance_id);
+                warn!(
+                    instance = %self.cfg.instance_id,
+                    skipped = n,
+                    "broadcast channel lag; events dropped"
+                );
+                LoopStep::Continue
+            }
+            Err(broadcast::error::RecvError::Closed) => {
+                info!(instance = %self.cfg.instance_id, "broadcast channel closed; consumer exiting");
+                LoopStep::Exit
             }
         }
+    }
+
+    /// Drain the broadcast backlog at shutdown. Keeps consuming events until
+    /// the bus is idle for `drain_idle` (no event within that gap) or the hard
+    /// `drain_budget` elapses, then returns. Bounded so a misbehaving producer
+    /// cannot wedge teardown.
+    async fn drain_backlog(
+        &self,
+        rx: &mut broadcast::Receiver<PoolEvent>,
+        drain_idle: Duration,
+        drain_budget: Duration,
+    ) {
+        let deadline = Instant::now() + drain_budget;
+        let mut drained = 0_usize;
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                warn!(
+                    instance = %self.cfg.instance_id,
+                    drained,
+                    "drain budget exhausted; exiting with possible backlog remaining"
+                );
+                break;
+            }
+            let wait = drain_idle.min(deadline.saturating_duration_since(now));
+            match timeout(wait, rx.recv()).await {
+                Ok(Ok(event)) => {
+                    self.handle_event(event).await;
+                    drained += 1;
+                }
+                Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+                    record_lag(&self.cfg.instance_id);
+                    warn!(instance = %self.cfg.instance_id, skipped = n, "broadcast channel lag during drain");
+                }
+                Ok(Err(broadcast::error::RecvError::Closed)) => break,
+                // No event within the idle gap: the backlog is drained.
+                Err(_elapsed) => break,
+            }
+        }
+        info!(instance = %self.cfg.instance_id, drained, "event backlog drained; consumer exiting");
     }
 
     /// Single-event dispatch. Public for testing — callers in

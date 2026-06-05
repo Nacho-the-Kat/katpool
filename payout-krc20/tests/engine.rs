@@ -146,6 +146,7 @@ fn engine_config(namespace: &str, mode: ExecutionMode) -> Krc20PayoutEngineConfi
         ticker: "NACHO".to_owned(),
         commit_amount_sompi: DEFAULT_COMMIT_AMOUNT_SOMPI,
         batch_limit: 100,
+        max_nacho_base_units_per_cycle: None,
     }
 }
 

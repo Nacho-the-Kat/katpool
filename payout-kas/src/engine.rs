@@ -37,6 +37,17 @@ use crate::execute::{
 use crate::plan::PlanKasCycleParams;
 use crate::window::cycle_window;
 
+/// Whether `total` exceeds the optional per-cycle treasury spend cap.
+///
+/// `None` disables the cap (returns `false` for any total). A money-safety
+/// circuit breaker: shared by the KAS and KRC-20 payout engines so a planning
+/// bug or a poisoned price quote can never move more than the operator-set
+/// ceiling in a single cycle (an open threat-model control).
+#[must_use]
+pub const fn over_spend_cap(total: i64, cap: Option<i64>) -> bool {
+    matches!(cap, Some(c) if total > c)
+}
+
 /// Errors from the payout engine.
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -64,6 +75,17 @@ pub enum EngineError {
         /// Required confirmation depth.
         depth: u64,
     },
+
+    /// The cycle's total outbound exceeds the configured per-cycle spend cap.
+    /// A money-safety stop: nothing is broadcast, so funds stay put until an
+    /// operator raises the cap or fixes the planning input.
+    #[error("payout cycle outbound {total} sompi exceeds per-cycle cap {cap} sompi")]
+    SpendCapExceeded {
+        /// Summed non-failed outbound for the cycle.
+        total: i64,
+        /// Configured cap.
+        cap: i64,
+    },
 }
 
 /// Engine configuration. Built from runtime config / env in the binary.
@@ -77,6 +99,10 @@ pub struct PayoutEngineConfig {
     pub cycle_span_daa: u64,
     /// Minimum payable balance (sompi) to include a wallet.
     pub threshold_sompi: i64,
+    /// Optional per-cycle treasury spend cap (sompi). `None` disables it.
+    /// When set, a cycle whose total non-failed outbound exceeds this is
+    /// refused before any broadcast (money-safety circuit breaker, G1).
+    pub max_payout_sompi_per_cycle: Option<i64>,
     /// Live broadcast or dry-run rehearsal.
     pub mode: ExecutionMode,
     /// Advisory-lock namespace (hashed to the leader key).
@@ -177,6 +203,33 @@ impl<C: KaspadClient> PayoutEngine<C> {
         let state = resume_or_plan_kas_cycle(&self.pool, params).await?;
         let cycle_id = state.cycle.id;
 
+        // Money-safety circuit breaker (G1): refuse to broadcast a cycle whose
+        // total non-failed outbound exceeds the operator-set ceiling. Evaluated
+        // against the whole cycle (not just this tick's planned subset) so a
+        // runaway is caught even after an earlier tick broadcast part of it.
+        // Funds stay put — the cycle simply does not advance until the cap is
+        // raised or the planning input is corrected.
+        let outbound_sompi: i64 = state
+            .payouts
+            .iter()
+            .filter(|p| p.status != payout::PayoutStatus::Failed)
+            .map(|p| p.amount_sompi)
+            .fold(0_i64, i64::saturating_add);
+        if over_spend_cap(outbound_sompi, self.config.max_payout_sompi_per_cycle) {
+            let cap = self.config.max_payout_sompi_per_cycle.unwrap_or_default();
+            error!(
+                instance = %self.config.instance_id,
+                cycle_id,
+                outbound_sompi,
+                cap,
+                "KAS payout cycle exceeds per-cycle spend cap; refusing to broadcast"
+            );
+            return Err(EngineError::SpendCapExceeded {
+                total: outbound_sompi,
+                cap,
+            });
+        }
+
         let broadcast = broadcast_cycle(
             &self.pool,
             &self.client,
@@ -253,5 +306,29 @@ impl<C: KaspadClient> PayoutEngine<C> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod spend_cap_tests {
+    use super::over_spend_cap;
+
+    #[test]
+    fn disabled_cap_never_trips() {
+        assert!(!over_spend_cap(0, None));
+        assert!(!over_spend_cap(i64::MAX, None));
+    }
+
+    #[test]
+    fn trips_only_strictly_above_cap() {
+        assert!(!over_spend_cap(99, Some(100)));
+        assert!(!over_spend_cap(100, Some(100)));
+        assert!(over_spend_cap(101, Some(100)));
+    }
+
+    #[test]
+    fn zero_cap_blocks_any_positive_spend() {
+        assert!(!over_spend_cap(0, Some(0)));
+        assert!(over_spend_cap(1, Some(0)));
     }
 }

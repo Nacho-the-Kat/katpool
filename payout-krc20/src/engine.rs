@@ -32,10 +32,12 @@
 use std::time::Duration;
 
 use kaspa_addresses::Address;
-use katpool_db::repo::payout::PayoutCycleStatus;
+use katpool_db::repo::payout::{Krc20TransferStatus, PayoutCycleStatus};
 use katpool_idempotency::{AdvisoryLock, advisory_key};
 use katpool_secrets::TreasurySecret;
-use payout_kas::{ExecutionMode, KAS_PAYOUT_CONFIRMATION_DAA, KaspadClient, cycle_window};
+use payout_kas::{
+    ExecutionMode, KAS_PAYOUT_CONFIRMATION_DAA, KaspadClient, cycle_window, over_spend_cap,
+};
 use secp256k1::Keypair;
 use sqlx::PgPool;
 use tokio::sync::watch;
@@ -84,6 +86,18 @@ pub enum Krc20EngineError {
         /// Required confirmation depth.
         depth: u64,
     },
+
+    /// The cycle's total NACHO base units exceed the configured per-cycle cap.
+    /// A money-safety stop: nothing is settled, so the NACHO stays in the
+    /// treasury until an operator raises the cap or fixes the floor-price quote
+    /// that inflated the amounts.
+    #[error("krc20 cycle outbound {total} NACHO base units exceeds per-cycle cap {cap}")]
+    SpendCapExceeded {
+        /// Summed non-failed NACHO base units for the cycle.
+        total: i64,
+        /// Configured cap.
+        cap: i64,
+    },
 }
 
 /// Engine configuration. Built from runtime config / env in the binary.
@@ -118,6 +132,11 @@ pub struct Krc20PayoutEngineConfig {
     pub commit_amount_sompi: u64,
     /// Cap on recipients planned and transfers settled per tick.
     pub batch_limit: i64,
+    /// Optional per-cycle NACHO spend cap (base units). `None` disables it.
+    /// When set, a cycle whose total non-failed NACHO exceeds this is refused
+    /// before any settle (money-safety circuit breaker, G1) — the primary
+    /// guard against a poisoned floor-price quote inflating rebate amounts.
+    pub max_nacho_base_units_per_cycle: Option<i64>,
 }
 
 impl Krc20PayoutEngineConfig {
@@ -278,6 +297,35 @@ where
         let state =
             resume_or_plan_krc20_cycle(&self.pool, &self.quote, &xonly, prefix, &params).await?;
         let cycle_id = state.cycle.id;
+
+        // Money-safety circuit breaker (G1): refuse to settle a cycle whose
+        // total non-failed NACHO exceeds the operator-set ceiling. This is the
+        // primary guard against a compromised/erroneous floor-price quote
+        // inflating every recipient's converted amount. Funds (NACHO) stay in
+        // the treasury until the cap is raised or the quote is corrected.
+        let outbound_nacho: i64 = state
+            .transfers
+            .iter()
+            .filter(|t| t.status != Krc20TransferStatus::Failed)
+            .map(|t| t.nacho_amount)
+            .fold(0_i64, i64::saturating_add);
+        if over_spend_cap(outbound_nacho, self.config.max_nacho_base_units_per_cycle) {
+            let cap = self
+                .config
+                .max_nacho_base_units_per_cycle
+                .unwrap_or_default();
+            warn!(
+                instance = %self.config.instance_id,
+                cycle_id,
+                outbound_nacho,
+                cap,
+                "krc20 payout cycle exceeds per-cycle NACHO spend cap; refusing to settle"
+            );
+            return Err(Krc20EngineError::SpendCapExceeded {
+                total: outbound_nacho,
+                cap,
+            });
+        }
 
         // Drive every open transfer one step (record-before-broadcast,
         // crash-safe, idempotent). Dry-run records/broadcasts nothing.

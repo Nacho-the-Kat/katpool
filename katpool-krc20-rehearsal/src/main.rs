@@ -196,6 +196,8 @@ async fn main() -> Result<()> {
             ticker: args.ticker.clone(),
             commit_amount_sompi: args.commit_amount_sompi,
             batch_limit: args.batch_limit,
+            // Rehearsal is dry-run only; the spend cap is a live-broadcast guard.
+            max_nacho_base_units_per_cycle: None,
         },
     )
     .context("building krc20 payout engine")?;

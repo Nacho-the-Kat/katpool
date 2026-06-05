@@ -83,6 +83,14 @@
 //!   unreadable ⇒ geo disabled (NULL country), non-fatal.
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
 //!   for M4 replay-determinism rehearsal
+//! - `KATPOOL_TIER_CLASSIFIER`       `static` (default) or `kasplex`. `static`
+//!   marks every wallet `Standard` (the NACHO Elite rebate is inert);
+//!   `kasplex` resolves on-chain NACHO holdings via the (mainnet-only) kasplex
+//!   indexers, with a safe `Standard` fallback and an upstream circuit breaker
+//!   (ADR-0012). Set `kasplex` on mainnet to activate the Elite rebate.
+//! - `KATPOOL_SHUTDOWN_DRAIN_SECS`   default 10. Hard ceiling (seconds) on the
+//!   event-backlog drain at SIGTERM: the consumer persists everything already
+//!   on the bus before exiting, bounded by this budget.
 //!
 //! Public read-only HTTP API (Phase 6 — opt-in, ADR-0021):
 //! - `KATPOOL_API_PORT`              bind address `host:port` (e.g.
@@ -106,6 +114,10 @@
 //! - `KATPOOL_PAYOUT_CYCLE_SPAN_DAA` default `216_000` (~6h at 10 BPS;
 //!   block-rate-specific, must exceed the confirmation depth)
 //! - `KATPOOL_PAYOUT_THRESHOLD_SOMPI` default 10 KAS
+//! - `KATPOOL_PAYOUT_MAX_SOMPI_PER_CYCLE` optional per-cycle KAS spend cap
+//!   (sompi). Unset = disabled. When set, a cycle whose total non-failed
+//!   outbound exceeds it is refused before any broadcast — a money-safety
+//!   circuit breaker (G1). Set a sane ceiling on mainnet.
 //! - Treasury key source (one of, in precedence order):
 //!   `KATPOOL_TREASURY_KEY_PATH` (raw 32-byte hex file, testnet
 //!   rehearsal) else `KATPOOL_TREASURY_CREDENTIAL` (systemd
@@ -122,6 +134,10 @@
 //!   block-rate-specific, must exceed the confirmation depth)
 //! - `KATPOOL_KRC20_MIN_PENDING_SOMPI`     default 10 KAS (coarse pre-filter)
 //! - `KATPOOL_KRC20_MIN_NACHO_BASE_UNITS`  default 1 NACHO (dust gate)
+//! - `KATPOOL_KRC20_MAX_NACHO_PER_CYCLE`   optional per-cycle NACHO spend cap
+//!   (base units). Unset = disabled. When set, a cycle whose total non-failed
+//!   NACHO exceeds it is refused before any settle — the money-safety guard
+//!   against a poisoned floor-price quote inflating rebate amounts (G1).
 //! - `KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI`   default 0.2 KAS (commit P2SH lock)
 //! - commit/reveal network fees are sized adaptively from the node fee-rate
 //!   (floored at the relay minimum) and frozen per-transfer; not configurable
@@ -190,7 +206,8 @@ use tracing_subscriber::EnvFilter;
 
 use accountant::{
     AllocationEngine, ConsumerConfig, EventConsumer, FeeConfig, GeoIp, KaspadGrpcClient,
-    MaturityConfig, MaturityTracker, StaticTierClassifier,
+    KasplexConfig, KasplexTierClassifier, MaturityConfig, MaturityTracker, StaticTierClassifier,
+    TierClassifier,
 };
 
 // The runtime orchestrator is intentionally long-form: every step
@@ -299,10 +316,35 @@ async fn main() -> Result<()> {
     // ---- accountant pipeline ----------------------------------------
     let fee =
         FeeConfig::new(cfg.fee_topline_bps).map_err(|e| anyhow::anyhow!("fee config: {e}"))?;
+    let classifier: Arc<dyn TierClassifier> = match cfg.tier_classifier {
+        TierClassifierKind::Static => {
+            info!(
+                "tier classifier: static (every wallet Standard) — the NACHO Elite rebate is \
+                 inert; set KATPOOL_TIER_CLASSIFIER=kasplex to enable on-chain tier lookup"
+            );
+            Arc::new(StaticTierClassifier::standard())
+        }
+        TierClassifierKind::Kasplex => {
+            if cfg.network != "mainnet" {
+                warn!(
+                    network = %cfg.network,
+                    "tier classifier: kasplex selected on a non-mainnet network; the kasplex \
+                     indexers are mainnet-only, so testnet wallets resolve as Standard"
+                );
+            }
+            let classifier = KasplexTierClassifier::new(KasplexConfig::default())
+                .map_err(|e| anyhow::anyhow!("building kasplex tier classifier: {e}"))?;
+            info!(
+                "tier classifier: kasplex (on-chain NACHO holdings; safe Standard fallback + \
+                 upstream circuit breaker)"
+            );
+            Arc::new(classifier)
+        }
+    };
     let engine = Arc::new(AllocationEngine::new(
         db.clone(),
         fee,
-        Arc::new(StaticTierClassifier::standard()),
+        classifier,
         cfg.instance_id.clone(),
     ));
     let tracker = MaturityTracker::new(
@@ -367,10 +409,21 @@ async fn main() -> Result<()> {
     };
 
     // ---- spawn the three subsystems ---------------------------------
+    // The consumer takes the shutdown channel so it can DRAIN the broadcast
+    // backlog at SIGTERM rather than being aborted mid-buffer (A2). The runtime
+    // stops the producer (bridge listener) first in teardown, so every event
+    // already on the bus is persisted before exit.
     let event_rx = event_tx.subscribe();
     let consumer_handle = tokio::spawn({
         let consumer = consumer;
-        async move { consumer.run(event_rx).await }
+        let rx = shutdown_rx.clone();
+        let drain_idle = cfg.shutdown_drain_idle;
+        let drain_budget = cfg.shutdown_drain_budget;
+        async move {
+            consumer
+                .run_with_shutdown(event_rx, rx, drain_idle, drain_budget)
+                .await
+        }
     });
     let tracker_handle = tokio::spawn({
         let rx = shutdown_rx.clone();
@@ -407,6 +460,7 @@ async fn main() -> Result<()> {
                 poll_interval: cfg.payout.poll_interval,
                 cycle_span_daa: cfg.payout.cycle_span_daa,
                 threshold_sompi: cfg.payout.threshold_sompi,
+                max_payout_sompi_per_cycle: cfg.payout.max_sompi_per_cycle,
                 mode,
                 lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
             },
@@ -416,6 +470,7 @@ async fn main() -> Result<()> {
             dry_run = cfg.payout.dry_run,
             poll_secs = cfg.payout.poll_interval.as_secs(),
             cycle_span_daa = cfg.payout.cycle_span_daa,
+            max_sompi_per_cycle = ?cfg.payout.max_sompi_per_cycle,
             treasury = %coinbase_override,
             "payout-kas engine enabled"
         );
@@ -479,6 +534,7 @@ async fn main() -> Result<()> {
                 ticker: cfg.krc20_payout.ticker.clone(),
                 commit_amount_sompi: cfg.krc20_payout.commit_amount_sompi,
                 batch_limit: cfg.krc20_payout.batch_limit,
+                max_nacho_base_units_per_cycle: cfg.krc20_payout.max_nacho_base_units_per_cycle,
             },
         )
         .context("building krc20 payout engine")?;
@@ -487,6 +543,7 @@ async fn main() -> Result<()> {
             poll_secs = cfg.krc20_payout.poll_interval.as_secs(),
             cycle_span_daa = cfg.krc20_payout.cycle_span_daa,
             ticker = %cfg.krc20_payout.ticker,
+            max_nacho_per_cycle = ?cfg.krc20_payout.max_nacho_base_units_per_cycle,
             treasury = %coinbase_override,
             "payout-krc20 engine enabled"
         );
@@ -622,29 +679,31 @@ async fn main() -> Result<()> {
     let _ = shutdown_observer.changed().await;
     info!("shutdown signal observed; tearing down subsystems");
 
-    // Shutdown semantics by subsystem:
+    // Shutdown semantics by subsystem (Phase 7 wiring rework, A2):
     //
-    // - **Tracker** has a clean shutdown channel (`shutdown_rx`)
-    //   and exits at its next interval tick after the signal.
-    // - **Bridge** and **consumer** do not yet have clean
-    //   shutdown semantics:
-    //   * the bridge's `listen_and_serve_with_events` spawns
-    //     internal kaspad-notification tasks (per the upstream
-    //     impl) that hold cloned `Arc<ShareHandler>` past the
-    //     listener-task abort, which keeps clones of the
-    //     `broadcast::Sender<PoolEvent>` alive;
-    //   * the consumer drains until every Sender is dropped.
-    //   The combination means a "drain to RecvError::Closed"
-    //   path blocks indefinitely.
-    //
-    // Pragmatic M3d shutdown: abort the bridge + consumer
-    // JoinHandles after the tracker is done. At-most-once
-    // delivery is the design (lossy at restart is the
-    // documented contract), so dropping in-flight events on
-    // shutdown is correct. Phase 7's wiring rework will replace
-    // the abort path with a clean shutdown if upstream grows
-    // one.
+    // - **Bridge** is stopped FIRST so it stops producing events. Its
+    //   `listen_and_serve_with_events` has no cooperative shutdown (an upstream
+    //   limitation; the detached per-connection + kaspad-notification tasks
+    //   survive the listener-task abort and keep cloned `PoolEvent` senders
+    //   alive), so aborting the listener handle is still how we stop it.
+    // - **Consumer** then DRAINS the broadcast backlog: it observes the same
+    //   `shutdown_rx`, stops blocking on new events, and persists everything
+    //   already on the bus before returning (bounded by `shutdown_drain_*`).
+    //   Because the producer is already stopped, in steady state nothing on the
+    //   bus is lost — unlike the previous abort-mid-buffer path. The narrow
+    //   residual (events a detached bridge task emits during the drain window)
+    //   is bounded by the idle gap and documented until the vendored bridge
+    //   grows a cooperative shutdown (ADR-0002 follow-up).
+    // - **Tracker** and the **payout engines** honor `shutdown_rx` and exit at
+    //   their next tick; we await them cleanly afterwards.
+    bridge_handle.abort();
+    let _ = bridge_handle.await;
     drop(event_tx);
+    match consumer_handle.await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => error!(error = %e, "consumer exited with error"),
+        Err(e) => error!(error = %e, "consumer task join error"),
+    }
     if let Err(e) = tracker_handle.await? {
         error!(error = %e, "tracker exited with error");
     }
@@ -670,10 +729,6 @@ async fn main() -> Result<()> {
             Err(e) => error!(error = %e, "consolidation engine task join error"),
         }
     }
-    bridge_handle.abort();
-    consumer_handle.abort();
-    let _ = bridge_handle.await;
-    let _ = consumer_handle.await;
     signal_task.abort();
     let _ = signal_task.await;
 
@@ -795,6 +850,7 @@ async fn run_payout_now(cfg: &RuntimeConfig, force_dry_run: bool) -> Result<()> 
             poll_interval: cfg.payout.poll_interval,
             cycle_span_daa: cfg.payout.cycle_span_daa,
             threshold_sompi: cfg.payout.threshold_sompi,
+            max_payout_sompi_per_cycle: cfg.payout.max_sompi_per_cycle,
             mode,
             lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
         },
@@ -963,6 +1019,41 @@ struct RuntimeConfig {
     /// Consolidation engine knobs (parsed unconditionally; only consumed when
     /// `consolidation_enabled`).
     consolidation: ConsolidationConfig,
+    /// Which wallet-tier classifier the accountant uses (ADR-0012).
+    tier_classifier: TierClassifierKind,
+    /// Idle gap at shutdown after which the event backlog is considered drained.
+    shutdown_drain_idle: Duration,
+    /// Hard ceiling on the shutdown backlog drain (defence against a producer
+    /// that never goes idle).
+    shutdown_drain_budget: Duration,
+}
+
+/// Default idle gap that signals the shutdown backlog is drained.
+const DEFAULT_SHUTDOWN_DRAIN_IDLE: Duration = Duration::from_millis(500);
+
+/// Default hard ceiling on the shutdown backlog drain.
+const DEFAULT_SHUTDOWN_DRAIN_BUDGET_SECS: u64 = 10;
+
+/// Which wallet-tier classifier the accountant uses (`KATPOOL_TIER_CLASSIFIER`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TierClassifierKind {
+    /// Every wallet is `Standard` (the NACHO Elite rebate is inert). Default.
+    Static,
+    /// On-chain NACHO holdings via the kasplex indexers (mainnet-oriented),
+    /// with a safe `Standard` fallback and an upstream circuit breaker.
+    Kasplex,
+}
+
+impl TierClassifierKind {
+    fn from_env() -> Result<Self> {
+        match optional("KATPOOL_TIER_CLASSIFIER").as_deref() {
+            None | Some("static") => Ok(Self::Static),
+            Some("kasplex") => Ok(Self::Kasplex),
+            Some(other) => {
+                anyhow::bail!("KATPOOL_TIER_CLASSIFIER=`{other}`: expected `static` or `kasplex`")
+            }
+        }
+    }
 }
 
 /// Where the treasury signing key is loaded from at startup.
@@ -981,6 +1072,8 @@ struct PayoutConfig {
     poll_interval: Duration,
     cycle_span_daa: u64,
     threshold_sompi: i64,
+    /// Optional per-cycle KAS spend cap (sompi); `None` disables it (G1).
+    max_sompi_per_cycle: Option<i64>,
     key_source: KeySource,
 }
 
@@ -1007,6 +1100,8 @@ struct Krc20RuntimeConfig {
     min_nacho_base_units: u128,
     commit_amount_sompi: u64,
     batch_limit: i64,
+    /// Optional per-cycle NACHO spend cap (base units); `None` disables it (G1).
+    max_nacho_base_units_per_cycle: Option<i64>,
     ticker: String,
     quote_base: String,
     breaker_threshold: u32,
@@ -1029,6 +1124,7 @@ impl Krc20RuntimeConfig {
             commit_amount_sompi: optional_u64("KATPOOL_KRC20_COMMIT_AMOUNT_SOMPI")?
                 .unwrap_or(DEFAULT_COMMIT_AMOUNT_SOMPI),
             batch_limit: optional_i64("KATPOOL_KRC20_BATCH_LIMIT")?.unwrap_or(DEFAULT_CYCLE_LIMIT),
+            max_nacho_base_units_per_cycle: optional_i64("KATPOOL_KRC20_MAX_NACHO_PER_CYCLE")?,
             ticker: optional("KATPOOL_KRC20_TICKER")
                 .unwrap_or_else(|| DEFAULT_QUOTE_TICKER.to_owned()),
             quote_base: optional("KATPOOL_KRC20_QUOTE_BASE")
@@ -1116,6 +1212,7 @@ impl RuntimeConfig {
             poll_interval: Duration::from_secs(payout_poll_secs),
             cycle_span_daa: payout_cycle_span_daa,
             threshold_sompi: payout_threshold_sompi,
+            max_sompi_per_cycle: optional_i64("KATPOOL_PAYOUT_MAX_SOMPI_PER_CYCLE")?,
             key_source: key_source.clone(),
         };
 
@@ -1181,6 +1278,12 @@ impl RuntimeConfig {
             krc20_payout,
             consolidation_enabled,
             consolidation,
+            tier_classifier: TierClassifierKind::from_env()?,
+            shutdown_drain_idle: DEFAULT_SHUTDOWN_DRAIN_IDLE,
+            shutdown_drain_budget: Duration::from_secs(
+                optional_u64("KATPOOL_SHUTDOWN_DRAIN_SECS")?
+                    .unwrap_or(DEFAULT_SHUTDOWN_DRAIN_BUDGET_SECS),
+            ),
         })
     }
 }

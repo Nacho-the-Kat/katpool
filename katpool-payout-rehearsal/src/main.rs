@@ -145,6 +145,8 @@ async fn main() -> Result<()> {
             poll_interval: Duration::from_secs(60),
             cycle_span_daa: args.cycle_span_daa,
             threshold_sompi: args.threshold_sompi,
+            // Rehearsal is dry-run only; the spend cap is a live-broadcast guard.
+            max_payout_sompi_per_cycle: None,
             mode: ExecutionMode::DryRun,
             lock_namespace: TREASURY_SPEND_LOCK_NAMESPACE.to_owned(),
         },

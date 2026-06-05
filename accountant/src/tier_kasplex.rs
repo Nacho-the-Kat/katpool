@@ -24,11 +24,23 @@
 //!
 //! ## Caching
 //!
-//! In-process TTL cache keyed by wallet address. Default 5-minute
-//! TTL — short enough that an operator who just NACHO-tipped a
-//! miner sees the upgrade within one allocation cycle, long
-//! enough that the kasplex endpoints aren't hit on every matured
-//! block in steady state.
+//! In-process TTL cache keyed by wallet address, holding only
+//! **successful** classifications. Default 5-minute TTL — short
+//! enough that an operator who just NACHO-tipped a miner sees the
+//! upgrade within one allocation cycle, long enough that the
+//! kasplex endpoints aren't hit on every matured block in steady
+//! state. Degraded (error) results are never cached, so a transient
+//! upstream blip never pins a wallet to `Standard` for the full TTL.
+//!
+//! ## Circuit breaker
+//!
+//! A consecutive-failure circuit breaker fronts the upstream. After
+//! `breaker_threshold` failures it opens and every classify returns
+//! `Standard` immediately (no HTTP) until `breaker_cooldown` elapses,
+//! then one probe is allowed through. Because the allocation engine
+//! classifies contributing wallets sequentially on the block-maturity
+//! path, this bounds the worst-case stall during a kasplex outage to a
+//! few timeouts instead of one per uncached wallet.
 //!
 //! [ADR-0012]: ../../../docs/decisions/0012-fee-model-and-tier-classification.md
 
@@ -65,6 +77,12 @@ pub const DEFAULT_TTL: Duration = Duration::from_secs(5 * 60);
 /// Default per-request HTTP timeout.
 pub const DEFAULT_HTTP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Default consecutive-failure count that trips the upstream circuit breaker.
+pub const DEFAULT_BREAKER_THRESHOLD: u32 = 5;
+
+/// Default cooldown before the tripped breaker probes the upstream again.
+pub const DEFAULT_BREAKER_COOLDOWN: Duration = Duration::from_secs(30);
+
 /// Configuration for [`KasplexTierClassifier`].
 ///
 /// All fields have sensible defaults via [`Self::default`];
@@ -86,6 +104,10 @@ pub struct KasplexConfig {
     pub ttl: Duration,
     /// HTTP request timeout.
     pub http_timeout: Duration,
+    /// Consecutive upstream failures that trip the circuit breaker.
+    pub breaker_threshold: u32,
+    /// Cooldown before a tripped breaker probes the upstream again.
+    pub breaker_cooldown: Duration,
 }
 
 impl Default for KasplexConfig {
@@ -98,6 +120,8 @@ impl Default for KasplexConfig {
             elite_krc20_threshold_base_units: DEFAULT_ELITE_KRC20_THRESHOLD,
             ttl: DEFAULT_TTL,
             http_timeout: DEFAULT_HTTP_TIMEOUT,
+            breaker_threshold: DEFAULT_BREAKER_THRESHOLD,
+            breaker_cooldown: DEFAULT_BREAKER_COOLDOWN,
         }
     }
 }
@@ -109,12 +133,83 @@ struct CacheEntry {
     expires_at: Instant,
 }
 
-/// HTTP-backed tier classifier with in-process TTL cache.
+/// Pure, time-injected upstream circuit breaker.
+///
+/// `Closed -> Open` after `threshold` consecutive failures; `Open -> HalfOpen`
+/// once `cooldown` has elapsed; `HalfOpen -> Closed` on a success, or back to
+/// `Open` on a failure. Mirrors the audited state machine in
+/// `payout-krc20`'s `quote` module; duplicated here (rather than shared) to
+/// keep `accountant` free of the payout crates' kaspad dependency graph — a
+/// future `katpool-resilience` crate can unify the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BreakerState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+#[derive(Debug)]
+struct Breaker {
+    state: BreakerState,
+    consecutive_failures: u32,
+    threshold: u32,
+    cooldown: Duration,
+    opened_at: Option<Instant>,
+}
+
+impl Breaker {
+    const fn new(threshold: u32, cooldown: Duration) -> Self {
+        Self {
+            state: BreakerState::Closed,
+            consecutive_failures: 0,
+            threshold,
+            cooldown,
+            opened_at: None,
+        }
+    }
+
+    fn state(&self, now: Instant) -> BreakerState {
+        match (self.state, self.opened_at) {
+            (BreakerState::Open, Some(opened)) if now.duration_since(opened) >= self.cooldown => {
+                BreakerState::HalfOpen
+            }
+            (s, _) => s,
+        }
+    }
+
+    /// Whether an upstream request should be attempted now.
+    fn allows_request(&self, now: Instant) -> bool {
+        self.state(now) != BreakerState::Open
+    }
+
+    const fn on_success(&mut self) {
+        self.state = BreakerState::Closed;
+        self.consecutive_failures = 0;
+        self.opened_at = None;
+    }
+
+    fn on_failure(&mut self, now: Instant) {
+        if self.state(now) == BreakerState::HalfOpen {
+            self.state = BreakerState::Open;
+            self.opened_at = Some(now);
+            return;
+        }
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        if self.consecutive_failures >= self.threshold {
+            self.state = BreakerState::Open;
+            self.opened_at = Some(now);
+        }
+    }
+}
+
+/// HTTP-backed tier classifier with in-process TTL cache and an upstream
+/// circuit breaker.
 #[derive(Debug, Clone)]
 pub struct KasplexTierClassifier {
     cfg: KasplexConfig,
     http: Client,
     cache: Arc<Mutex<HashMap<String, CacheEntry>>>,
+    breaker: Arc<Mutex<Breaker>>,
 }
 
 impl KasplexTierClassifier {
@@ -130,10 +225,12 @@ impl KasplexTierClassifier {
             .user_agent(concat!("katpool-accountant/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|e| ClassifierError::Upstream(format!("reqwest build: {e}")))?;
+        let breaker = Breaker::new(cfg.breaker_threshold, cfg.breaker_cooldown);
         Ok(Self {
             cfg,
             http,
             cache: Arc::new(Mutex::new(HashMap::new())),
+            breaker: Arc::new(Mutex::new(breaker)),
         })
     }
 
@@ -257,6 +354,17 @@ impl TierClassifier for KasplexTierClassifier {
             return Ok(cached);
         }
 
+        // Skip the upstream entirely while the breaker is open. Under a
+        // sustained kasplex outage this keeps the allocation hot path from
+        // paying the per-wallet connect/read timeout on every uncached wallet
+        // (the classify loop is sequential), serving the safe `Standard` tier
+        // instantly until the cooldown lets one probe through. Degraded
+        // results are NOT cached, so recovery is observed within one cycle.
+        if !self.breaker.lock().await.allows_request(Instant::now()) {
+            debug!(wallet = %wallet.as_str(), "tier classifier breaker open; defaulting to Standard");
+            return Ok(WalletTier::Standard);
+        }
+
         // Query both endpoints in parallel; either-true ⇒ Elite.
         // We do NOT short-circuit on the first response because the
         // second request is already in flight; cancelling it would
@@ -266,24 +374,32 @@ impl TierClassifier for KasplexTierClassifier {
         let krc20_fut = self.fetch_krc20(wallet);
         let (nft_res, krc20_res) = tokio::join!(nft_fut, krc20_fut);
 
-        let tier = match (nft_res, krc20_res) {
-            (Ok(true), _) | (_, Ok(true)) => WalletTier::Elite,
-            (Ok(false), Ok(false)) => WalletTier::Standard,
-            // At least one endpoint errored AND the successful one
-            // (if any) returned false. Safe fallback: Standard.
+        match (nft_res, krc20_res) {
+            (Ok(true), _) | (_, Ok(true)) => {
+                self.breaker.lock().await.on_success();
+                self.store(key, WalletTier::Elite).await;
+                Ok(WalletTier::Elite)
+            }
+            (Ok(false), Ok(false)) => {
+                self.breaker.lock().await.on_success();
+                self.store(key, WalletTier::Standard).await;
+                Ok(WalletTier::Standard)
+            }
+            // At least one endpoint errored. Record the failure (which may trip
+            // the breaker) and fall back to the safe `Standard` tier without
+            // caching, so an Elite wallet is re-evaluated once the upstream
+            // recovers rather than being pinned to Standard for the full TTL.
             (nft, krc20) => {
+                self.breaker.lock().await.on_failure(Instant::now());
                 warn!(
                     wallet = %wallet.as_str(),
                     nft_err = ?nft.err(),
                     krc20_err = ?krc20.err(),
                     "tier classification degraded; defaulting to Standard"
                 );
-                WalletTier::Standard
+                Ok(WalletTier::Standard)
             }
-        };
-
-        self.store(key, tier).await;
-        Ok(tier)
+        }
     }
 }
 
@@ -375,5 +491,54 @@ mod tests {
         assert_eq!(c.krc20_base, DEFAULT_KRC20_BASE);
         assert_eq!(c.elite_krc20_threshold_base_units, 10_000_000_000_000_000);
         assert_eq!(c.ttl, DEFAULT_TTL);
+        assert_eq!(c.breaker_threshold, DEFAULT_BREAKER_THRESHOLD);
+        assert_eq!(c.breaker_cooldown, DEFAULT_BREAKER_COOLDOWN);
+    }
+
+    #[test]
+    fn breaker_opens_after_threshold_then_half_opens_after_cooldown() {
+        let cooldown = Duration::from_secs(30);
+        let mut b = Breaker::new(3, cooldown);
+        let t0 = Instant::now();
+        assert!(b.allows_request(t0));
+
+        // Two failures stay closed; the third trips it open.
+        b.on_failure(t0);
+        b.on_failure(t0);
+        assert!(b.allows_request(t0));
+        b.on_failure(t0);
+        assert!(!b.allows_request(t0));
+
+        // Still open before the cooldown elapses.
+        assert!(!b.allows_request(t0 + Duration::from_secs(29)));
+        // Half-open (probe allowed) once the cooldown passes.
+        assert_eq!(b.state(t0 + cooldown), BreakerState::HalfOpen);
+        assert!(b.allows_request(t0 + cooldown));
+    }
+
+    #[test]
+    fn breaker_success_closes_and_resets_failures() {
+        let mut b = Breaker::new(2, Duration::from_secs(30));
+        let t0 = Instant::now();
+        b.on_failure(t0);
+        b.on_success();
+        // The earlier failure was reset, so a single new failure must not trip.
+        b.on_failure(t0);
+        assert!(b.allows_request(t0));
+    }
+
+    #[test]
+    fn breaker_reopens_on_half_open_failure() {
+        let cooldown = Duration::from_secs(10);
+        let mut b = Breaker::new(1, cooldown);
+        let t0 = Instant::now();
+        b.on_failure(t0);
+        assert!(!b.allows_request(t0));
+        // Cooldown elapsed -> half-open -> a failed probe re-opens immediately.
+        let t1 = t0 + cooldown;
+        assert_eq!(b.state(t1), BreakerState::HalfOpen);
+        b.on_failure(t1);
+        assert!(!b.allows_request(t1));
+        assert_eq!(b.state(t1 + Duration::from_secs(1)), BreakerState::Open);
     }
 }
