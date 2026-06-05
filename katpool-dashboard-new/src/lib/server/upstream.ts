@@ -16,7 +16,11 @@ export async function fetchJson<T>(
       next: revalidate != null ? { revalidate } : undefined,
     });
     if (!res.ok) {
-      throw new UpstreamError(`upstream ${res.status} for ${safeUrl(url)}`, res.status);
+      throw new UpstreamError(
+        `upstream ${res.status} for ${safeUrl(url)}`,
+        res.status,
+        res.headers.get("retry-after") ?? undefined,
+      );
     }
     return (await res.json()) as T;
   } finally {
@@ -29,6 +33,8 @@ export class UpstreamError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Upstream `Retry-After` (seconds or HTTP-date), preserved for 429 passthrough. */
+    readonly retryAfter?: string,
   ) {
     super(message);
     this.name = "UpstreamError";

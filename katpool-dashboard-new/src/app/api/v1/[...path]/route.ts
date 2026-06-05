@@ -3,7 +3,15 @@ import { serverEnv } from "@/lib/server/env";
 import { fetchJson, UpstreamError, safeUrl } from "@/lib/server/upstream";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+
+// NB: deliberately NOT `dynamic = "force-dynamic"`. In Next 15 that is
+// equivalent to `fetchCache = "force-no-store"`, which would override the
+// per-fetch `next: { revalidate }` below and send every browser poll straight
+// through to the upstream API. The handler is already dynamic (it reads
+// `req.nextUrl`), so leaving the default `fetchCache: "auto"` lets the upstream
+// fetch hit the Next Data Cache — collapsing N concurrent viewers (and each
+// tab's 15s polls) into ~1 upstream request per endpoint per revalidate window.
+// That coalescing is what keeps the upstream's per-IP rate budget intact.
 
 /**
  * Same-origin read-only proxy to the katpool v1 API.
@@ -46,6 +54,19 @@ export async function GET(
     });
   } catch (err) {
     const status = err instanceof UpstreamError ? err.status : 502;
+
+    // Pass 429 through verbatim (with Retry-After) rather than masking it as a
+    // 502. A 502 reads as a hard fault and triggers the client's retry path,
+    // which would pile more requests onto an already-throttled upstream; a 429
+    // tells React Query to stop and back off until the next scheduled poll.
+    if (status === 429) {
+      const retryAfter = err instanceof UpstreamError ? err.retryAfter : undefined;
+      return NextResponse.json(
+        { error: { code: "rate_limited", message: "rate limited" } },
+        { status: 429, headers: retryAfter ? { "Retry-After": retryAfter } : undefined },
+      );
+    }
+
     if (status >= 500) {
       console.error("v1 proxy error", { target: safeUrl(target), status });
     }
