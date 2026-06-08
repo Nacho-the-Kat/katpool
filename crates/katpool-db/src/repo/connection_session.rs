@@ -1,9 +1,15 @@
 //! Connection-session aggregate — per-stratum-TCP-connection record.
 //!
-//! Sessions are created at TCP-accept (often *before* the
-//! `mining.authorize` payload reveals which worker is connecting),
-//! so `worker_id` is nullable. The accountant fills it in on the
-//! first `ShareCredited` event for that session.
+//! A live row is [`open`]ed when the connection authenticates
+//! (`mining.authorize`), with its `worker_id` bound up-front from the
+//! authorize payload, and finalized by [`close`] at disconnect. The
+//! matching open/close pair is correlated by the bridge connection id
+//! in the accountant. `worker_id` is nullable because a connection can
+//! authorize with a bare address (no `.worker` suffix) — such a session
+//! carries no worker identity anywhere (its shares are likewise
+//! unattributed), so the null is correct, not a gap to be backfilled.
+//! Sessions that drop *before* authorize have no open row and are
+//! instead persisted at close via [`record_closed`].
 //!
 //! Used for per-IP forensics, per-rig analytics, and anti-abuse
 //! audit trails.
@@ -121,24 +127,6 @@ where
     .fetch_one(executor)
     .await?;
     Ok(id)
-}
-
-/// Bind a worker to an already-open session.
-///
-/// Called by the accountant when the first `ShareCredited` event for
-/// the session arrives — the session was created at TCP accept, but
-/// the worker identity wasn't known until authorize.
-pub async fn bind_worker<'e, E: PgExecutor<'e>>(
-    executor: E,
-    session_id: SessionId,
-    worker_id: WorkerId,
-) -> Result<(), DbError> {
-    sqlx::query("UPDATE connection_session SET worker_id = $2 WHERE id = $1 AND worker_id IS NULL")
-        .bind(session_id.0)
-        .bind(worker_id.0)
-        .execute(executor)
-        .await?;
-    Ok(())
 }
 
 /// Close the session at TCP-disconnect.

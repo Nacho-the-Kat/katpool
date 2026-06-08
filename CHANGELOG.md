@@ -60,6 +60,14 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Session-recording cleanup + test hardening** (A6/B1 follow-up; no runtime
+  behavior change). `connection_session.worker_id` is already bound at session
+  open (PR #71), so the now-dead `bind_worker` UPDATE helper — whose doc still
+  described the obsolete "fill in on first `ShareCredited`" flow — was removed,
+  and the stale module/audit docs were corrected. Added accountant-level
+  session-handler tests (open persists a live worker-bound row; open→close
+  finalizes the *same* row; close-without-open falls back to a completed row;
+  a bare authorize leaves `worker_id` NULL with no phantom-worker backfill).
 - **Graceful shutdown now drains the event backlog instead of aborting it**
   (A2). At SIGTERM the runtime stops the bridge producer first, then
   `EventConsumer::run_with_shutdown` persists everything already on the
