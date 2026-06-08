@@ -15,14 +15,13 @@ workspace = true
 # Unified runtime binary. Composes the stratum bridge, the accountant
 # event consumer + maturity tracker, the KAS/KRC-20 payout engines, and
 # the read-only API into one process with a shared broadcast channel.
-# Telemetry (`katpool-telemetry`) and treasury custody (`katpool-secrets`)
-# are wired; `katpool-config` (YAML layer) and `katpool-metrics` remain
-# scaffold-only and are machete-ignored below until their slices land.
+# Telemetry (`katpool-telemetry`), treasury custody (`katpool-secrets`), and
+# the YAML/TOML config layer (`katpool-config`) are wired; `katpool-metrics`
+# remains scaffold-only and is machete-ignored below until its slice lands.
 [package.metadata.cargo-machete]
 ignored = [
-    # Phase 7 metrics/config — currently no direct use; wired in
-    # later Phase 7 slices (LGTM metrics export, YAML config layer).
-    "katpool-config",
+    # Phase 7 metrics — currently no direct use; wired in a later Phase 7
+    # slice (LGTM metrics export).
     "katpool-metrics",
     # Workspace deps the binary doesn't yet use.
     "thiserror",
