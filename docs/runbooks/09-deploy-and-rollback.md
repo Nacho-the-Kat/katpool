@@ -6,10 +6,9 @@
 - Emergency rollback during or just after a problematic deploy
 - Manual recovery if the deploy workflow itself misbehaves
 
-## Current deploy (binary + systemd, per network)
+## Deploy (signed binary + systemd, per network)
 
-Until the signed-image pipeline below is wired to the VPS, deploys are
-binary swaps driven by [`scripts/deploy.sh`](../../scripts/deploy.sh).
+Deploys are driven by [`scripts/deploy.sh`](../../scripts/deploy.sh).
 The unified `katpool` binary is **network-agnostic** — the network is
 selected at runtime by the kaspad endpoint and the `kaspatest:`/`kaspa:`
 address prefix — so the script takes a *deploy-target* flag and routes
@@ -27,13 +26,13 @@ seed it once: `cp ops/env/<network>.env.example ops/env/<network>.env`
 and fill it in.
 
 ```bash
-# testnet-10 (builds --profile dist, installs unit + env, restarts):
+# RECOMMENDED — download + cosign-verify the signed release, then install:
+sudo scripts/deploy.sh --network mainnet --release v1.2.0
+
+# testnet-10 from source (builds --profile dist, installs unit + env, restarts):
 sudo scripts/deploy.sh --network tn10
 
-# mainnet:
-sudo scripts/deploy.sh --network mainnet
-
-# deploy a prebuilt/signed artifact instead of building:
+# install a manually downloaded signed artifact (bundle auto-detected beside it):
 sudo scripts/deploy.sh --network mainnet --binary /path/to/katpool
 ```
 
@@ -43,8 +42,30 @@ to `/etc/systemd/system/katpool-<network>.service`, installs the host-local
 `ops/env/<network>.env` to `/etc/katpool/<network>.env`, **backs up** the
 existing binary
 (`katpool.bak-<timestamp>`, keeping the last 5), installs the new binary,
-`daemon-reload`s, restarts, and fails loudly (retaining the backup) if the
-service does not come back active.
+`daemon-reload`s, restarts, then **waits for `/ready`** (DB-reachable AND
+kaspad-synced, on `KATPOOL_HEALTH_CHECK_PORT`/`KATPOOL_API_PORT`). It fails
+loudly — retaining the backup — if the service does not come back active or
+does not report ready within 30 s.
+
+### Supply-chain verification
+
+`--release <tag>` and `--binary <path>` install a **prebuilt release
+artifact**, which is **cosign-verified before install**. Verification is
+keyless: the signature, produced by the
+[`release.yml`](../../.github/workflows/release.yml) workflow (no long-lived
+keys), is checked against that workflow's Sigstore identity and the Rekor
+transparency log via
+[`scripts/verify-release.sh`](../../scripts/verify-release.sh). A failed or
+missing signature **aborts the deploy** before anything is swapped. To verify
+an artifact by hand (without deploying):
+
+```bash
+scripts/verify-release.sh /path/to/katpool   # bundle: <artifact>.sigstore-bundle.json
+```
+
+A locally built binary (the from-source `--network tn10` path) is unsigned and
+installed as-is. `--no-verify` exists only for offline/pre-verified flows and
+is **not** for routine use.
 
 **Rollback (binary):**
 
@@ -53,73 +74,63 @@ cp /root/katpool-<network>/katpool.bak-<timestamp> /root/katpool-<network>/katpo
 sudo systemctl restart katpool-<network>
 ```
 
-## Deploy procedure (target state — signed image pipeline, Phase 7)
+## How releases are built and signed
 
-Triggered automatically by a merge to `main` after CI passes
-([`release.yml`](../../.github/workflows/release.yml)). The
-workflow:
+A `v*` tag push (or a manual `workflow_dispatch`) runs
+[`release.yml`](../../.github/workflows/release.yml), which:
 
-1. Builds a static musl binary
-2. Generates SBOM with `syft` (CycloneDX JSON)
-3. Signs the binary and SBOM with `cosign` (keyless via OIDC)
-4. Pushes the signed Docker image with a pinned digest
-5. Opens a deploy PR (or auto-triggers the production deploy if
-   the workflow is configured for it)
-6. Deploy script on the VPS verifies the cosign signature before
-   activating
+1. Builds a static `x86_64-unknown-linux-musl` binary (`--locked`)
+2. Generates a CycloneDX SBOM (`anchore/sbom-action` / syft)
+3. Signs the binary **and** the SBOM with `cosign` keyless (OIDC) —
+   no long-lived keys — emitting `*.sigstore-bundle.json` bundles
+4. Publishes a **draft** GitHub Release carrying the binary, the SBOM,
+   and both signature bundles
 
-To trigger manually (e.g. re-deploy of an already-built artifact):
+All third-party actions are pinned by full commit SHA.
+
+To cut a release manually (or just push a `vX.Y.Z` tag):
 
 ```bash
 gh workflow run release.yml --ref main
 ```
 
-To deploy to the VPS without going through CI (emergency only):
+Publish the drafted release, then deploy it to each VPS with the
+verified path above:
 
 ```bash
-ssh prod-vps /opt/katpool/deploy/deploy.sh <signed-image-digest>
+sudo scripts/deploy.sh --network mainnet --release vX.Y.Z
 ```
 
-The script:
-
-- Pulls the image by digest
-- Verifies cosign signature; refuses to proceed if missing
-- Runs migrations (idempotent)
-- `systemctl reload katpool` (zero-downtime hot reload for
-  config; full restart only if the binary changed)
-- Waits for `/health` and `/ready` to return 200
-- Marks the deploy successful in the deploy log
+> Not yet automated: there is no deploy-on-merge, no deploy PR, and no
+> remote structured deploy log. Deploys are operator-initiated on the
+> VPS via `scripts/deploy.sh`, which cosign-verifies the artifact and
+> gates on `/ready` before declaring success.
 
 ## Rollback procedure
 
-If a deploy causes alerts to fire, or if the operator's judgement
-says "back this out":
+A bad deploy is backed out by restoring the previous binary backup
+(retained automatically — the last 5 per network) and restarting:
 
 ```bash
-ssh prod-vps /opt/katpool/deploy/rollback.sh
+ls -1t /root/katpool-<network>/katpool.bak-*          # newest first
+cp /root/katpool-<network>/katpool.bak-<timestamp> /root/katpool-<network>/katpool
+sudo systemctl restart katpool-<network>
 ```
 
-This script:
+`deploy.sh` keeps the backup whenever the new binary fails to come
+active or ready, so the previous good binary is always on disk after a
+failed deploy.
 
-1. Looks up the previous signed image digest from the deploy log
-2. Re-pulls and verifies its signature
-3. Rolls back any DB migrations applied by the failed deploy
-   (each migration has a `down` step; the script applies them
-   in reverse order, gated by an interactive confirmation)
-4. Restarts `katpool` against the previous digest
-5. Waits for `/health` and `/ready` to return 200
-6. Marks the rollback in the deploy log
+If the database is implicated — e.g. a startup migration moved the
+schema somewhere the previous binary can't read — this is a manual
+recovery scenario:
 
-If the rollback script itself fails (e.g. the down-migration
-errored), this is a manual recovery scenario:
-
-1. Stop the pool: `systemctl stop katpool`
-2. Identify the last-known-good database state (via pgBackRest
-   PITR — see [04](04-postgres-restore-from-backup.md))
-3. Restore the database to just before the failed deploy
-4. Start the pool against the previous binary digest
-5. File a SEV-2 incident; do not deploy again until the issue
-   is understood
+1. Stop the pool: `systemctl stop katpool-<network>`
+2. Restore the database to just before the failed deploy via pgBackRest
+   PITR — see [04](04-postgres-restore-from-backup.md)
+3. Restore the previous binary backup (above) and start the service
+4. File a SEV-2 incident; do not deploy again until the issue is
+   understood
 
 ## Verification after deploy or rollback
 
@@ -143,14 +154,15 @@ errored), this is a manual recovery scenario:
 
 ## Audit trail
 
-Every deploy and rollback writes to
-`/var/log/katpool/deploy.jsonl` (also shipped to Loki). Includes:
+Today the record of "who deployed what when" is reconstructed from:
 
-- Deploy timestamp
-- Image digest before + after
-- Migration versions before + after
-- Operator's GitHub identity (from the OIDC token)
-- Success/failure
-- Any down-migration applied during rollback
+- **journald** — `journalctl -u katpool-<network>` shows each restart
+  and the `deploy.sh` output that drove it
+- **Binary backups** — `katpool.bak-<timestamp>` (UTC) in the per-network
+  directory mark each prior binary and the time it was replaced
+- **GitHub Releases** — the published tag, its SBOM, and the Rekor entry
+  behind the cosign bundle establish provenance of the deployed artifact
 
-This is the source of truth for "who deployed what when".
+> Future (B-workstream): a structured `deploy.jsonl` shipped to Loki with
+> operator identity, before/after artifact SHA-256, and outcome, so the
+> audit trail is queryable rather than reconstructed.

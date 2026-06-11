@@ -50,6 +50,16 @@ backward-incompatible ways at every minor bump.
 
 ### Security
 
+- **Cosign-verified deploys** (H1 of the road-to-mainnet plan).
+  `scripts/deploy.sh` now treats a prebuilt artifact (`--release <tag>` to
+  download from a GitHub Release, or `--binary <path>`) as untrusted until its
+  keyless cosign signature is verified against the `release.yml` workflow
+  identity and the Rekor transparency log — a failed or missing
+  `*.sigstore-bundle.json` aborts the deploy before anything is swapped. The
+  check lives in the standalone, hand-runnable `scripts/verify-release.sh`
+  (overridable signer identity/issuer via `KATPOOL_RELEASE_*` env for forks).
+  A locally built from-source binary is unsigned and installed as-is;
+  `--no-verify` is an explicit, documented offline-only escape hatch.
 - **Treasury/wallet address redaction in runtime logs and traces** (B2). The
   unified binary now emits addresses as a `prefix:…last4` tag
   (`katpool_domain::redact`, the single canonical redactor the `api` layer also
@@ -60,6 +70,14 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Deploy readiness gate** (H2 of the road-to-mainnet plan). After restarting
+  the service, `scripts/deploy.sh` no longer stops at "process is active": it
+  polls `/ready` (DB-reachable **and** kaspad-synced) on the same probe the
+  orchestrator uses — `KATPOOL_HEALTH_CHECK_PORT`, else `KATPOOL_API_PORT` — for
+  up to 30 s, and fails the deploy (retaining the binary backup for rollback) if
+  readiness is not reached. Runbook 09 was rewritten to match the real signed
+  *binary* + cosign-bundle release flow (the prior "signed Docker image" /
+  `rollback.sh` / `deploy.jsonl` text described a pipeline that does not exist).
 - **Session-recording cleanup + test hardening** (A6/B1 follow-up; no runtime
   behavior change). `connection_session.worker_id` is already bound at session
   open (PR #71), so the now-dead `bind_worker` UPDATE helper — whose doc still
