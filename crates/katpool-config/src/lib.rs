@@ -66,7 +66,7 @@ pub enum ConfigError {
 pub struct FileConfig {
     /// kaspad gRPC URL (`KASPAD_GRPC_URL`).
     pub kaspad_url: Option<String>,
-    /// PostgreSQL connection URL (`KATPOOL_DATABASE_URL`).
+    /// `PostgreSQL` connection URL (`KATPOOL_DATABASE_URL`).
     pub database_url: Option<String>,
     /// Comma-separated pool payout address(es) (`KATPOOL_POOL_ADDRESS`).
     pub pool_address: Option<String>,
