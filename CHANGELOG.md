@@ -12,6 +12,23 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Self-hosted LGTM observability config-as-code** (B3–B7 of the road-to-mainnet
+  plan; ADR-0004). New `ops/railway/observability/` with the config each service
+  consumes: VictoriaMetrics scrape (`scrape.yml`) + an origin `vmagent` config
+  (the pool's `/metrics` binds loopback on mainnet, so the origin remote-writes
+  into the Railway stack — preserving the ADR's failure-domain split); `vmalert`
+  alerting rules derived from the **actual** emitted `ks_*` / `ks_accountant_*`
+  metrics and the blackbox synthetic probes, each annotated with a real
+  `docs/runbooks/` URL (incl. the ADR-mandated `CanaryMinerNotPaid` page);
+  SLI recording rules; Alertmanager routing to ntfy (via the ntfy-alertmanager
+  bridge; secrets stay out of the repo); Blackbox HTTP/TCP probe modules; Loki
+  (TSDB v13, 30-day retention) and Tempo (OTLP, 14-day) configs; Grafana
+  datasource + dashboard provisioning with a pool-overview dashboard; and
+  `SLO.md` (SLOs/SLIs, retention, escalation) — which also documents the
+  instrumentation gaps left un-faked (payout-cycle/latency metrics, canary
+  binary). Railway project provisioning and the canary miner remain
+  operator/follow-up actions, per the plan's own categorization.
+
 - **Dedicated liveness/readiness probe port** (A4 of the road-to-mainnet plan).
   `KATPOOL_HEALTH_CHECK_PORT` was a no-op in the unified runtime — the value was
   carried into `BridgeServerConfig` but never served, so health checks required

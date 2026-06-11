@@ -1,0 +1,17 @@
+# Grafana dashboard provider (B5). Loads JSON dashboards from disk so they are
+# version-controlled here rather than edited in the UI. Mount the repo's
+# grafana/dashboards/ at /var/lib/grafana/dashboards.
+
+apiVersion: 1
+
+providers:
+  - name: katpool
+    orgId: 1
+    folder: katpool
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true
