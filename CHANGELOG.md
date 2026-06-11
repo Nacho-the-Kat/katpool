@@ -12,6 +12,17 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Origin stratum firewall, operable** (C2 of the road-to-mainnet plan;
+  ADR-0022). The fly.io anycast edge's PROXY-trust model requires the origin to
+  accept the stratum ports only from the fly per-region egress IPs; this was
+  previously just an inline placeholder in the edge README. Now a committed,
+  `nft -c`-valid ruleset (`ops/edge/flyio/nftables/katpool-stratum.nft`, using
+  RFC 5737/3849 documentation IPs as obvious placeholders) plus an idempotent
+  `apply-origin-firewall.sh` that fills the real egress IPs (from `fly ips list`
+  or args), validates, installs to `/etc/nftables.d/`, and loads them. The
+  ruleset scopes to the stratum ports only (chain policy `accept`, so SSH/API/
+  kaspad are untouched) and fast-paths established connections so a reload never
+  severs an in-flight miner. `--check`/`--print` allow validation without root.
 - **Dedicated liveness/readiness probe port** (A4 of the road-to-mainnet plan).
   `KATPOOL_HEALTH_CHECK_PORT` was a no-op in the unified runtime — the value was
   carried into `BridgeServerConfig` but never served, so health checks required
