@@ -10,6 +10,16 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mainnet API rate-limit default would throttle the dashboard** (E2 of the
+  road-to-mainnet plan). `ops/env/mainnet.env.example` shipped the bare
+  `5/sec, 20 burst` per-IP default, but on mainnet the dashboard's same-origin
+  Next BFF fronts the API — every viewer arrives as one source IP, so one
+  overview load (≈8 concurrent `/api/v1` calls) trips the limit. The template
+  now sets BFF-appropriate `100/300` with the rationale, matching the tn10
+  guidance, so a fresh mainnet env does not self-throttle.
+
 ### Added
 
 - **Railway LGTM deploy artifacts** (B3 provisioning, under
