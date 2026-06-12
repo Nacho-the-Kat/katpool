@@ -77,37 +77,29 @@ IPs, and the bridge must require PROXY v2 there
 (`KATPOOL_STRATUM_PROXY_PROTOCOL=true`). Without this, anyone could open
 the origin ports and spoof a PROXY header to forge a client IP.
 
-Collect the egress IPs from `fly ips list` (step 4), then on the origin:
+The ruleset lives in [`nftables/katpool-stratum.nft`](nftables/katpool-stratum.nft)
+(ships with RFC 5737/3849 documentation IPs as placeholders, so it is
+syntactically valid but matches no real host). Fill in the real egress IPs and
+apply it with the helper, which pulls them from `fly ips list`, validates with
+`nft -c`, installs to `/etc/nftables.d/`, and loads them:
 
-```nft
-# /etc/nftables.d/katpool-stratum.nft  (template — fill in real egress IPs)
-table inet katpool {
-    set fly_egress_v4 {
-        type ipv4_addr
-        elements = { 1.2.3.4, 5.6.7.8 }   # one per fly region (fly ips list)
-    }
-    set fly_egress_v6 {
-        type ipv6_addr
-        elements = { 2a09:0:1::1 }         # v6 egress, if used
-    }
-    set stratum_ports {
-        type inet_service
-        elements = { 1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888 }
-    }
-    chain input {
-        type filter hook input priority filter; policy accept;
-        # Allow stratum only from the fly edge.
-        tcp dport @stratum_ports ip  saddr @fly_egress_v4 accept
-        tcp dport @stratum_ports ip6 saddr @fly_egress_v6 accept
-        # Drop every other source on the stratum ports.
-        tcp dport @stratum_ports drop
-    }
-}
+```bash
+# Auto-collect egress IPs from `fly ips list` and apply (run on the origin):
+sudo ops/edge/flyio/nftables/apply-origin-firewall.sh
+
+# Or pass them explicitly (e.g. from step 4 above):
+sudo ops/edge/flyio/nftables/apply-origin-firewall.sh 1.2.3.4 5.6.7.8 2a09:0:1::1
+
+# Validate-only (no changes), or preview the rendered ruleset:
+ops/edge/flyio/nftables/apply-origin-firewall.sh --check 1.2.3.4
+ops/edge/flyio/nftables/apply-origin-firewall.sh --print 1.2.3.4
 ```
 
-Apply: `nft -f /etc/nftables.d/katpool-stratum.nft` (and persist via the
-host's nftables include). Re-run after any `fly ips allocate-egress`
-change.
+The ruleset touches **only** the stratum ports (chain policy is `accept`, so
+SSH/API/kaspad are untouched) and fast-paths established connections so a
+reload never severs an in-flight miner. Persist it across reboots by adding an
+`include "/etc/nftables.d/katpool-stratum.nft"` to the host's nftables config,
+and re-run the script after any `fly ips allocate-egress` change.
 
 ## DNS
 

@@ -40,9 +40,28 @@
 //!   broadcasting regardless of the env setting.
 //! - `katpool --help` — print usage.
 //!
-//! ## Configuration (env-var only in M3d; YAML in Phase 7)
+//! ## Configuration (environment variables + optional YAML/TOML file)
 //!
-//! Required:
+//! Configuration is resolved with a strict, explicit precedence:
+//!
+//! ```text
+//! environment variable  >  config file  >  built-in default
+//! ```
+//!
+//! - `KATPOOL_CONFIG`                optional path to a YAML or TOML file
+//!   (format inferred from the extension) parsed + validated by the
+//!   `katpool-config` crate. It supplies values for the *core* keys below
+//!   (node/db/network, stratum, maturity, and the operational toggles) only
+//!   where the corresponding environment variable is unset; an env var always
+//!   wins. Unknown keys and out-of-range values abort the boot. Payout,
+//!   KRC-20, consolidation, and treasury-key settings remain environment-only
+//!   by design (secrets / money-movement policy). Unset/empty ⇒ pure-env
+//!   behavior, byte-for-byte unchanged. The file keys mirror the `KATPOOL_*`
+//!   names lowercased (e.g. `KATPOOL_STRATUM_PORT` ⇒ `stratum_port`,
+//!   `KATPOOL_API_PORT` ⇒ `api_port`, `KATPOOL_MATURITY_POLL_SECS` ⇒
+//!   `maturity_poll_secs`); see `ops/config/katpool.example.yaml`.
+//!
+//! Required (env var or config-file key):
 //! - `KASPAD_GRPC_URL`               (e.g. `grpc://127.0.0.1:16210`)
 //! - `KATPOOL_DATABASE_URL`          postgres URL
 //! - `KATPOOL_POOL_ADDRESS`          kaspa address(es), comma-separated
@@ -1095,8 +1114,10 @@ enum TierClassifierKind {
 }
 
 impl TierClassifierKind {
-    fn from_env() -> Result<Self> {
-        match optional("KATPOOL_TIER_CLASSIFIER").as_deref() {
+    /// Parse from an already-resolved raw value (env-or-file). `None` ⇒
+    /// [`Self::Static`].
+    fn parse(raw: Option<&str>) -> Result<Self> {
+        match raw {
             None | Some("static") => Ok(Self::Static),
             Some("kasplex") => Ok(Self::Kasplex),
             Some(other) => {
@@ -1193,11 +1214,26 @@ impl RuntimeConfig {
     // is clearer than splitting into per-subsystem helpers that each run once.
     #[allow(clippy::too_many_lines)]
     fn from_env() -> Result<Self> {
-        let kaspad_url = required("KASPAD_GRPC_URL")?;
-        let database_url = required("KATPOOL_DATABASE_URL")?;
-        let stratum_port = required("KATPOOL_STRATUM_PORT")?;
-        let stratum_ports = parse_stratum_ports(optional("KATPOOL_STRATUM_PORTS").as_deref())?;
-        let pool_address_raw = required("KATPOOL_POOL_ADDRESS")?;
+        // Optional file layer (A3). `KATPOOL_CONFIG` points at a YAML/TOML
+        // file parsed + validated by `katpool-config`. Precedence is strict:
+        // environment variable > config file > built-in default — so env
+        // always wins and the file only fills gaps. Unset/empty `KATPOOL_CONFIG`
+        // ⇒ an empty file layer ⇒ behavior identical to pure-env config.
+        let file = match optional("KATPOOL_CONFIG") {
+            Some(path) => katpool_config::FileConfig::load(std::path::Path::new(&path))
+                .with_context(|| format!("loading KATPOOL_CONFIG=`{path}`"))?,
+            None => katpool_config::FileConfig::default(),
+        };
+
+        let kaspad_url = require("KASPAD_GRPC_URL", file.kaspad_url.clone())?;
+        let database_url = require("KATPOOL_DATABASE_URL", file.database_url.clone())?;
+        let stratum_port = require("KATPOOL_STRATUM_PORT", file.stratum_port.clone())?;
+        let stratum_ports = parse_stratum_ports(
+            optional("KATPOOL_STRATUM_PORTS")
+                .or_else(|| file.stratum_ports.clone())
+                .as_deref(),
+        )?;
+        let pool_address_raw = require("KATPOOL_POOL_ADDRESS", file.pool_address.clone())?;
         let pool_addresses = pool_address_raw
             .split(',')
             .map(str::trim)
@@ -1210,30 +1246,61 @@ impl RuntimeConfig {
         if pool_addresses.is_empty() {
             anyhow::bail!("KATPOOL_POOL_ADDRESS produced an empty list");
         }
-        let instance_id =
-            optional("KATPOOL_INSTANCE_ID").unwrap_or_else(|| "katpool-runtime".to_owned());
-        let prom_port = optional("KATPOOL_PROM_PORT").unwrap_or_default();
-        let health_check_port = optional("KATPOOL_HEALTH_CHECK_PORT").unwrap_or_default();
-        let fee_topline_bps = optional_u16("KATPOOL_FEE_TOPLINE_BPS")?.unwrap_or(75);
-        let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?.unwrap_or(4096);
-        let var_diff = optional_bool("KATPOOL_VAR_DIFF")?.unwrap_or(true);
-        let shares_per_min = optional_u32("KATPOOL_SHARES_PER_MIN")?.unwrap_or(20);
-        let proxy_protocol = optional_bool("KATPOOL_STRATUM_PROXY_PROTOCOL")?.unwrap_or(false);
-        let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?.unwrap_or(4096);
-        let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?.unwrap_or(15);
-        let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?.unwrap_or(1000);
-        let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
-        let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
-        let network = resolve_network(&pool_addresses)?;
+        let instance_id = optional("KATPOOL_INSTANCE_ID")
+            .or_else(|| file.instance_id.clone())
+            .unwrap_or_else(|| "katpool-runtime".to_owned());
+        let prom_port = optional("KATPOOL_PROM_PORT")
+            .or_else(|| file.prom_port.clone())
+            .unwrap_or_default();
+        let fee_topline_bps = optional_u16("KATPOOL_FEE_TOPLINE_BPS")?
+            .or(file.fee_topline_bps)
+            .unwrap_or(75);
+        let min_share_diff = optional_u32("KATPOOL_MIN_SHARE_DIFF")?
+            .or(file.min_share_diff)
+            .unwrap_or(4096);
+        let var_diff = optional_bool("KATPOOL_VAR_DIFF")?
+            .or(file.var_diff)
+            .unwrap_or(true);
+        let shares_per_min = optional_u32("KATPOOL_SHARES_PER_MIN")?
+            .or(file.shares_per_min)
+            .unwrap_or(20);
+        let proxy_protocol = optional_bool("KATPOOL_STRATUM_PROXY_PROTOCOL")?
+            .or(file.proxy_protocol)
+            .unwrap_or(false);
+        let broadcast_capacity = optional_usize("KATPOOL_BROADCAST_CAPACITY")?
+            .or(file.broadcast_capacity)
+            .unwrap_or(4096);
+        let poll_secs = optional_u64("KATPOOL_MATURITY_POLL_SECS")?
+            .or(file.maturity_poll_secs)
+            .unwrap_or(15);
+        let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?
+            .or(file.coinbase_maturity)
+            .unwrap_or(1000);
+        let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?
+            .or(file.window_daa_span)
+            .unwrap_or(600);
+        let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?
+            .or(file.maturity_batch_size)
+            .unwrap_or(200);
+        let network = resolve_network(
+            &pool_addresses,
+            optional("KATPOOL_NETWORK").or_else(|| file.network.clone()),
+        )?;
         let event_record_path = optional("KATPOOL_EVENT_RECORD_PATH");
 
-        // Public read-only API (Phase 6). `KATPOOL_API_PORT` is a full bind
-        // address (`host:port`), mirroring `KATPOOL_PROM_PORT`; empty disables.
-        let api_bind = optional_bind_addr("KATPOOL_API_PORT")?;
-        // Dedicated liveness/readiness probe port (ADR-0021). Serves only
-        // `/health` `/ready` `/started`, independent of the public API, so
-        // orchestrators can health-check even when `KATPOOL_API_PORT` is off.
-        let health_bind = optional_bind_addr("KATPOOL_HEALTH_CHECK_PORT")?;
+        // Public read-only API (Phase 6) + dedicated health port (ADR-0021).
+        // Both accept `host:port` or `:port`; empty disables. The raw value is
+        // taken env-first, then file, then parsed once.
+        let api_bind = optional("KATPOOL_API_PORT")
+            .or_else(|| file.api_port.clone())
+            .map(|s| parse_bind_addr("KATPOOL_API_PORT", &s))
+            .transpose()?;
+        let health_check_raw =
+            optional("KATPOOL_HEALTH_CHECK_PORT").or_else(|| file.health_check_port.clone());
+        let health_check_port = health_check_raw.clone().unwrap_or_default();
+        let health_bind = health_check_raw
+            .map(|s| parse_bind_addr("KATPOOL_HEALTH_CHECK_PORT", &s))
+            .transpose()?;
         let api_config =
             ApiConfig::from_env().map_err(|e| anyhow::anyhow!("API configuration: {e}"))?;
 
@@ -1325,18 +1392,29 @@ impl RuntimeConfig {
             krc20_payout,
             consolidation_enabled,
             consolidation,
-            tier_classifier: TierClassifierKind::from_env()?,
+            tier_classifier: TierClassifierKind::parse(
+                optional("KATPOOL_TIER_CLASSIFIER")
+                    .or_else(|| file.tier_classifier.clone())
+                    .as_deref(),
+            )?,
             shutdown_drain_idle: DEFAULT_SHUTDOWN_DRAIN_IDLE,
             shutdown_drain_budget: Duration::from_secs(
                 optional_u64("KATPOOL_SHUTDOWN_DRAIN_SECS")?
+                    .or(file.shutdown_drain_secs)
                     .unwrap_or(DEFAULT_SHUTDOWN_DRAIN_BUDGET_SECS),
             ),
         })
     }
 }
 
-fn required(var: &str) -> Result<String> {
-    std::env::var(var).map_err(|_| anyhow::anyhow!("required env var {var} unset"))
+/// A required configuration value, resolved env-first then file. Errors with
+/// an actionable message naming both sources when neither supplies it.
+fn require(var: &str, file_value: Option<String>) -> Result<String> {
+    optional(var).or(file_value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "required configuration `{var}` is unset (no environment variable and no config-file value)"
+        )
+    })
 }
 
 /// Parse `KATPOOL_STRATUM_PORTS` (ADR-0022): comma-separated `port:seed`
@@ -1424,11 +1502,6 @@ fn parse_bind_addr(var: &str, s: &str) -> Result<SocketAddr> {
     normalized.parse::<SocketAddr>().map_err(|e| {
         anyhow::anyhow!("{var}=`{s}`: {e} (expected host:port, e.g. 127.0.0.1:8080, or :PORT)")
     })
-}
-
-/// Bind address from `var`, or `None` when empty/unset (feature disabled).
-fn optional_bind_addr(var: &str) -> Result<Option<SocketAddr>> {
-    optional(var).map(|s| parse_bind_addr(var, &s)).transpose()
 }
 
 fn optional_bool(var: &str) -> Result<Option<bool>> {
@@ -1533,8 +1606,8 @@ fn spawn_event_recorder(mut rx: broadcast::Receiver<PoolEvent>, path: String) {
     });
 }
 
-fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
-    let resolved = if let Some(override_value) = optional("KATPOOL_NETWORK") {
+fn resolve_network(pool_addresses: &[Address], network_override: Option<String>) -> Result<String> {
+    let resolved = if let Some(override_value) = network_override {
         override_value
     } else {
         let first = pool_addresses
@@ -1558,10 +1631,41 @@ fn resolve_network(pool_addresses: &[Address]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_args, parse_bind_addr, parse_stratum_ports};
+    use super::{
+        Address, Command, parse_args, parse_bind_addr, parse_stratum_ports, resolve_network,
+    };
 
     fn args(parts: &[&str]) -> Vec<String> {
         parts.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    // A real testnet-10 address; only its `kaspatest:` prefix matters here.
+    const TN10_ADDR: &str =
+        "kaspatest:qq5fysv96t636u4slda59daza6tn5j5p5x5953hs6dstajuw0u6l6ez5wz3gd";
+
+    #[test]
+    fn resolve_network_derives_from_address_prefix() -> anyhow::Result<()> {
+        let addr = Address::try_from(TN10_ADDR)?;
+        assert_eq!(resolve_network(&[addr], None)?, "testnet-10");
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_network_prefers_explicit_override() -> anyhow::Result<()> {
+        // The override (env-or-file `KATPOOL_NETWORK`) wins over the prefix.
+        let addr = Address::try_from(TN10_ADDR)?;
+        assert_eq!(
+            resolve_network(&[addr], Some("testnet-11".to_owned()))?,
+            "testnet-11"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_network_rejects_unknown_override() -> anyhow::Result<()> {
+        let addr = Address::try_from(TN10_ADDR)?;
+        assert!(resolve_network(&[addr], Some("not-a-network".to_owned())).is_err());
+        Ok(())
     }
 
     #[test]
