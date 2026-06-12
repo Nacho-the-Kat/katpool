@@ -3883,6 +3883,7 @@ version = "0.1.0"
 dependencies = [
  "config",
  "serde",
+ "tempfile",
  "thiserror 2.0.18",
  "validator",
 ]

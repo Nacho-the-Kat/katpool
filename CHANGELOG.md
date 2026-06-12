@@ -12,6 +12,20 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Layered YAML/TOML config file** (`katpool-config`, was a scaffold; A3 of the
+  road-to-mainnet plan). An optional `KATPOOL_CONFIG` path points at a YAML or
+  TOML file (format inferred from the extension) parsed + validated by the
+  `katpool-config` crate. It supplies the *core* runtime keys (node/db/network,
+  stratum, maturity, and the operational toggles) under a strict precedence —
+  **environment variable > config file > built-in default** — so an env var
+  always wins and the file only fills gaps. `deny_unknown_fields` and range
+  validation make a typo'd key or out-of-range value a hard boot error; there
+  are no silent fallbacks. Payout, KRC-20, consolidation, and treasury-key
+  settings stay environment-only by design (secrets / money-movement policy).
+  Unset/empty `KATPOOL_CONFIG` ⇒ pure-environment behavior, byte-for-byte
+  unchanged. See `ops/config/katpool.example.yaml`. As part of this, a required
+  value with an empty env var (previously accepted as `""`) now correctly falls
+  through to the file/default layer.
 - **Dedicated liveness/readiness probe port** (A4 of the road-to-mainnet plan).
   `KATPOOL_HEALTH_CHECK_PORT` was a no-op in the unified runtime — the value was
   carried into `BridgeServerConfig` but never served, so health checks required
