@@ -55,8 +55,9 @@ use **reference variables** (`${{Service.VAR}}`) so a secret is defined once.
 
 | Service | Variable | Value |
 |---|---|---|
-| victoriametrics | `KATPOOL_API_HOST` | tn10 public API host (Blackbox probe target) |
-| victoriametrics | `KATPOOL_STRATUM_HOST` | tn10 public stratum host |
+| victoriametrics | `KATPOOL_API_HOST` | `api-tn10.katpool.com` (Blackbox HTTP probe target) |
+| victoriametrics | `KATPOOL_STRATUM_HOST` | stratum host/IP — tn10: `152.53.37.182` |
+| victoriametrics | `KATPOOL_STRATUM_PORT` | stratum port — tn10: `15555` |
 | vmauth | `VMAUTH_WRITE_USER` / `VMAUTH_WRITE_PASSWORD` | generated; also given to the origin vmagent |
 | grafana | `GF_SECURITY_ADMIN_USER` | `admin` |
 | grafana | `GF_SECURITY_ADMIN_PASSWORD` | generated secret |

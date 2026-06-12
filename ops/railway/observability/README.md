@@ -64,8 +64,8 @@ scraped across the network. Therefore:
   (`/health` `/ready` `/started`, stratum TCP, indexer health).
 
 Run VictoriaMetrics with `-promscrape.config=/etc/vm/scrape.yml
--retentionPeriod=90d`. Set the `%{KATPOOL_API_HOST}` / `%{KATPOOL_STRATUM_HOST}`
-env placeholders on the VM service.
+-retentionPeriod=90d`. Set the `%{KATPOOL_API_HOST}`, `%{KATPOOL_STRATUM_HOST}`,
+and `%{KATPOOL_STRATUM_PORT}` env placeholders on the VM service.
 
 Run vmalert with:
 
