@@ -12,6 +12,20 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Layered YAML/TOML config file** (`katpool-config`, was a scaffold; A3 of the
+  road-to-mainnet plan). An optional `KATPOOL_CONFIG` path points at a YAML or
+  TOML file (format inferred from the extension) parsed + validated by the
+  `katpool-config` crate. It supplies the *core* runtime keys (node/db/network,
+  stratum, maturity, and the operational toggles) under a strict precedence —
+  **environment variable > config file > built-in default** — so an env var
+  always wins and the file only fills gaps. `deny_unknown_fields` and range
+  validation make a typo'd key or out-of-range value a hard boot error; there
+  are no silent fallbacks. Payout, KRC-20, consolidation, and treasury-key
+  settings stay environment-only by design (secrets / money-movement policy).
+  Unset/empty `KATPOOL_CONFIG` ⇒ pure-environment behavior, byte-for-byte
+  unchanged. See `ops/config/katpool.example.yaml`. As part of this, a required
+  value with an empty env var (previously accepted as `""`) now correctly falls
+  through to the file/default layer.
 - **Dedicated liveness/readiness probe port** (A4 of the road-to-mainnet plan).
   `KATPOOL_HEALTH_CHECK_PORT` was a no-op in the unified runtime — the value was
   carried into `BridgeServerConfig` but never served, so health checks required
@@ -50,6 +64,16 @@ backward-incompatible ways at every minor bump.
 
 ### Security
 
+- **Cosign-verified deploys** (H1 of the road-to-mainnet plan).
+  `scripts/deploy.sh` now treats a prebuilt artifact (`--release <tag>` to
+  download from a GitHub Release, or `--binary <path>`) as untrusted until its
+  keyless cosign signature is verified against the `release.yml` workflow
+  identity and the Rekor transparency log — a failed or missing
+  `*.sigstore-bundle.json` aborts the deploy before anything is swapped. The
+  check lives in the standalone, hand-runnable `scripts/verify-release.sh`
+  (overridable signer identity/issuer via `KATPOOL_RELEASE_*` env for forks).
+  A locally built from-source binary is unsigned and installed as-is;
+  `--no-verify` is an explicit, documented offline-only escape hatch.
 - **Treasury/wallet address redaction in runtime logs and traces** (B2). The
   unified binary now emits addresses as a `prefix:…last4` tag
   (`katpool_domain::redact`, the single canonical redactor the `api` layer also
@@ -60,6 +84,14 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Deploy readiness gate** (H2 of the road-to-mainnet plan). After restarting
+  the service, `scripts/deploy.sh` no longer stops at "process is active": it
+  polls `/ready` (DB-reachable **and** kaspad-synced) on the same probe the
+  orchestrator uses — `KATPOOL_HEALTH_CHECK_PORT`, else `KATPOOL_API_PORT` — for
+  up to 30 s, and fails the deploy (retaining the binary backup for rollback) if
+  readiness is not reached. Runbook 09 was rewritten to match the real signed
+  *binary* + cosign-bundle release flow (the prior "signed Docker image" /
+  `rollback.sh` / `deploy.jsonl` text described a pipeline that does not exist).
 - **Session-recording cleanup + test hardening** (A6/B1 follow-up; no runtime
   behavior change). `connection_session.worker_id` is already bound at session
   open (PR #71), so the now-dead `bind_worker` UPDATE helper — whose doc still
