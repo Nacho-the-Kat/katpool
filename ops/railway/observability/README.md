@@ -8,27 +8,33 @@ domain** from the pool (a pool-VPS outage must not blind the monitoring).
 
 ## What is in this repo vs. what you do in Railway
 
-This directory is the **config-as-code** for the stack: the files each service
-mounts and consumes. **Standing up the Railway project** — creating services,
-attaching volumes, setting image digests, and storing secrets — is operator
-action (it needs the Railway account; see the checklist below).
+This directory is the **config-as-code** for the stack. The component subfolders
+(`victoria-metrics/`, `loki/`, `tempo/`, …) hold the raw configs each service
+consumes; **[`deploy/`](deploy/README.md)** turns them into deployable Railway
+services — a thin per-service Dockerfile (image pinned by digest, config baked
+in) plus a `railway.toml`. Railway image services can't mount repo files, so the
+config is baked at build; this also makes the testnet stand-up and the later
+mainnet rebuild reproducible rather than click-ops.
 
-> There is intentionally **no single `railway.toml`** here. Railway config-as-code
-> is *per-service* (each service sets its own Root Directory + Config File, e.g.
-> `katpool-landing/railway.toml`), so a multi-service project cannot be defined
-> by one file. **This README is the project definition** the ADR-0004
-> confirmation refers to; the per-service configs live in the subfolders below.
+> Railway config-as-code is *per-service* (each service sets its own Root
+> Directory + Config File). Every service here shares **Root Directory =
+> `ops/railway/observability`** and sets **Config File =
+> `deploy/<service>/railway.toml`**. See [`deploy/README.md`](deploy/README.md)
+> for the image pins, settings matrix, secrets, and provisioning order.
 
 ## Services
 
 Internal traffic uses Railway private DNS (`<service>.railway.internal`) and is
-free. Only Grafana, the ntfy server, and the Uptime Kuma status page need public
-domains. **Pin each image to a digest** at provisioning (resolve the current
-stable tag, then pin `@sha256:…` — same discipline as the CI actions).
+free. Only Grafana, the ntfy server, and **vmauth** (the remote-write ingress)
+need public domains; VictoriaMetrics itself stays private and unauthenticated on
+the internal network. Each image is **pinned by digest** in `deploy/` (resolve
+the current stable tag, then pin `@sha256:…` — same discipline as the CI
+actions); the resolved pins are tabulated in [`deploy/README.md`](deploy/README.md).
 
 | Service | Image (pin digest) | Internal port | Volume | Config from this repo |
 |---|---|---|---|---|
 | VictoriaMetrics | `victoriametrics/victoria-metrics` | 8428 | `/victoria-metrics-data` | `victoria-metrics/scrape.yml` |
+| vmauth | `victoriametrics/vmauth` | 8427 | — | `deploy/vmauth/auth.yml` |
 | vmalert | `victoriametrics/vmalert` | 8880 | — | `victoria-metrics/rules/*.yml` |
 | Grafana | `grafana/grafana` | 3000 | `/var/lib/grafana` | `grafana/provisioning/**`, `grafana/dashboards/**` |
 | Loki | `grafana/loki` | 3100 | `/loki` | `loki/loki-config.yaml` |
@@ -36,7 +42,7 @@ stable tag, then pin `@sha256:…` — same discipline as the CI actions).
 | Alertmanager | `prom/alertmanager` | 9093 | `/alertmanager` | `alertmanager/alertmanager.yml` |
 | Blackbox exporter | `prom/blackbox-exporter` | 9115 | — | `blackbox/blackbox.yml` |
 | ntfy | `binwiederhier/ntfy` | 80 | `/var/cache/ntfy` | (operator; holds token) |
-| ntfy-alertmanager | `ghcr.io/xenrox/ntfy-alertmanager` | 8080 | — | (operator; holds token) |
+| ntfy-alertmanager | `xenrox/ntfy-alertmanager` (Docker Hub) | 8080 | — | `deploy/ntfy-alertmanager/` (rendered from env) |
 | Uptime Kuma | `louislam/uptime-kuma:1` | 3001 | `/app/data` | (operator; UI-configured) |
 | GlitchTip | `glitchtip/glitchtip` (+ Postgres + Redis) | 8000 | DB volume | (operator; needs DB+broker) |
 | **canary-miner** | *(deferred — see below)* | — | — | — |
@@ -49,8 +55,10 @@ scraped across the network. Therefore:
 
 - **Origin → VM (pull-local, push-remote):** run **vmagent on the pool VPS** with
   `victoria-metrics/origin-vmagent.yml`; it scrapes `127.0.0.1:9302` and
-  `-remoteWrite.url`s into VictoriaMetrics on Railway (basic-auth from the host
-  EnvironmentFile).
+  `-remoteWrite.url`s into the **vmauth** public domain on Railway
+  (`https://<vmauth-domain>/api/v1/write`), which basic-auths the request and
+  proxies it to the private VictoriaMetrics service. Creds come from the host
+  EnvironmentFile (`VMAUTH_WRITE_USER`/`VMAUTH_WRITE_PASSWORD`).
 - **Railway-side scrape:** VictoriaMetrics runs `scrape.yml` for its own metrics
   and the **Blackbox** synthetic probes of the pool's *public* surface
   (`/health` `/ready` `/started`, stratum TCP, indexer health).
@@ -111,12 +119,19 @@ deliverable — the alert is in place and inert until the metric exists.
 
 ## Provisioning checklist
 
-1. Create the Railway project; add each service with its pinned image + volume.
-2. Mount this repo's config files into each service (Config File path / volume).
-3. Set env: `KATPOOL_API_HOST`, `KATPOOL_STRATUM_HOST` (VM); ntfy token + topics
-   (ntfy, bridge); webhook password (Alertmanager + bridge); Grafana admin.
-4. Install vmagent on the pool VPS with `origin-vmagent.yml` + remote_write creds.
-5. Set `KATPOOL_LOG_FORMAT=json`, deploy a log shipper to Loki, set
+The image pins, per-service settings (Root Directory, Config File, volume mount,
+public domains, `RAILWAY_RUN_UID`, Singapore region), the variable/secret matrix,
+and the dependency-ordered provisioning sequence all live in
+**[`deploy/README.md`](deploy/README.md)**. In short:
+
+1. For each service, create it on the pinned image's Dockerfile (`deploy/<svc>/`),
+   set Root Directory + Config File, attach the volume, and set its variables
+   (secrets as service variables; cross-service values as reference variables).
+2. Attach the operator-provided public domains to `grafana`, `ntfy`, and `vmauth`.
+3. Install vmagent on the pool VPS with `origin-vmagent.yml` + `VMAUTH_WRITE_*`
+   creds, pointing at the vmauth domain.
+4. Set `KATPOOL_LOG_FORMAT=json`, deploy a log shipper to Loki, set
    `KATPOOL_OTLP_ENDPOINT` for traces.
+5. Create the ntfy token (post-deploy) and set it on the bridge.
 6. Verify: Grafana shows the **katpool — Pool Overview** dashboard with live
    data; stop the canary (once built) and confirm `CanaryMinerNotPaid` fires.
