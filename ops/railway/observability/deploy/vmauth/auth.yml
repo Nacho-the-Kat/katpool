@@ -1,0 +1,26 @@
+# vmauth ingress for the public remote-write path (B4). VictoriaMetrics itself
+# stays private and unauthenticated on the Railway network; this is the ONLY
+# component with a public domain on the metrics path, and it only proxies the
+# write/import endpoints after basic auth. `%{ENV}` placeholders are substituted
+# by vmauth from the service env (docs.victoriametrics.com/vmauth) so the
+# credentials live in Railway variables, not in this file.
+
+# Unauthenticated callers can reach only the health endpoint (for Railway/uptime
+# probes); everything else requires the write credentials below.
+unauthorized_user:
+  url_map:
+    - src_paths:
+        - "/health"
+      url_prefix: "http://victoriametrics.railway.internal:8428/health"
+
+users:
+  # The origin vmagent authenticates with these and is routed to VM's ingestion
+  # endpoints only. No query/admin access is exposed publicly.
+  - username: "%{VMAUTH_WRITE_USER}"
+    password: "%{VMAUTH_WRITE_PASSWORD}"
+    url_map:
+      - src_paths:
+          - "/api/v1/write"
+          - "/api/v1/import"
+          - "/api/v1/import/.+"
+        url_prefix: "http://victoriametrics.railway.internal:8428"

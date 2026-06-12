@@ -22,6 +22,23 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Railway LGTM deploy artifacts** (B3 provisioning, under
+  `ops/railway/observability/deploy/`). Each observability service now has a thin
+  Dockerfile (upstream image pinned by digest, repo config baked in) plus a
+  `railway.toml`, so the Grafana / Loki / Tempo / VictoriaMetrics (+ `vmauth`) /
+  vmalert / Alertmanager / Blackbox / ntfy / ntfy-alertmanager stack deploys
+  reproducibly from the repo (shared build context = `ops/railway/observability`,
+  Singapore region, `RAILWAY_RUN_UID=0` on volume-backed services, secrets via
+  service + reference variables) — the same provisioning is replayable for the
+  mainnet environment. `vmauth` is added as the only public, basic-auth'd
+  remote-write ingress so VictoriaMetrics stays private on the internal network.
+  All ten images were verified to build, parse their config, and start. Also
+  fixes the Grafana dashboard provider path (it pointed at
+  `/var/lib/grafana/dashboards`, under the persistent volume mount, which would
+  shadow the baked-in JSON — now `/etc/grafana/dashboards`) and corrects the
+  `ntfy-alertmanager` image reference (Docker Hub `xenrox/ntfy-alertmanager`, not
+  GHCR). See `ops/railway/observability/deploy/README.md` for the pins, settings
+  matrix, secrets, and provisioning order.
 - **Origin stratum firewall, operable** (C2 of the road-to-mainnet plan;
   ADR-0022). The fly.io anycast edge's PROXY-trust model requires the origin to
   accept the stratum ports only from the fly per-region egress IPs; this was

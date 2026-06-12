@@ -51,17 +51,19 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox.railway.internal:9115
 
-  # Blackbox TCP probes of the stratum edge (PROXY-v2 chain terminates at the
-  # origin; a bare TCP connect verifies the anycast → HAProxy → origin path is
-  # accepting connections on the advertised mining ports).
+  # Blackbox TCP probe of the stratum endpoint miners connect to. A bare TCP
+  # connect verifies the advertised mining port is accepting connections — on
+  # testnet that is the origin directly (e.g. 152.53.37.182:15555); on mainnet it
+  # will be the fly.io anycast edge (the PROXY-v2 chain terminating at the
+  # origin). Host:port are env-driven (`%{KATPOOL_STRATUM_HOST}` /
+  # `%{KATPOOL_STRATUM_PORT}`) so nothing network-specific is hard-coded.
   - job_name: blackbox-stratum-tcp
     metrics_path: /probe
     params:
       module: [tcp_connect]
     static_configs:
       - targets:
-          - "%{KATPOOL_STRATUM_HOST}:1111"
-          - "%{KATPOOL_STRATUM_HOST}:5555"
+          - "%{KATPOOL_STRATUM_HOST}:%{KATPOOL_STRATUM_PORT}"
         labels:
           probe: stratum
     relabel_configs:
