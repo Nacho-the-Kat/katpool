@@ -80,16 +80,23 @@ use **reference variables** (`${{Service.VAR}}`) so a secret is defined once.
 
 ## Post-deploy
 
-- **ntfy token:** `railway ssh` into ntfy, then `ntfy user add ...`,
-  `ntfy access <user> <topic> rw`, `ntfy token add <user>` → set the token as
-  `NTFY_ACCESS_TOKEN` on `ntfy-alertmanager`.
-- **Origin vmagent:** install on the pool VPS with `../victoria-metrics/origin-vmagent.yml`,
-  `-remoteWrite.url=https://<vmauth-domain>/api/v1/write` + the `VMAUTH_WRITE_*`
-  basic-auth creds (host EnvironmentFile).
-- **Pool runtime:** set `KATPOOL_LOG_FORMAT=json`, ship journald logs to
-  `http://loki.railway.internal:3100`, and `KATPOOL_OTLP_ENDPOINT=http://tempo.railway.internal:4317`.
-- **Verify:** Grafana → *katpool — Pool Overview* shows live data; fire a test
-  alert and confirm it reaches the phone via ntfy.
+- **ntfy user + token (declarative; no shell):** ntfy has no CLI in the Railway
+  UI, so provision via env on the `ntfy` service — `NTFY_AUTH_USERS` =
+  `<user>:<bcrypt>:admin` and `NTFY_AUTH_TOKENS` = `<user>:<tk_…>:<label>` (token
+  is `tk_` + 29 chars of `[a-z0-9]`; bcrypt is `$2a$`/`$2b$`). Set the same token
+  as `NTFY_ACCESS_TOKEN` on `ntfy-alertmanager`, then redeploy both.
+- **Origin agents (pool VPS):** the origin reaches Railway only via vmauth, so
+  all three signals egress through it (`../origin/README.md`):
+  - *Metrics* — vmagent with `../victoria-metrics/origin-vmagent.yml`,
+    `-remoteWrite.url=https://<vmauth-domain>/api/v1/write` + `VMAUTH_WRITE_*`.
+  - *Logs + traces* — Grafana Alloy with `../origin/alloy.alloy`, pushing to
+    `https://<vmauth-domain>/loki/api/v1/push` and `…/v1/traces`.
+- **Pool runtime:** set `KATPOOL_LOG_FORMAT=json` and
+  `KATPOOL_OTLP_ENDPOINT=http://127.0.0.1:4317` (the LOCAL Alloy receiver — the
+  gRPC-only, header-less exporter cannot authenticate to vmauth itself).
+- **Verify:** Grafana → *katpool — Pool Overview* shows live metrics;
+  `{network="…"} | json` returns logs (Loki) and `service.name="katpool-…"`
+  returns spans (Tempo); fire a test alert and confirm it reaches the phone.
 
 ## Mainnet rebuild
 
