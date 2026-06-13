@@ -160,6 +160,16 @@ impl<C: KaspadClient> ConsolidationEngine<C> {
     /// Attempt one tick. Acquires the shared treasury-spend lock; if another
     /// spender holds it, returns [`ConsolidationTickOutcome::SkippedNotLeader`]
     /// without doing work.
+    #[tracing::instrument(
+        name = "treasury.consolidation.tick",
+        skip(self),
+        fields(
+            instance = %self.config.instance_id,
+            trigger = self.config.trigger_utxo_count,
+            target = self.config.target_utxo_count,
+        ),
+        err,
+    )]
     pub async fn run_once(&self) -> Result<ConsolidationTickOutcome, ConsolidationError> {
         let Some(lock) = self.acquire_treasury_lock().await? else {
             info!(

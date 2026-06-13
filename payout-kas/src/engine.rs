@@ -176,6 +176,12 @@ impl<C: KaspadClient> PayoutEngine<C> {
 
     /// Attempt one tick. Acquires the leader lock; if another instance holds
     /// it, returns [`TickOutcome::SkippedNotLeader`] without doing work.
+    #[tracing::instrument(
+        name = "kas.payout.cycle",
+        skip(self),
+        fields(instance = %self.config.instance_id),
+        err,
+    )]
     pub async fn run_once(&self) -> Result<TickOutcome, EngineError> {
         let Some(lock) = AdvisoryLock::try_acquire(&self.pool, self.lock_key).await? else {
             debug!(instance = %self.config.instance_id, "payout lock held elsewhere; skipping tick");
