@@ -64,6 +64,31 @@ backward-incompatible ways at every minor bump.
   sign-off). Verified the metric-push path end-to-end against the live stack
   (push → vmauth import → read back via Grafana). Live execution (4 weekly DR
   passes, chaos/load/soak) is operator/time-gated.
+- **fly.io edge bring-up script + load/failover checklist** (workstream C;
+  ADR-0022). `ops/edge/flyio/bring-up.sh` idempotently orchestrates the flyctl
+  bring-up (app, origin secret, dedicated anycast IPv4/v6, per-region egress IPs,
+  deploy + scale) with confirmation prompts and a final egress-IP summary for the
+  origin nftables allowlist. README gains a pre-mainnet **load + failover test**
+  checklist. Live deploy stays operator-gated (needs a fly account + anycast IP +
+  a real ASIC).
+- **Canary miner tool** (B7; ADR-0004 end-to-end probe). `ops/canary/` adds a
+  dependency-free Python watcher (`katpool-canary.py`) an operator runs **locally**
+  (MacBook/Linux) alongside any off-the-shelf CPU miner pointed at the pool with a
+  dedicated wallet. It polls the pool API for that wallet's `last_seen_at` and
+  publishes `canary_last_credited_timestamp_seconds` to VictoriaMetrics via the
+  vmauth import path, closing the `CanaryMinerNotPaid` loop — the ground-truth
+  "are we actually crediting miners" SLI. Validated the API field against the live
+  tn10 endpoint. Also de-duplicated a merge artifact in `SLO.md`.
+- **Treasury key-rotation auditor** (Phase 8; backs Runbook 11). New
+  `katpool treasury audit` subcommand + an hourly
+  `katpool-treasury-audit-<network>.timer` (installed by `scripts/deploy.sh`)
+  that continuously verifies the loaded treasury key still controls the
+  configured `KATPOOL_POOL_ADDRESS`. Read-only and offline — it derives the
+  key's schnorr P2PK address and compares (no funds move, nothing is signed for
+  broadcast); a mismatch (botched rotation / misconfig / compromise) logs a
+  structured `ERROR` and exits non-zero so the unit fails and the line ships to
+  Loki. Core logic lives in `payout-kas::audit` (`treasury_address_from_secret`
+  / `key_controls_address`) with unit tests.
 - **Least-privilege read-only DB role for the public API** (Phase 7/8 hardening;
   ADR-0021). The embedded read-only API can now connect on a separate pool as a
   SELECT-only role, isolated from the accountant/payout writers' full-privilege
