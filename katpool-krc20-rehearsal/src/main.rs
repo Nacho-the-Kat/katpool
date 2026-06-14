@@ -38,9 +38,9 @@ use katpool_krc20_rehearsal::{ENVELOPE_SCHEMA, RehearsalEvidence, RehearsalParam
 use katpool_secrets::load_from_path;
 use payout_kas::{ExecutionMode, GrpcKaspadClient, TREASURY_SPEND_LOCK_NAMESPACE};
 use payout_krc20::{
-    BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
-    DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI,
-    DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice, Krc20PayoutEngine,
+    BreakeredSource, CircuitBreaker, CoinGeckoFloorPrice, DEFAULT_COMMIT_AMOUNT_SOMPI,
+    DEFAULT_CYCLE_LIMIT, DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS,
+    DEFAULT_MIN_PENDING_SOMPI, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, Krc20PayoutEngine,
     Krc20PayoutEngineConfig, Krc20TickOutcome,
 };
 use serde_json::json;
@@ -171,7 +171,7 @@ async fn main() -> Result<()> {
 
     // Real production floor-price source, fail-closed behind a circuit breaker.
     let quote = BreakeredSource::new(
-        KaspaComFloorPrice::new(args.quote_base.clone(), DEFAULT_HTTP_TIMEOUT)
+        CoinGeckoFloorPrice::new(args.quote_base.clone(), DEFAULT_HTTP_TIMEOUT)
             .context("building NACHO floor-price client")?,
         CircuitBreaker::new(3, Duration::from_secs(60)),
     );

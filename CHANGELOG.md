@@ -10,6 +10,23 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Changed
+
+- **NACHO floor price now sourced from CoinGecko, not the Kasplex marketplace
+  floor** (ADR-0016 amendment). The KRC-20 payout engine derives KAS-per-NACHO
+  as `nacho_usd / kaspa_usd` from a single keyless CoinGecko `simple/price` call
+  (`ids=nacho-the-kat,kaspa`), replacing `api.kaspa.com/api/floor-price`
+  (`KaspaComFloorPrice` → `CoinGeckoFloorPrice`; `KATPOOL_KRC20_QUOTE_BASE`
+  default → `https://api.coingecko.com`). CoinGecko quotes in USD but the
+  conversion needs KAS/NACHO, so both legs are fetched together and the USD
+  scale cancels. The division stays exact and float-free (ADR-0013): the two
+  quotes are read as verbatim JSON text (serde_json `raw_value`) and divided
+  with `bigdecimal`, then **floored** to 18 fractional digits — never rounded up,
+  so a payout is never over-funded. A zero/negative/missing leg fails the cycle
+  closed via the existing circuit breaker. The Blackbox `indexer` synthetic
+  probe now targets the CoinGecko endpoint (was a dead `api.kaspa.com/info/price`
+  path that 404'd), so monitoring tracks the real dependency.
+
 ### Fixed
 
 - **Mainnet API rate-limit default would throttle the dashboard** (E2 of the

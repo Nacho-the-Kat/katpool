@@ -180,7 +180,8 @@
 //!   (floored at the relay minimum) and frozen per-transfer; not configurable
 //! - `KATPOOL_KRC20_BATCH_LIMIT`           default 1000 recipients/tick
 //! - `KATPOOL_KRC20_TICKER`                default `NACHO`
-//! - `KATPOOL_KRC20_QUOTE_BASE`            default `https://api.kaspa.com`
+//! - `KATPOOL_KRC20_QUOTE_BASE`            default `https://api.coingecko.com`
+//!   (KAS-per-NACHO is derived from `CoinGecko` USD spot for both assets)
 //! - `KATPOOL_KRC20_QUOTE_BREAKER_THRESHOLD` default 3 consecutive failures
 //! - `KATPOOL_KRC20_QUOTE_BREAKER_COOLDOWN_SECS` default 60
 //!
@@ -231,9 +232,9 @@ use payout_kas::{
     TREASURY_SPEND_LOCK_NAMESPACE, TickOutcome,
 };
 use payout_krc20::{
-    BreakeredSource, CircuitBreaker, DEFAULT_COMMIT_AMOUNT_SOMPI, DEFAULT_CYCLE_LIMIT,
-    DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI,
-    DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, KaspaComFloorPrice, Krc20PayoutEngine,
+    BreakeredSource, CircuitBreaker, CoinGeckoFloorPrice, DEFAULT_COMMIT_AMOUNT_SOMPI,
+    DEFAULT_CYCLE_LIMIT, DEFAULT_HTTP_TIMEOUT, DEFAULT_MIN_NACHO_BASE_UNITS,
+    DEFAULT_MIN_PENDING_SOMPI, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER, Krc20PayoutEngine,
     Krc20PayoutEngineConfig,
 };
 use tokio::io::AsyncWriteExt;
@@ -568,7 +569,7 @@ async fn main() -> Result<()> {
             ExecutionMode::Live
         };
         let quote = BreakeredSource::new(
-            KaspaComFloorPrice::new(cfg.krc20_payout.quote_base.clone(), DEFAULT_HTTP_TIMEOUT)
+            CoinGeckoFloorPrice::new(cfg.krc20_payout.quote_base.clone(), DEFAULT_HTTP_TIMEOUT)
                 .context("building NACHO floor-price client")?,
             CircuitBreaker::new(
                 cfg.krc20_payout.breaker_threshold,

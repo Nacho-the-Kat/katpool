@@ -9,25 +9,84 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use payout_krc20::{
-    BreakeredSource, CircuitBreaker, CircuitState, FloorPrice, FloorPriceSource,
-    KaspaComFloorPrice, QuoteError, parse_floor_price_response,
+    BreakeredSource, CircuitBreaker, CircuitState, CoinGeckoFloorPrice, FloorPrice,
+    FloorPriceSource, QuoteError, derive_floor_price, parse_simple_price_response,
 };
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+
+// ---------- exact KAS-per-NACHO derivation ---------------------------
+
+#[test]
+fn derives_exact_ratio_at_full_scale() {
+    // 0.0002 / 0.5 = 0.0004 exactly → 0.0004 × 10^18.
+    let price = derive_floor_price("0.0002", "0.5").expect("derive");
+    assert_eq!((price.mantissa(), price.scale()), (400_000_000_000_000, 18));
+}
+
+#[test]
+fn derivation_floors_never_rounds_up() {
+    // 1 / 3 = 0.333… must TRUNCATE (never over-fund a payout, ADR-0016):
+    // 18 threes, not a rounded-up trailing 4.
+    let price = derive_floor_price("1", "3").expect("derive");
+    assert_eq!(
+        (price.mantissa(), price.scale()),
+        (333_333_333_333_333_333, 18)
+    );
+}
+
+#[test]
+fn derives_from_scientific_notation_quotes() {
+    // Real CoinGecko shape: NACHO in e-notation, KAS as a long decimal. The
+    // ratio must land in the expected ~0.00033 KAS/NACHO band at scale 18.
+    let price = derive_floor_price("1.0379113210442e-05", "0.031451929014650215").expect("derive");
+    assert_eq!(price.scale(), 18);
+    assert!(
+        price.mantissa() > 300_000_000_000_000 && price.mantissa() < 400_000_000_000_000,
+        "mantissa {} outside expected ~0.00033 band",
+        price.mantissa()
+    );
+}
+
+#[test]
+fn rejects_zero_kaspa_quote_division_undefined() {
+    assert!(matches!(
+        derive_floor_price("0.0001", "0"),
+        Err(QuoteError::Malformed(_))
+    ));
+}
+
+#[test]
+fn rejects_zero_nacho_quote() {
+    assert!(matches!(
+        derive_floor_price("0", "0.5"),
+        Err(QuoteError::Malformed(_))
+    ));
+}
+
+#[test]
+fn rejects_negative_quote() {
+    assert!(matches!(
+        derive_floor_price("-0.0001", "0.5"),
+        Err(QuoteError::Malformed(_))
+    ));
+}
 
 // ---------- response parsing -----------------------------------------
 
 #[test]
-fn parses_kaspa_com_array_body() {
-    let body = br#"[{"ticker":"NACHO","floor_price":0.000365}]"#;
-    let price = parse_floor_price_response(body).expect("parse");
-    assert_eq!((price.mantissa(), price.scale()), (365, 6));
+fn parses_coingecko_simple_price_body() {
+    let body = br#"{"kaspa":{"usd":0.5},"nacho-the-kat":{"usd":0.0002}}"#;
+    let price = parse_simple_price_response(body, "nacho-the-kat", "kaspa").expect("parse");
+    assert_eq!((price.mantissa(), price.scale()), (400_000_000_000_000, 18));
 }
 
 #[test]
-fn rejects_empty_array() {
+fn rejects_missing_coin_leg() {
+    // Kaspa present, NACHO absent → cannot derive.
+    let body = br#"{"kaspa":{"usd":0.5}}"#;
     assert!(matches!(
-        parse_floor_price_response(b"[]"),
+        parse_simple_price_response(body, "nacho-the-kat", "kaspa"),
         Err(QuoteError::Malformed(_))
     ));
 }
@@ -35,17 +94,8 @@ fn rejects_empty_array() {
 #[test]
 fn rejects_non_json_body() {
     assert!(matches!(
-        parse_floor_price_response(b"not json"),
+        parse_simple_price_response(b"not json", "nacho-the-kat", "kaspa"),
         Err(QuoteError::Malformed(_))
-    ));
-}
-
-#[test]
-fn rejects_zero_price_via_rebate_error() {
-    let body = br#"[{"ticker":"NACHO","floor_price":0}]"#;
-    assert!(matches!(
-        parse_floor_price_response(body),
-        Err(QuoteError::Price(_))
     ));
 }
 
@@ -156,21 +206,20 @@ async fn breakered_source_short_circuits_when_open() {
 // ---------- HTTP client (wiremock) -----------------------------------
 
 #[tokio::test]
-async fn http_client_fetches_and_parses() {
+async fn http_client_fetches_and_derives() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/api/floor-price"))
-        .and(query_param("ticker", "NACHO"))
+        .and(path("/api/v3/simple/price"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
-            r#"[{"ticker":"NACHO","floor_price":0.000365}]"#,
+            r#"{"kaspa":{"usd":0.5},"nacho-the-kat":{"usd":0.0002}}"#,
             "application/json",
         ))
         .mount(&server)
         .await;
 
-    let client = KaspaComFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
+    let client = CoinGeckoFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
     let price = client.floor_price("NACHO").await.expect("fetch");
-    assert_eq!((price.mantissa(), price.scale()), (365, 6));
+    assert_eq!((price.mantissa(), price.scale()), (400_000_000_000_000, 18));
 }
 
 #[tokio::test]
@@ -181,7 +230,7 @@ async fn http_client_maps_non_200_to_status_error() {
         .mount(&server)
         .await;
 
-    let client = KaspaComFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
+    let client = CoinGeckoFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
     let err = client.floor_price("NACHO").await.expect_err("should error");
     assert!(matches!(err, QuoteError::Status(_)), "got {err:?}");
 }
@@ -194,7 +243,7 @@ async fn http_client_maps_malformed_body() {
         .mount(&server)
         .await;
 
-    let client = KaspaComFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
+    let client = CoinGeckoFloorPrice::new(server.uri(), Duration::from_secs(2)).expect("client");
     let err = client.floor_price("NACHO").await.expect_err("should error");
     assert!(matches!(err, QuoteError::Malformed(_)), "got {err:?}");
 }
