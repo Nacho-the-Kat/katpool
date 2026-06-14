@@ -1378,7 +1378,8 @@ mod comprehensive_tests {
         // This demonstrates how extranonce is auto-assigned based on miner type
 
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
 
         let ctx = create_test_context().await;
         let event = JsonRpcEvent::new(Some("1".to_string()), "mining.subscribe", vec![json!("IceRiver KS2L")]);
@@ -1399,7 +1400,8 @@ mod comprehensive_tests {
         // This demonstrates miner-specific handling
 
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 0, "test-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 0, "test-instance".to_string()));
 
         let ctx = create_test_context().await;
         let event = JsonRpcEvent::new(Some("1".to_string()), "mining.subscribe", vec![json!("GodMiner")]);
@@ -1426,7 +1428,8 @@ mod comprehensive_tests {
     fn test_miner_type_detection_iceriver() {
         // Test: IceRiver miner detection
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
 
         let ctx = create_test_context_sync();
         *ctx.remote_app.lock() = "IceRiver KS2L".to_string();
@@ -1440,7 +1443,8 @@ mod comprehensive_tests {
     fn test_miner_type_detection_bitmain() {
         // Test: Bitmain miner detection (no extranonce)
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 0, "test-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 0, "test-instance".to_string()));
 
         let ctx = create_test_context_sync();
         *ctx.remote_app.lock() = "GodMiner".to_string();
@@ -1454,7 +1458,8 @@ mod comprehensive_tests {
     fn test_miner_type_detection_bzminer() {
         // Test: BzMiner detection
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
 
         let ctx = create_test_context_sync();
         *ctx.remote_app.lock() = "BzMiner".to_string();
@@ -1929,7 +1934,13 @@ mod comprehensive_tests {
 
         // 1. Create components
         let share_handler = Arc::new(ShareHandler::new("test-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler.clone(), 8192.0, std::collections::HashMap::new(), 2, "test-instance".to_string()));
+        let client_handler = Arc::new(ClientHandler::new(
+            share_handler.clone(),
+            8192.0,
+            std::collections::HashMap::new(),
+            2,
+            "test-instance".to_string(),
+        ));
         let ctx = create_test_context().await;
 
         // 2. Subscribe
@@ -2001,7 +2012,8 @@ mod comprehensive_tests {
 
         // This test verifies the components are set up correctly
         let share_handler = Arc::new(ShareHandler::new("example-instance".to_string()));
-        let client_handler = Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "example-instance".to_string()));
+        let client_handler =
+            Arc::new(ClientHandler::new(share_handler, 8192.0, std::collections::HashMap::new(), 2, "example-instance".to_string()));
         // Verify handler was created
         assert!(std::mem::size_of_val(&client_handler) > 0, "Client handler should be created");
     }
