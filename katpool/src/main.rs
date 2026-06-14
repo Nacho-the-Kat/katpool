@@ -412,11 +412,28 @@ async fn main() -> Result<()> {
     // set up once and shared by both surfaces; the kaspad-sync observer attaches
     // to the tracker (shadowed below) only when at least one surface is enabled.
     let tracker = if cfg.api_bind.is_some() || cfg.health_bind.is_some() {
+        // Least-privilege read-only pool for the public API (ADR-0021). When
+        // KATPOOL_API_DATABASE_URL is set the API connects as a read-only role,
+        // isolated from the writers' full-privilege pool; otherwise it shares
+        // `db` (dev / single-role deployments). The readiness probe uses the same
+        // pool so /ready reflects the path the API actually serves on.
+        let api_db = match cfg.api_database_url.as_deref() {
+            Some(url) if !url.is_empty() => build_pool(&PoolConfig {
+                url: url.to_owned(),
+                min_connections: 2,
+                max_connections: 16,
+                application_name: format!("katpool-api[{}]", cfg.instance_id),
+                ..PoolConfig::production("placeholder".to_owned())
+            })
+            .await
+            .context("opening read-only Postgres pool for the API")?,
+            _ => db.clone(),
+        };
         let readiness = ReadinessHandle::new();
         let (sync_tx, sync_rx) = watch::channel(false);
-        api::spawn_db_readiness_probe(db.clone(), readiness.clone());
+        api::spawn_db_readiness_probe(api_db.clone(), readiness.clone());
         spawn_readiness_bridge(sync_rx, readiness.clone());
-        let state = AppState::new(db.clone(), readiness, cfg.api_config.clone());
+        let state = AppState::new(api_db, readiness, cfg.api_config.clone());
 
         if let Some(api_addr) = cfg.api_bind {
             let state = state.clone();
@@ -1020,6 +1037,9 @@ fn load_geoip(path: Option<&str>) -> Option<Arc<GeoIp>> {
 struct RuntimeConfig {
     kaspad_url: String,
     database_url: String,
+    /// Optional least-privilege read-only Postgres URL for the public API
+    /// (ADR-0021). Unset ⇒ the API shares the writers' pool.
+    api_database_url: Option<String>,
     pool_addresses: Vec<Address>,
     stratum_port: String,
     /// Multi-port stratum binding with per-port starting-difficulty
@@ -1231,6 +1251,9 @@ impl RuntimeConfig {
 
         let kaspad_url = require("KASPAD_GRPC_URL", file.kaspad_url.clone())?;
         let database_url = require("KATPOOL_DATABASE_URL", file.database_url.clone())?;
+        // Optional read-only URL for the public API (least privilege, ADR-0021).
+        // Env-only (a connection secret); unset ⇒ the API shares the main pool.
+        let api_database_url = optional("KATPOOL_API_DATABASE_URL");
         let stratum_port = require("KATPOOL_STRATUM_PORT", file.stratum_port.clone())?;
         let stratum_ports = parse_stratum_ports(
             optional("KATPOOL_STRATUM_PORTS")
@@ -1366,6 +1389,7 @@ impl RuntimeConfig {
         Ok(Self {
             kaspad_url,
             database_url,
+            api_database_url,
             pool_addresses,
             stratum_port,
             stratum_ports,
