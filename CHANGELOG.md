@@ -48,6 +48,14 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Canary miner tool** (B7; ADR-0004 end-to-end probe). `ops/canary/` adds a
+  dependency-free Python watcher (`katpool-canary.py`) an operator runs **locally**
+  (MacBook/Linux) alongside any off-the-shelf CPU miner pointed at the pool with a
+  dedicated wallet. It polls the pool API for that wallet's `last_seen_at` and
+  publishes `canary_last_credited_timestamp_seconds` to VictoriaMetrics via the
+  vmauth import path, closing the `CanaryMinerNotPaid` loop — the ground-truth
+  "are we actually crediting miners" SLI. Validated the API field against the live
+  tn10 endpoint. Also de-duplicated a merge artifact in `SLO.md`.
 - **fail2ban jails for the origin host** (Phase 7/8 edge hardening; ADR-0021,
   ADR-0008, threat-model). `ops/security/fail2ban/` adds an OS-level backstop to
   the in-process controls: a `katpool-api-4xx` jail bans clients that keep
