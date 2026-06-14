@@ -53,6 +53,15 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Phase 10 cutover tooling** (cutover gate). `ops/cutover/rollback-rehearsal.sh`
+  proves the binary rollback path `scripts/deploy.sh` preserves: `--check`
+  (non-disruptive) validates the latest `.bak` is a real ELF + prints the exact
+  rollback command; `--execute` rolls back, verifies `/ready`, and prints the
+  roll-forward command. Runbook 22 operationalizes `cutover-plan.md` Phase 10 into
+  an executable checklist wired to the real tooling (shadow-run reconcile via the
+  legacy importer, importer hot-run via `legacy-importer-rehearsal.sh`, DNS flip
+  to the fly anycast edge, payouts dry-run→live, scripted rollback). Execution
+  (72h shadow + the cutover itself) is operator/time-gated.
 - **Phase 9 resilience tooling** (cutover gate). `ops/dr/dr-validate.sh` is the
   automated DR validator (ADR-0009 / Runbook 10): dump → restore into a scratch
   DB → reconcile (schema completeness + core tables non-empty + referential
