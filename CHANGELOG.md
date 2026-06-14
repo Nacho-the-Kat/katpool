@@ -39,6 +39,14 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **fail2ban jails for the origin host** (Phase 7/8 edge hardening; ADR-0021,
+  ADR-0008, threat-model). `ops/security/fail2ban/` adds an OS-level backstop to
+  the in-process controls: a `katpool-api-4xx` jail bans clients that keep
+  generating 4xx past the API's per-IP rate limiter, and a hardened `sshd` jail
+  bans password/scanner bursts. Bans use nftables (already on the origin for the
+  stratum firewall). `ignoreip` documented for the same-origin BFF/edge so it is
+  never collateral. Stratum abuse intentionally stays app-layer (`ks_anti_abuse_*`
+  + `StratumAbuseBurst`) — the pool emits no per-IP reject log to match.
 - **Payout-cycle + treasury metrics** (B7, highest-value instrumentation gap in
   `SLO.md`). The KAS/KRC-20 payout engines and the consolidation engine now emit
   Prometheus series via `katpool-metrics` (previously a stub): per-tick
