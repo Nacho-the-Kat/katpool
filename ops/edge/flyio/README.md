@@ -106,9 +106,28 @@ ops/edge/flyio/nftables/apply-origin-firewall.sh --print 1.2.3.4
 
 The ruleset touches **only** the stratum ports (chain policy is `accept`, so
 SSH/API/kaspad are untouched) and fast-paths established connections so a
-reload never severs an in-flight miner. Persist it across reboots by adding an
-`include "/etc/nftables.d/katpool-stratum.nft"` to the host's nftables config,
-and re-run the script after any `fly ips allocate-egress` change.
+reload never severs an in-flight miner. Re-run the script after any
+`fly ips allocate-egress` change.
+
+`stratum_ports` lists the pool's **origin** listen ports. Under mainnet
+co-residency the legacy pool still owns `1111-8888` on the shared host, so the
+new pool binds the `21111-28888` alt band and the ruleset locks only that band —
+legacy's `1111-8888` stays fully open. The fly edge presents the canonical
+public `1111-8888` and forwards `1111->21111 … 8888->28888`
+(see [`haproxy.cfg`](haproxy.cfg)). Once the legacy pool is decommissioned the
+new pool can move back to `1111-8888` and `stratum_ports` should follow.
+
+Persist across reboots with the committed oneshot unit (preferred over an
+`include` in the distro `nftables.conf`, whose `flush ruleset` would wipe
+Docker's tables — the unit reloads only the self-contained `inet katpool`
+table):
+
+```bash
+sudo install -m 0644 ops/edge/flyio/nftables/katpool-origin-firewall.service \
+  /etc/systemd/system/katpool-origin-firewall.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now katpool-origin-firewall.service
+```
 
 ## DNS
 
