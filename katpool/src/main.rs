@@ -273,10 +273,12 @@ async fn main() -> Result<()> {
 
     let cfg = RuntimeConfig::from_env().context("loading runtime config")?;
 
-    // Operator on-demand payout: drive one cycle synchronously and exit,
-    // never starting the long-running subsystems.
-    if let Command::PayoutRunNow { dry_run } = command {
-        return run_payout_now(&cfg, dry_run).await;
+    // Operator subcommands run synchronously and exit, never starting the
+    // long-running subsystems. Anything else falls through to the daemon.
+    match command {
+        Command::PayoutRunNow { dry_run } => return run_payout_now(&cfg, dry_run).await,
+        Command::TreasuryAudit => return run_treasury_audit(&cfg),
+        Command::Daemon | Command::Help => {}
     }
 
     info!(
@@ -814,6 +816,9 @@ enum Command {
         /// Force dry-run (sign + verify only) regardless of `KATPOOL_PAYOUT_DRY_RUN`.
         dry_run: bool,
     },
+    /// Audit that the loaded treasury key controls the configured treasury
+    /// address (read-only), then exit non-zero on mismatch.
+    TreasuryAudit,
     /// Print usage and exit.
     Help,
 }
@@ -844,6 +849,18 @@ fn parse_args(args: &[String]) -> Result<Command> {
             }
             None => anyhow::bail!("`payout` requires a subcommand (e.g. `run-now`)"),
         },
+        Some("treasury") => match iter.next() {
+            Some("audit") => {
+                if let Some(other) = iter.next() {
+                    anyhow::bail!("unknown flag for `treasury audit`: {other}");
+                }
+                Ok(Command::TreasuryAudit)
+            }
+            Some(other) => {
+                anyhow::bail!("unknown `treasury` subcommand: {other} (expected `audit`)")
+            }
+            None => anyhow::bail!("`treasury` requires a subcommand (e.g. `audit`)"),
+        },
         Some(other) => anyhow::bail!("unknown command: {other} (try `--help`)"),
     }
 }
@@ -858,6 +875,8 @@ fn print_usage() {
          katpool                          Run the full pool daemon (default)\n  \
          katpool payout run-now [--dry-run]\n                                   \
          Drive one KAS payout cycle now, then exit\n  \
+         katpool treasury audit           Verify the loaded key controls the\n                                   \
+         configured treasury address, then exit (non-zero on mismatch)\n  \
          katpool --help                   Show this help\n\n\
          Configuration is environment-variable driven (see the module docs and\n\
          ops/env/<network>.env). `payout run-now` honours the same settings as\n\
@@ -865,6 +884,46 @@ fn print_usage() {
          running daemon through the shared payout leader lock, so only one cycle\n\
          driver acts at a time. Pass `--dry-run` to preview without broadcasting."
     );
+}
+
+/// Audit that the loaded treasury key controls the configured treasury address
+/// (Phase 8 / Runbook 11). Read-only: derives the key's schnorr P2PK address and
+/// compares it to `KATPOOL_POOL_ADDRESS`. Logs a structured audit record and
+/// exits non-zero on mismatch, so a systemd timer's `OnFailure=` (or a Loki
+/// alert on the structured error log) pages the operator. Never moves funds.
+fn run_treasury_audit(cfg: &RuntimeConfig) -> Result<()> {
+    let expected = cfg
+        .pool_addresses
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("KATPOOL_POOL_ADDRESS is empty"))?;
+    let secret = match &cfg.payout.key_source {
+        KeySource::File(path) => load_from_path(path)
+            .with_context(|| format!("loading treasury key from {}", path.display()))?,
+        KeySource::SystemdCredential(name) => load_from_systemd_credential(name)
+            .with_context(|| format!("loading treasury credential `{name}`"))?,
+    };
+    let derived = payout_kas::treasury_address_from_secret(&secret, expected.prefix)
+        .context("deriving treasury address from the loaded key")?;
+    let expected_tag = redact::address(&expected.to_string());
+    if derived == expected {
+        info!(
+            treasury = %expected_tag,
+            result = "ok",
+            "treasury key audit: the loaded key controls the configured treasury address"
+        );
+        Ok(())
+    } else {
+        error!(
+            expected = %expected_tag,
+            derived = %redact::address(&derived.to_string()),
+            result = "mismatch",
+            "TREASURY KEY AUDIT FAILED: loaded key does NOT control the configured treasury address (rotation/compromise/misconfig)"
+        );
+        anyhow::bail!(
+            "treasury key/address mismatch: configured address is not controlled by the loaded key"
+        )
+    }
 }
 
 /// Operator on-demand payout: drive the current DAA-window cycle exactly as a

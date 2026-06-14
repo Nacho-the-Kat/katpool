@@ -48,6 +48,16 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Treasury key-rotation auditor** (Phase 8; backs Runbook 11). New
+  `katpool treasury audit` subcommand + an hourly
+  `katpool-treasury-audit-<network>.timer` (installed by `scripts/deploy.sh`)
+  that continuously verifies the loaded treasury key still controls the
+  configured `KATPOOL_POOL_ADDRESS`. Read-only and offline — it derives the
+  key's schnorr P2PK address and compares (no funds move, nothing is signed for
+  broadcast); a mismatch (botched rotation / misconfig / compromise) logs a
+  structured `ERROR` and exits non-zero so the unit fails and the line ships to
+  Loki. Core logic lives in `payout-kas::audit` (`treasury_address_from_secret`
+  / `key_controls_address`) with unit tests.
 - **fail2ban jails for the origin host** (Phase 7/8 edge hardening; ADR-0021,
   ADR-0008, threat-model). `ops/security/fail2ban/` adds an OS-level backstop to
   the in-process controls: a `katpool-api-4xx` jail bans clients that keep
