@@ -70,6 +70,26 @@ guessed threshold.
 Traces are sampled and short-lived (debugging aid); metrics are the long-term
 record; logs sit in between. All three fit the ~$30–40/month ADR-0004 budget.
 
+## Mainnet scaling levers
+
+The retention windows above are correct for mainnet; what scales with load is
+**ingest volume**, which grows with miner/worker count, not retention. The
+defaults here are sized for the tn10 soak (a handful of miners). Before mainnet,
+capture a 24h baseline of the three rates below, then size each lever to ~3× the
+observed peak (headroom for growth) rather than guessing now:
+
+| Lever | Where | Default (tn10) | Scales with | Note |
+|---|---|---|---|---|
+| Log ingest cap | `loki/loki-config.yaml` `limits_config.ingestion_rate_mb` / `ingestion_burst_size_mb` | 8 / 16 | log lines/s ≈ shares/s + workers | Loki 429s above the cap — raise it, or the origin Alloy WAL backs up |
+| Trace volume | `origin/alloy.alloy` `tail_sampling … sampling_percentage` | 100 (keep all) | API req/s | Lower (e.g. 20) once API request volume is real; error+slow traces are always kept |
+| Metrics storage | `deploy/victoriametrics/Dockerfile` `-retentionPeriod=90d` + the Railway volume size | 90d | active series ≈ workers × per-worker series | 90d is the window; size the VM volume for 90d × peak series |
+| Loki/Tempo volume | their Railway volumes | — | log/trace bytes | grow the volumes with the ingest rates above |
+
+Observe the baselines with: `sum(rate(ks_valid_share_counter[5m]))` (share/log
+rate proxy), the API request-span rate in Tempo, and VictoriaMetrics
+`/api/v1/status/tsdb` (active series). Re-tune the alert thresholds in
+`rules/` against the same baseline (e.g. the `StratumAbuseBurst` 50/s figure).
+
 ## Escalation policy
 
 Two severities, both routed to ntfy via Alertmanager:
