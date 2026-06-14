@@ -240,6 +240,12 @@ where
     /// # Errors
     ///
     /// See [`Krc20EngineError`].
+    #[tracing::instrument(
+        name = "krc20.payout.cycle",
+        skip(self),
+        fields(instance = %self.config.instance_id),
+        err,
+    )]
     pub async fn run_once(&self) -> Result<Krc20TickOutcome, Krc20EngineError> {
         let Some(lock) = self.acquire_treasury_lock().await? else {
             debug!(

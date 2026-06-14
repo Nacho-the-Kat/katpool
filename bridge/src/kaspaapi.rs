@@ -408,6 +408,16 @@ impl KaspaApi {
     /// * `Err(e)` only for true transport / RPC-layer failures
     ///   (including `ErrDuplicateBlock`, which the share handler
     ///   maps to `ShareRejectReason::Stale`).
+    #[tracing::instrument(
+        name = "kaspa.submit_block",
+        skip_all,
+        fields(
+            block_hash = tracing::field::Empty,
+            blue_score = block.header.blue_score,
+            nonce = block.header.nonce,
+        ),
+        err,
+    )]
     pub async fn submit_block(&self, block: Block) -> Result<BlockSubmitOutcome> {
         // Use kaspa_consensus_core::hashing::header::hash() for block hash calculation
         // In Kaspa, the block hash is the header hash (transactions are represented by hash_merkle_root in header)
@@ -416,6 +426,7 @@ impl KaspaApi {
         let blue_score = block.header.blue_score;
         let timestamp = block.header.timestamp;
         let nonce = block.header.nonce;
+        tracing::Span::current().record("block_hash", block_hash.as_str());
 
         {
             let now = Instant::now();

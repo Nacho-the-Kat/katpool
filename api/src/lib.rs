@@ -113,7 +113,14 @@ pub fn app(state: AppState) -> Router {
             StatusCode::SERVICE_UNAVAILABLE,
             config.request_timeout,
         ))
-        .layer(TraceLayer::new_for_http());
+        // Per-request span at INFO so it survives the `info` env-filter and is
+        // exported to Tempo. Only the method is recorded — the URI path carries
+        // miner addresses, which we keep out of telemetry (see `redact`).
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::extract::Request| {
+                tracing::info_span!("http.request", method = %request.method())
+            }),
+        );
 
     if let Some(cors) = cors_layer(config.cors_allow_origin.as_deref()) {
         router.layer(cors)
