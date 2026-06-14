@@ -1,10 +1,20 @@
 # bridge/ — upstream provenance
 
-This directory is a one-time verbatim copy of the `bridge/` subdirectory
-of [`kaspanet/rusty-kaspa`](https://github.com/kaspanet/rusty-kaspa) at
-release **v1.1.0** (commit
-[`e97070faa3826c590f477e327c82daaddd6178f4`](https://github.com/kaspanet/rusty-kaspa/commit/e97070faa3826c590f477e327c82daaddd6178f4),
-published 2026-03-04).
+This directory is a snapshot of the `bridge/` subdirectory of
+[`kaspanet/rusty-kaspa`](https://github.com/kaspanet/rusty-kaspa) at release
+**v2.0.0** (commit
+[`90dbf074275d60c1fe74a3491883196f110970c0`](https://github.com/kaspanet/rusty-kaspa/commit/90dbf074275d60c1fe74a3491883196f110970c0),
+published 2026-06-05), with our intrusive patches re-applied on top.
+
+> **Re-vendored 2026-06-13 from v1.1.0 → v2.0.0.** The original snapshot was
+> v1.1.0 (`e97070f`, 2026-03-04). v2.0.0 is the Toccata-activation release the
+> live testnet-10 / mainnet nodes run, so the bridge **source** is now aligned
+> with the `kaspa-*` dependency tag (both v2.0.0) — closing the long-standing
+> "dependency tag ≠ source snapshot" gap. The re-vendor was a 3-way merge (base
+> v1.1.0, ours, theirs v2.0.0): 20 conflict hunks across 8 files, all on the
+> patches in the divergence table below. Verified: `cargo build`/`clippy`/`fmt`
+> clean, 167 bridge tests pass, and a tn10 block-found soak (see ADR-0017 /
+> Runbook 20).
 
 The decision to fork rather than depend on or submodule is captured in
 [ADR-0002](../docs/decisions/0002-fork-rusty-kaspa-bridge.md). The
@@ -23,13 +33,19 @@ consensus, and protocol code we are not modifying.
 Instead, the bridge source was copied as a one-time snapshot:
 
 ```bash
-git clone --depth 1 --branch v1.1.0 --filter=blob:none --sparse \
-  https://github.com/kaspanet/rusty-kaspa.git /tmp/rusty-kaspa-v1.1.0
-cd /tmp/rusty-kaspa-v1.1.0
+git clone --depth 1 --branch v2.0.0 --filter=blob:none --sparse \
+  https://github.com/kaspanet/rusty-kaspa.git /tmp/rusty-kaspa-v2.0.0
+cd /tmp/rusty-kaspa-v2.0.0
 git sparse-checkout set bridge
 cp -r bridge /root/katpool/bridge
 rm /root/katpool/bridge/.gitignore /root/katpool/bridge/.gitattributes
 ```
+
+On the v2.0.0 re-vendor this was a **3-way merge** rather than a fresh copy:
+with the v1.1.0 tree as the merge base, `git merge-file` combined our patched
+files (`ours`) with v2.0.0 (`theirs`). Most files merged cleanly; the 20
+conflict hunks were resolved by keeping our patch intent on top of v2.0.0's
+restructured code (block-submission, metrics, accept loop).
 
 The deleted `.gitignore` and `.gitattributes` were rusty-kaspa-specific
 (they referenced paths outside the bridge directory) and are replaced
@@ -49,19 +65,16 @@ Why not crates.io: none of the kaspa-* crates are published to
 crates.io. The kaspa core team's release model is the rusty-kaspa
 monorepo tag.
 
-> **Dependency tag ≠ source snapshot.** The vendored `bridge/` source in
-> this directory is the **`v1.1.0`** snapshot (see top of file), but the
-> `kaspa-*`/`kaspad` dependency tag has since advanced to **`tn10-toc3`**
-> (`1.2.1-toc.3`, commit `1015a62`) to match the testnet-10 Toccata
-> hardfork the live node runs. The v1.1.0 bridge source compiles and
-> submits blocks correctly against the toc3 crates because transaction
-> serialization, hashing, and SMT/merkle computation live in the crates,
-> not the bridge source; pinning the crates at v1.1.0 against a toc3 node
-> caused `RuleError::BadMerkleRoot` on every found block. Bumping the
-> dependency tag is governed by
+> **Dependency tag == source snapshot (since the v2.0.0 re-vendor).** The
+> vendored `bridge/` source and the `kaspa-*`/`kaspad` dependency tag are now
+> both **`v2.0.0`**. Before this re-vendor they diverged (v1.1.0 source against
+> a toc3 crate tag), which worked only because transaction serialization,
+> hashing, and SMT/merkle computation live in the crates, not the bridge
+> source. Aligning them removes that latent risk. Bumping the dependency tag is
+> still governed by
 > [ADR-0017](../docs/decisions/0017-kaspa-version-pinning.md) and
-> [Runbook 20](../docs/runbooks/20-kaspa-version-bump.md); re-vendoring
-> the bridge source from a newer tag remains future work.
+> [Runbook 20](../docs/runbooks/20-kaspa-version-bump.md); a future tag bump
+> SHOULD re-vendor the bridge source from the same tag to keep them aligned.
 
 This means our `deny.toml` `[sources] allow-git` table includes
 `https://github.com/kaspanet/rusty-kaspa` and
@@ -72,7 +85,22 @@ ADR + PR.
 ## Local divergence from upstream
 
 Track every intrusive patch here. Anything not listed is a verbatim
-copy of upstream `bridge/` at v1.1.0.
+copy of upstream `bridge/` at v2.0.0.
+
+> **v2.0.0 re-vendor additions.** Beyond the original Phase 1/3 patches, the
+> re-vendor: (a) **adopts** v2.0.0's new files verbatim — `src/cli.rs`,
+> `src/net_utils.rs`, `src/rkstratum_cpu_miner.rs`, `src/tests.rs`, `src/app_config.rs`,
+> and the `static/` dashboard assets (the latter required by `prom.rs`'s
+> `include_dir!`); (b) re-applies our patches onto v2.0.0's restructured
+> block-submission (`BLOCK_SUBMIT_GUARD`), worker-context (`WorkerContext::from_stratum`),
+> and graceful-shutdown (`watch::Receiver<bool>`) code; (c) unifies the
+> v2.0.0-introduced graceful-shutdown path with our ADR-0022 multi-port +
+> anti-abuse + PROXY-protocol accept loop into a single body (no duplicated
+> Some/else branches); (d) pins the bridge to the **workspace** `prometheus`
+> (0.14) instead of its old 0.13 — the pre-revendor mismatch split the global
+> registry so `katpool-metrics` payout/treasury gauges never reached the
+> bridge `/metrics`. Two files (`hasher.rs`, `stratum_context.rs`) diverged from
+> v1.1.0 but were **missing** from this table pre-revendor — now listed.
 
 | File | Upstream | Our change | Phase |
 |---|---|---|---|
@@ -87,7 +115,11 @@ copy of upstream `bridge/` at v1.1.0.
 | `src/stratum_server.rs` | — | **Phase 1, milestone 3 — landed**: constructs the per-process `AntiAbuseGuard` with `AntiAbuseConfig::production()` defaults and threads it (plus `instance_id`) into `StratumListenerConfig`. **Phase 1, milestone 4 — landed**: switched to `AntiAbuseConfig::from_env()` so operators tune limits via `KATPOOL_ANTI_ABUSE_*` env vars (see `ops/systemd/katpool-bridge.conf.d/anti-abuse.conf.example`). Malformed values fail-fast at start-up with an explanatory `io::Error`. **Phase 3, M3d — landed**: new public function `listen_and_serve_with_events` that accepts an optional `broadcast::Sender<PoolEvent>` and wires it into `ShareHandler::with_event_bus`. The original `listen_and_serve` is preserved as a thin wrapper around the new function passing `None`, so the bridge's own `main.rs` keeps the upstream call shape; the unified `katpool` runtime binary uses the new variant to embed bridge + accountant in one process. | 1 (anti-abuse, env tuning), 3 (event bus → accountant) |
 | `src/kaspaapi.rs` | — | **Phase 3, M3e — landed**: `KaspaApi::new` accepts an additional `coinbase_address_override: Option<Address>`. When `Some`, every `get_block_template` call replaces the miner-supplied `wallet_addr` with the configured pool address before calling kaspad — this is custodial PROP-pool mode: every block's coinbase pays the pool, which the accountant then pro-rates across miners by share weight. When `None`, preserves upstream solo / MM-pool behaviour (each miner mines to themselves). The bridge's own `main.rs` passes `None`; only the unified `katpool` runtime opts in via `KATPOOL_POOL_ADDRESS`. Logic factored into a pure `resolve_coinbase_recipient` helper with 4 dedicated unit tests. | 3 (custodial PROP pool) |
 | `src/main.rs` | — | **Phase 3, M3e — landed**: one-line constructor-arg addition `None` matching the new `KaspaApi::new` signature. Preserves upstream solo / MM-pool semantics for the standalone bridge binary. | 3 (custodial PROP pool) |
-| `src/lib.rs` | — | **Phase 1, milestone 3 — landed**: `pub mod anti_abuse;`. | 1 (anti-abuse) |
+| `src/lib.rs` | — | **Phase 1, milestone 3 — landed**: `pub mod anti_abuse;`. (v2.0.0 also re-exports `app_config::BridgeConfig` as the primary `BridgeConfig` and the runtime config as `StratumServerBridgeConfig` — the unified `katpool` binary imports the latter.) | 1 (anti-abuse) |
+| `src/hasher.rs` | — | **Phase 1/2 — landed** (was missing from this table pre-revendor): added a `max_target` helper + unit tests pinning the difficulty→target math (difficulty-1 = `2^224 - 1`, and the `2^32`-per-difficulty share-weight convention `katpool-db` relies on). Guards against the historical `0xffff·2^208` convention. Test-only; no runtime behaviour change. | 1/2 (share-weight correctness) |
+| `src/stratum_context.rs` | — | **Phase 1/2/edge — landed** (was missing from this table pre-revendor): adds `local_port` (per-port starting-difficulty seed, ADR-0022) so `StratumContext::new` takes a `local_port` arg; plus session-lifecycle + worker-name helpers (`effective_worker_name`, `ensure_default_worker_name`, `claim_session_open`, `session_uid`, `notify_disconnect`) backing the `connection_session` accounting and stable `asic-{id}` worker defaults. | 1/2 (sessions, per-port diff) |
+| `src/prom.rs` (share-accept latency) | — | **B7 — landed**: `ks_share_accept_latency_seconds` `HistogramVec` + `observe_share_accept_latency`, observed on the share-accept path in `share_handler.rs`. Registered in `init_metrics()` alongside the anti-abuse counters. | observability (B7) |
+| `Cargo.toml` (prometheus) | v2.0.0 uses `prometheus = "0.14"` | Use the **workspace** prometheus (also 0.14) so the bridge, accountant, and `katpool-metrics` share ONE registry. The pre-revendor bridge pinned 0.13 while the workspace was 0.14 — splitting the global default registry so payout/treasury gauges never reached the bridge `/metrics`. Also swap `yaml-rust`→`serde_yaml` (v2.0.0 config), add `include_dir` (static assets), `kaspa-alloc` (allocator), musl `mimalloc`, `rand` dev-dep, and the `rkstratum_cpu_miner` feature. | v2.0.0 re-vendor |
 | `fuzz/` (new subdirectory, non-workspace) | — | **Phase 1, milestone 3 — landed**: cargo-fuzz harness for `jsonrpc_event::unmarshal_event`. Standalone crate (excluded from workspace because libfuzzer-sys is nightly-only); checked-in `Cargo.lock` mirrors the parent's to keep the rusty-kaspa subgraph pinned. See `bridge/fuzz/README.md` for build/run/acceptance instructions. | 1 (fuzz) |
 | _Anything else added later_ | | | |
 
@@ -150,19 +182,18 @@ to minimise this merge cost.
 
 ```bash
 # From a fresh clone of katpool:
-git clone --depth 1 --branch v1.1.0 --filter=blob:none --sparse \
+git clone --depth 1 --branch v2.0.0 --filter=blob:none --sparse \
   https://github.com/kaspanet/rusty-kaspa.git /tmp/verify-bridge
 git -C /tmp/verify-bridge sparse-checkout set bridge
 
-# Compare only the source tree (ignoring Cargo.toml, which is the only
-# intentional difference at vendor time):
+# Compare only the source tree (ignoring Cargo.toml, which is an
+# intentional difference):
 diff -r \
   --exclude=Cargo.toml \
   --exclude=.gitignore \
   --exclude=.gitattributes \
   /tmp/verify-bridge/bridge \
   bridge
-# Expect: empty output (no diff) immediately after vendoring.
-# After Phase 1 patches land: only the files listed in the divergence
-# table above should appear, with the listed changes.
+# Expect: only the files listed in the divergence table above appear,
+# each with the listed changes. Everything else is verbatim v2.0.0.
 ```

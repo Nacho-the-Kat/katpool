@@ -1,6 +1,7 @@
 use crate::anti_abuse::AntiAbuseGuard;
 use crate::jsonrpc_event::JsonRpcEvent;
 use crate::log_colors::LogColors;
+use crate::net_utils::bind_addr_from_port;
 use crate::prom::{record_anti_abuse_connection_reject, record_anti_abuse_frame_limited, record_malformed_frame};
 use crate::stratum_context::StratumContext;
 use hex;
@@ -9,6 +10,7 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 use tracing::{debug, error, info, warn};
 
 /// Drop a connection after this long with no inbound bytes.
@@ -20,6 +22,21 @@ use tracing::{debug, error, info, warn};
 /// reliably indicates an abandoned/half-open connection whose
 /// `connection_session` row would otherwise never close.
 const POST_AUTH_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Maximum permitted size (in bytes) for an incomplete Stratum line awaiting `\n`.
+/// Legitimate JSON-RPC Stratum messages are well below this; the cap prevents unbounded
+/// memory growth when a client sends data without a newline.
+pub const MAX_STRATUM_LINE_BYTES: usize = 64 * 1024;
+
+/// Append received data to the line buffer. Returns `false` if the append would exceed
+/// [`MAX_STRATUM_LINE_BYTES`], leaving the buffer unchanged.
+pub fn append_line_data(line_buffer: &mut String, data: &str) -> bool {
+    if line_buffer.len().saturating_add(data.len()) > MAX_STRATUM_LINE_BYTES {
+        return false;
+    }
+    line_buffer.push_str(data);
+    true
+}
 
 /// Event handler function type
 pub type EventHandler = Arc<
@@ -89,17 +106,24 @@ impl StratumListener {
 
     /// Start listening for connections
     pub async fn listen(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.listen_impl(None).await
+    }
+
+    pub async fn listen_with_shutdown(
+        &self,
+        shutdown_rx: watch::Receiver<bool>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.listen_impl(Some(shutdown_rx)).await
+    }
+
+    async fn listen_impl(
+        &self,
+        mut shutdown_rx: Option<watch::Receiver<bool>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.shutting_down.store(false, std::sync::atomic::Ordering::Release);
 
-        // Parse port - ensure we bind to IPv4 (0.0.0.0) to accept IPv4 connections
-        // If it starts with ':', prepend "0.0.0.0", otherwise format as "0.0.0.0:PORT"
-        let addr_str = if self.config.port.starts_with(':') {
-            format!("0.0.0.0{}", self.config.port)
-        } else if self.config.port.chars().all(|c| c.is_ascii_digit()) {
-            format!("0.0.0.0:{}", self.config.port)
-        } else {
-            self.config.port.clone()
-        };
+        // Ensure we bind to IPv4 (0.0.0.0) when given a bare port like ":5555" / "5555".
+        let addr_str = bind_addr_from_port(&self.config.port);
 
         let listener =
             TcpListener::bind(&addr_str).await.map_err(|e| format!("failed listening to socket {}: {}", self.config.port, e))?;
@@ -111,150 +135,144 @@ impl StratumListener {
         let on_disconnect = Arc::clone(&self.config.on_disconnect);
         let stats = self.stats.clone();
 
-        // Spawn disconnect handler
+        let mut disconnect_shutdown_rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            while let Some(ctx) = disconnect_rx.recv().await {
-                info!("[CONNECTION] client disconnecting - {}", ctx.remote_addr);
-                info!("[CONNECTION] Disconnect event for {}:{}", ctx.remote_addr, ctx.remote_port);
-                stats.lock().disconnects += 1;
-                on_disconnect(ctx);
+            loop {
+                if let Some(ref mut rx) = disconnect_shutdown_rx {
+                    tokio::select! {
+                        _ = rx.changed() => {
+                            if *rx.borrow() {
+                                break;
+                            }
+                        }
+                        maybe_ctx = disconnect_rx.recv() => {
+                            let Some(ctx) = maybe_ctx else {
+                                break;
+                            };
+                            info!("[CONNECTION] client disconnecting - {}", ctx.remote_addr);
+                            info!("[CONNECTION] Disconnect event for {}:{}", ctx.remote_addr, ctx.remote_port);
+                            stats.lock().disconnects += 1;
+                            on_disconnect(ctx);
+                        }
+                    }
+                } else {
+                    let Some(ctx) = disconnect_rx.recv().await else {
+                        break;
+                    };
+                    info!("[CONNECTION] client disconnecting - {}", ctx.remote_addr);
+                    info!("[CONNECTION] Disconnect event for {}:{}", ctx.remote_addr, ctx.remote_port);
+                    stats.lock().disconnects += 1;
+                    on_disconnect(ctx);
+                }
             }
         });
 
-        // Accept connections
         loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    match result {
-                        Ok((mut stream, addr)) => {
-                            // Local (listening) port this connection landed on.
-                            // Drives the per-port starting-difficulty seed
-                            // (ADR-0022). `local_addr()` is authoritative even
-                            // with SO_REUSEPORT / multiple listeners.
-                            let local_port = stream.local_addr().map(|a| a.port()).unwrap_or(0);
-
-                            // PROXY protocol (ADR-0022): behind the fly.io edge
-                            // the TCP peer is the forwarder, so recover the real
-                            // miner IP/port from the v2 header before any
-                            // per-connection logic. A missing/invalid header on a
-                            // proxy_protocol listener is a hard reject.
-                            let (real_ip, remote_port) = if self.config.proxy_protocol {
-                                match read_proxy_v2_source(&mut stream).await {
-                                    Ok(src) => (src.ip(), src.port()),
-                                    Err(e) => {
-                                        warn!("[CONNECTION] PROXY protocol parse failed from {}: {}; dropping", addr.ip(), e);
-                                        drop(stream);
-                                        continue;
-                                    }
-                                }
-                            } else {
-                                (addr.ip(), addr.port())
-                            };
-                            let remote_addr = real_ip.to_string();
-
-                            // Anti-abuse: per-IP connection cap + tracked-IP cap.
-                            // Reject before allocating any per-connection state.
-                            // Keyed on the real client IP (post-PROXY).
-                            let ticket = match self.config.anti_abuse.try_accept_connection(real_ip, std::time::Instant::now()) {
-                                Ok(t) => t,
-                                Err(rejection) => {
-                                    record_anti_abuse_connection_reject(
-                                        &self.config.instance_id,
-                                        &remote_addr,
-                                        rejection.metric_label(),
-                                    );
-                                    warn!(
-                                        "[CONNECTION] anti-abuse rejected accept from {}:{} ({})",
-                                        remote_addr, remote_port, rejection
-                                    );
-                                    drop(stream);
-                                    continue;
-                                }
-                            };
-
-                            debug!("[CONNECTION] new client connecting - {}:{}", remote_addr, remote_port);
-                            debug!("[CONNECTION] ===== TCP CONNECTION ESTABLISHED =====");
-                            debug!("[CONNECTION] Remote address: {}:{}", remote_addr, remote_port);
-                            debug!("[CONNECTION] Local address: {:?}", stream.local_addr());
-                            debug!("[CONNECTION] Connection accepted successfully");
-
-                            // Enable TCP keepalive so a half-open connection (an
-                            // abruptly power-cycled ASIC that sends neither FIN
-                            // nor RST) is detected at the transport layer instead
-                            // of leaving the read loop blocked forever and its
-                            // `connection_session` row open. Probe after 60s
-                            // idle, every 20s, dropping after 3 missed probes
-                            // (~2min to reap a dead peer). This is the
-                            // false-positive-free backstop to the application
-                            // idle timeout in `spawn_client_listener`.
-                            if let Err(e) = socket2::SockRef::from(&stream).set_tcp_keepalive(
-                                &socket2::TcpKeepalive::new()
-                                    .with_time(std::time::Duration::from_secs(60))
-                                    .with_interval(std::time::Duration::from_secs(20))
-                                    .with_retries(3),
-                            ) {
-                                debug!(
-                                    "[CONNECTION] failed to enable TCP keepalive for {}:{}: {}",
-                                    remote_addr, remote_port, e
-                                );
-                            }
-
-                            // Create new MiningState for each client
-                            // Each client gets its own isolated state, just like in Go
-                            use crate::mining_state::MiningState;
-                            let state = Arc::new(MiningState::new());
-
-                            // Clone for logging after move
-                            let remote_addr_for_log = remote_addr.clone();
-                            let remote_port_for_log = remote_port;
-
-                            debug!("[CONNECTION] Creating StratumContext for {}:{}", remote_addr_for_log, remote_port_for_log);
-                            let ctx = StratumContext::new(
-                                remote_addr,
-                                remote_port,
-                                local_port,
-                                stream,
-                                state,
-                                disconnect_tx_clone.clone(),
-                            );
-                            debug!("[CONNECTION] StratumContext created successfully");
-
-                            debug!("[CONNECTION] Calling on_connect handler");
-                            (self.config.on_connect)(ctx.clone());
-                            debug!("[CONNECTION] on_connect handler completed");
-
-                            // Spawn client handler
-                            debug!("[CONNECTION] Spawning client listener task for {}:{}", remote_addr_for_log, remote_port_for_log);
-                            let ctx_clone = ctx.clone();
-                            let handler_map = self.config.handler_map.clone();
-                            let anti_abuse = Arc::clone(&self.config.anti_abuse);
-                            let instance_id = self.config.instance_id.clone();
-                            tokio::spawn(async move {
-                                debug!("[CONNECTION] Client listener task started for {}:{}", ctx_clone.remote_addr, ctx_clone.remote_port);
-                                // `ticket` is dropped at task end (and on every
-                                // early `break` below), releasing this IP's
-                                // connection slot. The `move` here is what
-                                // ties the per-IP slot lifetime to the
-                                // connection's listener task.
-                                Self::spawn_client_listener(ctx_clone, &handler_map, &anti_abuse, &instance_id).await;
-                                drop(ticket);
-                                debug!("[CONNECTION] Client listener task ended");
-                            });
-                            debug!("[CONNECTION] ===== CONNECTION SETUP COMPLETE FOR {}:{} =====", remote_addr_for_log, remote_port_for_log);
+            // Accept the next connection. With a shutdown channel present
+            // (graceful-shutdown path), race the accept against it; otherwise
+            // just await. The connection-handling body below is written once.
+            let accept_result = if let Some(ref mut rx) = shutdown_rx {
+                tokio::select! {
+                    _ = rx.changed() => {
+                        if *rx.borrow() {
+                            self.shutting_down.store(true, std::sync::atomic::Ordering::Release);
+                            break;
                         }
-                        Err(e) => {
-                            if self.shutting_down.load(std::sync::atomic::Ordering::Acquire) {
-                                info!("stopping listening due to server shutdown");
-                                break;
-                            }
-                            error!("[CONNECTION] ===== FAILED TO ACCEPT INCOMING CONNECTION =====");
-                            error!("[CONNECTION] Error: {}", e);
-                            error!("[CONNECTION] Error kind: {:?}", e.kind());
-                            error!("[CONNECTION] Failed to accept connection: {} (kind: {:?})", e, e.kind());
-                        }
+                        continue;
+                    }
+                    result = listener.accept() => result,
+                }
+            } else {
+                listener.accept().await
+            };
+
+            let (mut stream, addr) = match accept_result {
+                Ok(pair) => pair,
+                Err(e) => {
+                    if self.shutting_down.load(std::sync::atomic::Ordering::Acquire) {
+                        info!("stopping listening due to server shutdown");
+                        break;
+                    }
+                    error!("[CONNECTION] Failed to accept connection: {} (kind: {:?})", e, e.kind());
+                    continue;
+                }
+            };
+
+            // Local (listening) port this connection landed on. Drives the
+            // per-port starting-difficulty seed (ADR-0022). `local_addr()` is
+            // authoritative even with SO_REUSEPORT / multiple listeners.
+            let local_port = stream.local_addr().map(|a| a.port()).unwrap_or(0);
+
+            // PROXY protocol (ADR-0022): behind the fly.io edge the TCP peer is
+            // the forwarder, so recover the real miner IP/port from the v2 header
+            // before any per-connection logic. A missing/invalid header on a
+            // proxy_protocol listener is a hard reject.
+            let (real_ip, remote_port) = if self.config.proxy_protocol {
+                match read_proxy_v2_source(&mut stream).await {
+                    Ok(src) => (src.ip(), src.port()),
+                    Err(e) => {
+                        warn!("[CONNECTION] PROXY protocol parse failed from {}: {}; dropping", addr.ip(), e);
+                        drop(stream);
+                        continue;
                     }
                 }
+            } else {
+                (addr.ip(), addr.port())
+            };
+            let remote_addr = real_ip.to_string();
+
+            // Anti-abuse: per-IP connection cap + tracked-IP cap. Reject before
+            // allocating any per-connection state. Keyed on the real client IP.
+            let ticket = match self.config.anti_abuse.try_accept_connection(real_ip, std::time::Instant::now()) {
+                Ok(t) => t,
+                Err(rejection) => {
+                    record_anti_abuse_connection_reject(&self.config.instance_id, &remote_addr, rejection.metric_label());
+                    warn!("[CONNECTION] anti-abuse rejected accept from {}:{} ({})", remote_addr, remote_port, rejection);
+                    drop(stream);
+                    continue;
+                }
+            };
+
+            debug!("[CONNECTION] new client connecting - {}:{}", remote_addr, remote_port);
+            debug!("[CONNECTION] ===== TCP CONNECTION ESTABLISHED =====");
+            debug!("[CONNECTION] Local address: {:?}", stream.local_addr());
+
+            // Enable TCP keepalive so a half-open connection (an abruptly
+            // power-cycled ASIC that sends neither FIN nor RST) is detected at
+            // the transport layer instead of leaving the read loop blocked and
+            // its `connection_session` row open. Probe after 60s idle, every
+            // 20s, dropping after 3 missed probes (~2min to reap a dead peer).
+            if let Err(e) = socket2::SockRef::from(&stream).set_tcp_keepalive(
+                &socket2::TcpKeepalive::new()
+                    .with_time(std::time::Duration::from_secs(60))
+                    .with_interval(std::time::Duration::from_secs(20))
+                    .with_retries(3),
+            ) {
+                debug!("[CONNECTION] failed to enable TCP keepalive for {}:{}: {}", remote_addr, remote_port, e);
             }
+
+            // Create new MiningState for each client (isolated per connection).
+            use crate::mining_state::MiningState;
+            let state = Arc::new(MiningState::new());
+
+            let remote_addr_for_log = remote_addr.clone();
+            let remote_port_for_log = remote_port;
+
+            let ctx = StratumContext::new(remote_addr, remote_port, local_port, stream, state, disconnect_tx_clone.clone());
+            (self.config.on_connect)(ctx.clone());
+
+            // Spawn the per-connection listener task. `ticket` is moved in and
+            // dropped at task end (and on every early break inside), releasing
+            // this IP's anti-abuse connection slot.
+            let ctx_clone = ctx.clone();
+            let handler_map = self.config.handler_map.clone();
+            let anti_abuse = Arc::clone(&self.config.anti_abuse);
+            let instance_id = self.config.instance_id.clone();
+            tokio::spawn(async move {
+                Self::spawn_client_listener(ctx_clone, &handler_map, &anti_abuse, &instance_id).await;
+                drop(ticket);
+            });
+            debug!("[CONNECTION] ===== CONNECTION SETUP COMPLETE FOR {}:{} =====", remote_addr_for_log, remote_port_for_log);
         }
 
         Ok(())
@@ -502,7 +520,15 @@ impl StratumListener {
                         first_message = false;
                     }
 
-                    line_buffer.push_str(&String::from_utf8_lossy(&data));
+                    let chunk = String::from_utf8_lossy(&data);
+                    if !append_line_data(&mut line_buffer, &chunk) {
+                        warn!(
+                            "[CONNECTION] Client {}:{} exceeded maximum Stratum line size ({} bytes), disconnecting",
+                            ctx.remote_addr, ctx.remote_port, MAX_STRATUM_LINE_BYTES
+                        );
+                        ctx.disconnect();
+                        break;
+                    }
 
                     // Process complete lines
                     while let Some(newline_pos) = line_buffer.find('\n') {

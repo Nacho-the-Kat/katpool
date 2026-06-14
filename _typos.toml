@@ -32,6 +32,12 @@ nd = "nd"
 st = "st"
 th = "th"
 
+# Deliberately-malformed bool inputs in the vendored bridge `parse_bool`
+# tests (bridge/src/tests.rs) that assert these truncated strings are
+# rejected — upstream test fixtures, not typos.
+tru = "tru"
+fals = "fals"
+
 [files]
 # Don't lint generated lockfiles, the vendor tree, or test
 # fixtures that intentionally contain malformed data.

@@ -56,6 +56,7 @@ publish = false
 # crates are published to crates.io as of 2026-05-25. The bridge/ crate
 # uses them; see bridge/UPSTREAM.md for the vendoring rationale.
 # deny.toml [sources] allow-git permits this single repo.
+kaspa-alloc          = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
 kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
 kaspa-hashes         = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
 kaspa-math           = { git = "https://github.com/kaspanet/rusty-kaspa", tag = "v2.0.0" }
