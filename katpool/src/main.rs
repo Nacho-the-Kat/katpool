@@ -220,7 +220,7 @@ use kaspa_addresses::{Address, Prefix};
 use kaspa_grpc_client::GrpcClient;
 use kaspa_rpc_core::notify::mode::NotificationMode;
 use kaspa_stratum_bridge::{
-    BridgeConfig as BridgeServerConfig, KaspaApi, listen_and_serve_with_events, prom,
+    KaspaApi, StratumServerBridgeConfig as BridgeServerConfig, listen_and_serve_with_events, prom,
 };
 use katpool_db::{PoolConfig, build_pool};
 use katpool_domain::{PoolEvent, redact};
@@ -335,10 +335,15 @@ async fn main() -> Result<()> {
             "multiple pool addresses supplied; bridge coinbase override uses the first ({coinbase_tag}); accountant reward extraction matches against all"
         );
     }
+    // Shutdown channel, created early so the bridge's `KaspaApi` can abort its
+    // connection-retry and background stats threads on shutdown (upstream v2.0.0
+    // contract). Consumed by the subsystems and the signal task below.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
     let kaspa_api = KaspaApi::new(
         cfg.kaspad_url.clone(),
-        Duration::from_millis(500),
         None,
+        shutdown_rx.clone(),
         Some(coinbase_override.clone()),
     )
     .await
@@ -476,7 +481,7 @@ async fn main() -> Result<()> {
     .with_geoip(geoip);
 
     // ---- shutdown channel ------------------------------------------
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    // (created earlier, before KaspaApi::new, so the bridge node client shares it)
     let signal_task = {
         let tx = shutdown_tx.clone();
         tokio::spawn(async move {

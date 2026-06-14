@@ -42,6 +42,7 @@ kaspa-grpc-client = { workspace = true }
 kaspa-notify = { workspace = true }
 kaspa-core = { workspace = true }
 kaspa-utils = { workspace = true }
+kaspa-alloc = { workspace = true }
 kaspad = { workspace = true }
 dirs = { workspace = true }
 
@@ -79,14 +80,37 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 blake2 = "0.10"
 num-bigint = "0.4"
-prometheus = "0.13"
-yaml-rust = "0.4"
+# Use the workspace prometheus (0.14, matching upstream v2.0.0) so the bridge,
+# accountant, and katpool-metrics all share ONE prometheus version — hence one
+# global default registry. (The pre-revendor bridge pinned 0.13 while the rest
+# of the workspace was on 0.14, which split the registry so payout/treasury
+# metrics never reached the bridge `/metrics` endpoint.)
+prometheus = { workspace = true }
+# Upstream v2.0.0 config parsing (app_config.rs) uses serde_yaml (replaced the
+# old yaml-rust).
+serde_yaml = "0.9"
 faster-hex = "0.1"
-windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Console"] }
+# Embedded dashboard static assets (prom.rs) for portable binaries.
+include_dir = "0.7"
 chrono = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+# musl (dist) builds: declare mimalloc without 'override' so it overrides
+# kaspa-alloc's version; the .cargo linker flag handles remaining conflicts
+# (matches upstream v2.0.0).
+[target.'cfg(all(not(target_os = "macos"), target_env = "musl"))'.dependencies]
+mimalloc = { version = "0.1.48", default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4"
+rand = { workspace = true }
+
+[features]
+# Optional in-process CPU miner (upstream v2.0.0). Off by default; the pool
+# never builds it for production.
+rkstratum_cpu_miner = []
 
 [[bin]]
 name = "stratum-bridge"
