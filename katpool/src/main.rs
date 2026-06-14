@@ -730,6 +730,9 @@ async fn main() -> Result<()> {
         let prom_port = cfg.prom_port.clone();
         let prom_instance = cfg.instance_id.clone();
         info!(port = %prom_port, "prometheus metrics server enabled");
+        // Register payout/treasury metrics (B7) into the same global registry the
+        // exporter gathers; the engines' record_* calls are no-ops until this runs.
+        katpool_metrics::init_payout_metrics();
         tokio::spawn(async move {
             if let Err(e) = prom::start_prom_server(&prom_port, &prom_instance).await {
                 error!("prometheus metrics server error: {e}");

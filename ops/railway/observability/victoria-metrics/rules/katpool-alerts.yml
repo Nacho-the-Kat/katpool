@@ -6,14 +6,14 @@
 # ADR-0004. Severities: `page` (wake someone), `warning` (next business hour).
 #
 # Metric provenance (only what the pool actually emits today):
-#   bridge/src/prom.rs       ks_*               (shares, blocks, workers, anti-abuse)
-#   accountant/src/metrics.rs ks_accountant_*   (event pipeline, DB writes)
-#   blackbox exporter        probe_*            (synthetic HTTP/TCP probes)
-#   victoria-metrics         up                 (scrape liveness)
+#   bridge/src/prom.rs        ks_*               (shares, blocks, workers, anti-abuse)
+#   accountant/src/metrics.rs ks_accountant_*    (event pipeline, DB writes)
+#   katpool-metrics (B7)      ks_payout_* / ks_treasury_*  (payout engines + consolidation)
+#   blackbox exporter         probe_*            (synthetic HTTP/TCP probes)
+#   victoria-metrics          up                 (scrape liveness)
 #
 # Gaps deliberately NOT guessed at (no metric exists yet — tracked for a
 # follow-up that adds instrumentation, alerted via Loki log rules until then):
-#   - payout-cycle success / treasury balance (payout engines emit no metrics)
 #   - tier-classifier circuit-breaker open state (logged, not metered)
 # See SLO.md.
 
@@ -211,6 +211,41 @@ groups:
             written zero share rows for 15m — a DB-write outage that will lose
             payout-relevant data.
           runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/04-postgres-restore-from-backup.md"
+
+  # ---------------------------------------------------------------------------
+  - name: katpool-payout
+    interval: 1m
+    rules:
+      - alert: PayoutCycleFailing
+        expr: increase(ks_payout_cycles_total{status=~"failed|error"}[1h]) > 0
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "Payout cycle failing ({{ $labels.engine }} on {{ $labels.network }})"
+          description: >-
+            A {{ $labels.engine }} payout cycle reached a failed/errored terminal
+            status in the last hour. Funds are not moving and the unpaid backlog
+            will grow — investigate the treasury, node, or DB. This is the money
+            path.
+          runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/02-nacho-payout-failed.md"
+
+      - alert: TreasuryBalanceLow
+        # Operator-tunable floor in sompi (1 KAS = 100_000_000 sompi). Starting
+        # value is 100 KAS; raise it for mainnet payout sizing, lower/silence for
+        # deliberately low-balance testnets. Sourced from the consolidation
+        # snapshot gauge — if consolidation is disabled the series is absent and
+        # this stays inert. See SLO.md.
+        expr: ks_treasury_balance_sompi < 10000000000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Treasury spendable balance low ({{ $labels.network }})"
+          description: >-
+            The spendable treasury balance is below the configured floor. Top up
+            the treasury before it can no longer fund a payout cycle.
+          runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/05-treasury-balance-below-threshold.md"
 
   # ---------------------------------------------------------------------------
   - name: katpool-dependencies

@@ -194,6 +194,24 @@ impl<C: KaspadClient> PayoutEngine<C> {
         if let Err(e) = lock.release().await {
             warn!(instance = %self.config.instance_id, error = %e, "failed to release payout lock");
         }
+
+        // Payout-cycle metrics (B7): one observation per leader tick.
+        match &result {
+            Ok(TickOutcome::Ran(report)) => {
+                katpool_metrics::record_payout_cycle(
+                    &self.config.instance_id,
+                    "kas",
+                    report.status.as_str(),
+                );
+                if report.status.is_success() {
+                    katpool_metrics::mark_payout_success(&self.config.instance_id, "kas");
+                }
+            }
+            Ok(TickOutcome::SkippedNotLeader) => {}
+            Err(_) => {
+                katpool_metrics::record_payout_cycle(&self.config.instance_id, "kas", "error");
+            }
+        }
         result
     }
 

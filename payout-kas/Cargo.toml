@@ -19,7 +19,6 @@ workspace = true
 [package.metadata.cargo-machete]
 ignored = [
     "chrono",
-    "katpool-metrics",
     "katpool-telemetry",
     "secrecy",
     "serde",

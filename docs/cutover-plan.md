@@ -108,10 +108,14 @@ connecting to the new pool.
 
 ### T-0: DNS flip + start
 
-- Flip CNAME records:
-  - `kas.katpool.com` → Railway TCP edge (us-east) → NetCup VPS
-  - `kas-eu.katpool.com` → Railway TCP edge (eu-west)
-  - `kas-ap.katpool.com` → Railway TCP edge (ap-southeast)
+- Flip DNS to the **fly.io anycast edge** (ADR-0022, which supersedes the
+  Railway TCP edge of ADR-0005). A single anycast IPv4 routes each miner to the
+  nearest fly region, which forwards to the NetCup origin over PROXY-v2:
+  - `kas.katpool.com` → A record → fly.io anycast IPv4 → (PROXY-v2) → NetCup VPS
+  - (No per-region CNAMEs: anycast collapses us-east / eu-west / ap-southeast
+    into one address; regional pop selection is handled by fly's network.)
+  - Origin firewall must already accept only fly egress IPs on the stratum
+    ports (`ops/edge/flyio/nftables/`, workstream C2).
 - `systemctl start katpool` on the new VPS.
 - Watch logs: expect "katpool started OK", first stratum
   connection within seconds, first share within ~30 s, first

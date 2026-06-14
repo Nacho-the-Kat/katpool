@@ -19,7 +19,6 @@ workspace = true
 ignored = [
     "chrono",
     "hex",
-    "katpool-metrics",
     "katpool-telemetry",
     "secrecy",
 ]

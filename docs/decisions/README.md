@@ -18,13 +18,22 @@ ADR pointing back.
 | [0007](0007-pgbackrest-wal-archiving.md) | pgBackRest WAL streaming to Backblaze B2 | accepted |
 | [0008](0008-hot-only-treasury-with-os-isolation.md) | Hot-only treasury with OS isolation | accepted |
 | [0009](0009-automated-weekly-dr-validation.md) | Automated weekly DR validation | accepted |
+| [0010](0010-multi-tenant-kaspad-on-pool-vps.md) | Multi-tenant kaspad on the pool VPS (mainnet + testnet-10) | accepted |
+| [0011](0011-db-schema-and-migrations.md) | DB schema, sqlx migrations, and legacy import | accepted |
+| [0012](0012-fee-model-and-tier-classification.md) | Fee model and wallet-tier classification | accepted |
+| [0013](0013-verification-posture.md) | Verification posture (integer-deterministic value math) | accepted |
+| [0014](0014-maturity-tracker.md) | Block maturity tracker architecture | accepted |
 | [0015](0015-krc20-inscription-envelope.md) | KRC-20 inscription envelope byte-compatible with production | accepted |
 | [0016](0016-krc20-payout-conversion-and-floor-price.md) | KAS→NACHO payout conversion, floor price, no payout-time multiplier | accepted |
 | [0017](0017-kaspa-version-pinning.md) | Couple kaspad, kaspa-* crates, and Rust toolchain under one version bump | accepted |
 | [0018](0018-payout-fee-policy-and-on-demand-cycles.md) | KAS payout fee policy, exact-fee finalization, cadence, and on-demand cycles | accepted |
 | [0019](0019-krc20-adaptive-fee-and-fee-persistence.md) | KRC-20 commit/reveal adaptive fees, frozen for crash-safe determinism | accepted |
 | [0020](0020-krc20-sweep-coherent-utxo-chaining.md) | KRC-20 sweep-coherent UTXO chaining for sibling commits | accepted |
-| [0021](0021-public-read-only-http-api.md) | Public read-only HTTP API: embedded axum service, versioned data surface, DoS posture | proposed |
+| [0021](0021-public-read-only-http-api.md) | Public read-only HTTP API: embedded axum service, versioned data surface, DoS posture | accepted |
+| [0022](0022-multiport-stratum-and-flyio-anycast-edge.md) | Multi-port stratum and fly.io anycast edge (supersedes 0005's edge) | accepted |
+| [0023](0023-new-dashboard-architecture-and-stack.md) | New dashboard architecture and stack | accepted |
+| [0024](0024-dashboard-design-overhaul.md) | Dashboard design overhaul | accepted |
+| [0025](0025-geo-distribution-via-geolite2.md) | Country-level miner geo distribution via GeoLite2 | accepted |
 
 ## When to write a new ADR
 
