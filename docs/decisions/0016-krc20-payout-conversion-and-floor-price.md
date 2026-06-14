@@ -60,9 +60,9 @@ payout eligibility shape from Phase 4.
 
 ### 3. Conversion is exact integer math
 
-The floor-price API returns a decimal KAS-per-NACHO-token price (e.g.
-`0.000365`). Because **both KAS-sompi and NACHO base units carry 8 decimal
-places**, the scale factors cancel and:
+The floor price is a decimal **KAS-per-NACHO-token** price (e.g. `0.000330`;
+see §5 for how it is sourced). Because **both KAS-sompi and NACHO base units
+carry 8 decimal places**, the scale factors cancel and:
 
 ```text
 nacho_base_units = floor(pending_sompi / floor_price_kas_per_nacho)
@@ -89,16 +89,40 @@ than the reveal is value-destructive. Post-conversion amounts below
 accrued for a later cycle). This is the new-pool analogue of the legacy
 `nachoThresholdAmount` skip, but applied to a deterministic integer amount.
 
-### 5. Floor price: direct HTTPS behind a trait, no headless browser
+### 5. Floor price: CoinGecko market ratio, direct HTTPS behind a trait
 
-Source: `GET https://api.kaspa.com/api/floor-price?ticker=NACHO`, which
-returns `[{"ticker":"NACHO","floor_price":0.000365}]`. Verified to answer a
-plain HTTPS request — the legacy pool's Puppeteer/headless-Chrome dance is
-**not** required and is dropped (ADR-0001 Rust-first; no Bun/Node/Chrome on
-the payout path). The client mirrors `accountant::tier_kasplex`
-conventions: owned `reqwest::Client` with request + connect timeouts and a
-`katpool-payout-krc20/<version>` user-agent. Access is behind a
-`FloorPriceSource` trait so the engine and tests can substitute a fake.
+> **Amendment (2026-06-13):** the price source moved from the Kasplex
+> marketplace floor (`api.kaspa.com/api/floor-price`) to the **CoinGecko market
+> ratio**. The original endpoint is a single-marketplace *floor listing*;
+> CoinGecko is a volume-weighted market price with broader coverage and a
+> documented public API. The conversion contract (§3) is unchanged — only how
+> the KAS-per-NACHO number is obtained.
+
+Source: a single keyless HTTPS GET
+`https://api.coingecko.com/api/v3/simple/price?ids=nacho-the-kat,kaspa&vs_currencies=usd&precision=18`,
+returning `{"kaspa":{"usd":<P_kas>},"nacho-the-kat":{"usd":<P_nacho>}}`.
+CoinGecko prices in **USD**, but the conversion needs **KAS per NACHO**, so the
+engine derives it from both legs in one call:
+
+```text
+floor_price_kas_per_nacho = P_nacho_usd / P_kas_usd
+```
+
+The USD scale cancels in the ratio. The division is **exact and float-free**
+(ADR-0013): both quotes are read as their verbatim JSON number text (serde_json
+`raw_value`, since a plain `Number` round-trips through `f64` without
+`arbitrary_precision`), divided with `bigdecimal`, then **floored** (never
+rounded up — a payout must never be over-funded) to a fixed 18-digit scale into
+the integer `FloorPrice` §3 consumes. A zero/negative/missing leg, or a ratio
+that underflows to zero, fails the quote (and thus the cycle) **closed** (§6).
+
+The legacy pool's Puppeteer/headless-Chrome dance remains **not** required and
+is dropped (ADR-0001 Rust-first; no Bun/Node/Chrome on the payout path). The
+client mirrors `accountant::tier_kasplex` conventions: owned `reqwest::Client`
+with request + connect timeouts and a `katpool-payout-krc20/<version>`
+user-agent, behind a `FloorPriceSource` trait so the engine and tests can
+substitute a fake. The same CoinGecko endpoint is the target of the Blackbox
+`indexer` synthetic probe (B5), so monitoring tracks the real dependency.
 
 ### 6. Circuit breaker fails the cycle CLOSED, never guesses a price
 
