@@ -1,5 +1,7 @@
 use prometheus::proto::MetricFamily;
-use prometheus::{CounterVec, Gauge, GaugeVec, register_counter_vec, register_gauge, register_gauge_vec};
+use prometheus::{
+    CounterVec, Gauge, GaugeVec, HistogramVec, register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -74,6 +76,9 @@ static MALFORMED_FRAME_COUNTER: OnceLock<CounterVec> = OnceLock::new();
 /// Anti-abuse: addresses that failed the `kaspa-addresses` bech32 check
 /// during `mining.authorize`, after which the connection is closed.
 static BAD_ADDRESS_COUNTER: OnceLock<CounterVec> = OnceLock::new();
+
+/// Share-accept latency histogram (submit → accepted), seconds, by instance.
+static SHARE_ACCEPT_LATENCY: OnceLock<HistogramVec> = OnceLock::new();
 
 /// Labels for anti-abuse counters that include a rejection reason.
 const ANTI_ABUSE_REASON_LABELS: &[&str] = &["instance", "ip", "reason"];
@@ -189,6 +194,26 @@ pub fn init_metrics() {
         )
         .unwrap()
     });
+
+    SHARE_ACCEPT_LATENCY.get_or_init(|| {
+        // Buckets sized for share validation: sub-millisecond to ~1s. A block
+        // share also pays the node submit RPC, but blocks are rare so the bulk
+        // of the distribution is normal share-validation latency.
+        register_histogram_vec!(
+            "ks_share_accept_latency_seconds",
+            "Latency from share submission to acceptance (valid shares), in seconds",
+            &["instance"],
+            vec![0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+        )
+        .unwrap()
+    });
+}
+
+/// Observe the submit→accept latency (seconds) for an accepted share.
+pub fn observe_share_accept_latency(instance_id: &str, seconds: f64) {
+    if let Some(hist) = SHARE_ACCEPT_LATENCY.get() {
+        hist.with_label_values(&[instance_id]).observe(seconds);
+    }
 }
 
 /// Record a TCP-accept rejection by the per-IP anti-abuse guard.

@@ -12,6 +12,15 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Origin Alloy: durable log buffering + trace sampling** (B7 hardening). The
+  netcup Alloy agent now persists `loki.write`'s WAL to a host volume
+  (`--storage.path` on `/etc/katpool/obs-tn10/alloy-data`, `wal { enabled = true }`),
+  so a transient vmauth/Railway outage or an agent restart no longer drops logs —
+  they replay when the door reopens. A `otelcol.processor.tail_sampling` block
+  now fronts the Tempo exporter: error and slow (>500ms) traces are always kept,
+  the rest are sampled (`sampling_percentage` 100 on tn10 — lower for mainnet API
+  volume). The config is installed to a stable path decoupled from the git
+  working tree. (`ops/railway/observability/origin/`.)
 - **NACHO floor price now sourced from CoinGecko, not the Kasplex marketplace
   floor** (ADR-0016 amendment). The KRC-20 payout engine derives KAS-per-NACHO
   as `nacho_usd / kaspa_usd` from a single keyless CoinGecko `simple/price` call
@@ -47,6 +56,12 @@ backward-incompatible ways at every minor bump.
   stratum firewall). `ignoreip` documented for the same-origin BFF/edge so it is
   never collateral. Stratum abuse intentionally stays app-layer (`ks_anti_abuse_*`
   + `StratumAbuseBurst`) — the pool emits no per-IP reject log to match.
+- **Share-accept latency histogram** (B7). The bridge now emits
+  `ks_share_accept_latency_seconds{instance}`, observed on the accepted-share
+  path (`bridge/src/share_handler.rs`, submit → accept), with a
+  `katpool:share_accept_latency:p99_5m` recording rule for dashboards. Closes the
+  second `SLO.md` instrumentation gap; no alert until a latency objective is set
+  (no guessed threshold).
 - **Payout-cycle + treasury metrics** (B7, highest-value instrumentation gap in
   `SLO.md`). The KAS/KRC-20 payout engines and the consolidation engine now emit
   Prometheus series via `katpool-metrics` (previously a stub): per-tick
