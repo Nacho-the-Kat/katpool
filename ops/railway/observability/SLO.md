@@ -16,19 +16,30 @@ Alert thresholds are intentionally looser than the SLO target (e.g. invalid-shar
 ratio pages at >10% while the SLO is 5%) so a page means the budget is being
 actively burned, not merely touched.
 
-## Known instrumentation gaps (do NOT alert on guessed metrics)
+## Payout & treasury metrics (B7)
 
-The original B6 wish-list named two SLIs the pool does not emit metrics for yet.
-They are tracked here rather than faked:
+The KAS/KRC-20 payout engines and the consolidation engine emit these via
+`katpool-metrics` (on the global registry the exporter gathers), each carrying an
+`instance` label so the exporter's instance filter keeps them:
+
+- `ks_payout_cycles_total{instance, engine, status}` — one increment per leader
+  tick, by engine (`kas`/`krc20`) and terminal `PayoutCycleStatus`
+  (`settled` / `partially_settled` / `broadcasting` / `planned` / `failed`, plus
+  `error` for a failed tick). `PayoutCycleFailing` pages on a `failed`/`error`
+  increase.
+- `ks_payout_last_success_timestamp_seconds{instance, engine}` — last cycle that
+  settled (fully or partially). For dashboards/stall detection; deliberately
+  **not** paged on, to avoid false alarms on legitimately idle cycles (the canary
+  miner is the end-to-end "are we actually paying" truth).
+- `ks_treasury_balance_sompi{instance}` / `ks_treasury_spendable_utxos{instance}`
+  — from the latest consolidation snapshot; `TreasuryBalanceLow` warns below an
+  operator-tunable floor (see the rule). Absent if consolidation is disabled.
+
+## Known instrumentation gaps (do NOT alert on guessed metrics)
 
 - **Share-accept latency** — the bridge exposes share *counts*, not a
   submit→accept latency histogram. Needs a new histogram in
-  `bridge/src/prom.rs` before a latency SLO is meaningful.
-- **Payout-cycle success** — the KAS/KRC-20 payout engines emit no Prometheus
-  metrics. Until they do, payout health is observed via **Loki log rules** (the
-  payout/treasury log lines) and the **CanaryMinerNotPaid** end-to-end probe,
-  not a metric SLO. Adding payout counters (cycles started/succeeded/failed,
-  treasury balance gauge) is the highest-value next instrumentation task.
+  `bridge/src/prom.rs` before a latency SLO is meaningful (next B7 follow-up).
 
 ## Retention policy
 

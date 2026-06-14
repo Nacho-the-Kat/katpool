@@ -46,6 +46,28 @@ pub enum PayoutCycleStatus {
     Failed,
 }
 
+impl PayoutCycleStatus {
+    /// Stable snake-case label (matches the `payout_cycle_status` SQL enum),
+    /// suitable for a low-cardinality Prometheus `status` label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Planned => "planned",
+            Self::Broadcasting => "broadcasting",
+            Self::PartiallySettled => "partially_settled",
+            Self::Settled => "settled",
+            Self::Failed => "failed",
+        }
+    }
+
+    /// Whether the cycle made forward progress on chain (at least one recipient
+    /// confirmed). Used to stamp the payout last-success metric.
+    #[must_use]
+    pub const fn is_success(self) -> bool {
+        matches!(self, Self::Settled | Self::PartiallySettled)
+    }
+}
+
 /// Per-recipient payout status state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(type_name = "payout_status", rename_all = "snake_case")]

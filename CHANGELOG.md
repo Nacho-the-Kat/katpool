@@ -39,6 +39,17 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Payout-cycle + treasury metrics** (B7, highest-value instrumentation gap in
+  `SLO.md`). The KAS/KRC-20 payout engines and the consolidation engine now emit
+  Prometheus series via `katpool-metrics` (previously a stub): per-tick
+  `ks_payout_cycles_total{instance,engine,status}`,
+  `ks_payout_last_success_timestamp_seconds{instance,engine}`, and
+  `ks_treasury_balance_sompi` / `ks_treasury_spendable_utxos` from the
+  consolidation snapshot. New vmalert rules `PayoutCycleFailing` (page, any
+  failed/errored cycle) and `TreasuryBalanceLow` (warning, operator-tunable
+  floor) close the loop with runbooks 02/05. `PayoutCycleStatus` gained
+  `as_str()` / `is_success()`. (Share-accept latency histogram + canary miner
+  remain as follow-up B7 items.)
 - **Railway LGTM deploy artifacts** (B3 provisioning, under
   `ops/railway/observability/deploy/`). Each observability service now has a thin
   Dockerfile (upstream image pinned by digest, repo config baked in) plus a
