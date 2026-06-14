@@ -57,14 +57,27 @@ stores it persistently under `/var/log/journal` or volatile under
 
 JOURNAL_DIR=/var/log/journal; [ -d "$JOURNAL_DIR" ] || JOURNAL_DIR=/run/log/journal
 
+# Install the config to a stable path (decoupled from the git working tree) and
+# create a persistent data dir for Alloy's WAL so a restart never drops buffered
+# logs/traces:
+install -m 0644 /root/katpool/ops/railway/observability/origin/alloy.alloy \
+  /etc/katpool/obs-tn10/alloy.alloy
+mkdir -p /etc/katpool/obs-tn10/alloy-data
+
 docker run -d --name katpool-alloy-tn10 --restart unless-stopped --network host \
   --env-file /etc/katpool/obs-tn10/alloy.env \
-  -v /root/katpool/ops/railway/observability/origin/alloy.alloy:/etc/alloy/config.alloy:ro \
+  -v /etc/katpool/obs-tn10/alloy.alloy:/etc/alloy/config.alloy:ro \
+  -v /etc/katpool/obs-tn10/alloy-data:/var/lib/alloy/data \
   -v "$JOURNAL_DIR":/var/log/journal:ro \
   -v /etc/machine-id:/etc/machine-id:ro \
   grafana/alloy:v1.17.0 \
-  run --server.http.listen-addr=127.0.0.1:12345 /etc/alloy/config.alloy
+  run --server.http.listen-addr=127.0.0.1:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
 ```
+
+The `loki.write` WAL and the `--storage.path` host volume together make log
+delivery durable across agent restarts and transient vmauth outages. Trace
+volume is bounded by the `otelcol.processor.tail_sampling` block (keeps error +
+slow traces in full; `sampling_percentage` is 100 on tn10, lower it for mainnet).
 
 ## Verify
 
