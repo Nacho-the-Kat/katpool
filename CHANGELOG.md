@@ -53,6 +53,13 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **fly.io edge bring-up script + load/failover checklist** (workstream C;
+  ADR-0022). `ops/edge/flyio/bring-up.sh` idempotently orchestrates the flyctl
+  bring-up (app, origin secret, dedicated anycast IPv4/v6, per-region egress IPs,
+  deploy + scale) with confirmation prompts and a final egress-IP summary for the
+  origin nftables allowlist. README gains a pre-mainnet **load + failover test**
+  checklist. Live deploy stays operator-gated (needs a fly account + anycast IP +
+  a real ASIC).
 - **Canary miner tool** (B7; ADR-0004 end-to-end probe). `ops/canary/` adds a
   dependency-free Python watcher (`katpool-canary.py`) an operator runs **locally**
   (MacBook/Linux) alongside any off-the-shelf CPU miner pointed at the pool with a
