@@ -42,30 +42,22 @@ on the accepted-share path in `bridge/src/share_handler.rs`), recorded as
 `katpool:share_accept_latency:p99_5m`. Exposed for dashboards; **no alert yet** —
 a latency objective has to be set here first (do not page on a guessed number).
 
-## Known instrumentation gaps (do NOT alert on guessed metrics)
+## Canary (end-to-end credit probe)
 
-- **Canary miner** — the `CanaryMinerNotPaid` page depends on an external
-  canary-miner service exporting `canary_last_credited_timestamp_seconds`, which
-  does not exist yet. Until it is deployed that alert stays inert.
-
-- `ks_payout_cycles_total{instance, engine, status}` — one increment per leader
-  tick, by engine (`kas`/`krc20`) and terminal `PayoutCycleStatus`
-  (`settled` / `partially_settled` / `broadcasting` / `planned` / `failed`, plus
-  `error` for a failed tick). `PayoutCycleFailing` pages on a `failed`/`error`
-  increase.
-- `ks_payout_last_success_timestamp_seconds{instance, engine}` — last cycle that
-  settled (fully or partially). For dashboards/stall detection; deliberately
-  **not** paged on, to avoid false alarms on legitimately idle cycles (the canary
-  miner is the end-to-end "are we actually paying" truth).
-- `ks_treasury_balance_sompi{instance}` / `ks_treasury_spendable_utxos{instance}`
-  — from the latest consolidation snapshot; `TreasuryBalanceLow` warns below an
-  operator-tunable floor (see the rule). Absent if consolidation is disabled.
+`CanaryMinerNotPaid` depends on `canary_last_credited_timestamp_seconds`,
+published by the **local canary tool** (`ops/canary/`): a real off-VPS miner
+submits shares with a dedicated wallet, and a dependency-free watcher publishes
+that wallet's last credited time to VictoriaMetrics via vmauth. The alert stays
+inert until the canary is running. This is the ground-truth "are we actually
+paying miners" SLI — it exercises the full accept → validate → account → credit
+path from where a real miner sits.
 
 ## Known instrumentation gaps (do NOT alert on guessed metrics)
 
-- **Share-accept latency** — the bridge exposes share *counts*, not a
-  submit→accept latency histogram. Needs a new histogram in
-  `bridge/src/prom.rs` before a latency SLO is meaningful (next B7 follow-up).
+None outstanding from the B6/B7 SLI list — share-accept latency, payout/treasury
+metrics, and the canary are all emitted. A share-accept *latency* SLO/alert is
+intentionally deferred until an objective is set (see above); do not page on a
+guessed threshold.
 
 ## Retention policy
 

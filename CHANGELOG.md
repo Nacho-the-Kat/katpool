@@ -53,6 +53,14 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Canary miner tool** (B7; ADR-0004 end-to-end probe). `ops/canary/` adds a
+  dependency-free Python watcher (`katpool-canary.py`) an operator runs **locally**
+  (MacBook/Linux) alongside any off-the-shelf CPU miner pointed at the pool with a
+  dedicated wallet. It polls the pool API for that wallet's `last_seen_at` and
+  publishes `canary_last_credited_timestamp_seconds` to VictoriaMetrics via the
+  vmauth import path, closing the `CanaryMinerNotPaid` loop — the ground-truth
+  "are we actually crediting miners" SLI. Validated the API field against the live
+  tn10 endpoint. Also de-duplicated a merge artifact in `SLO.md`.
 - **Treasury key-rotation auditor** (Phase 8; backs Runbook 11). New
   `katpool treasury audit` subcommand + an hourly
   `katpool-treasury-audit-<network>.timer` (installed by `scripts/deploy.sh`)
