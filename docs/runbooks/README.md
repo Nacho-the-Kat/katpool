@@ -27,6 +27,7 @@ stop when the corresponding alert fires.
 | [19](19-krc20-payout-rehearsal.md) | Phase 5 M5.6 — KRC-20 NACHO payout dry-run rehearsal on testnet-10 | — (acceptance procedure) |
 | [20](20-kaspa-version-bump.md) | Kaspa/kaspad version bump (kaspad + kaspa-* crates + toolchain) | — (ops procedure) |
 | [22](22-cutover-execution.md) | Mainnet cutover execution (shadow run, importer hot-run, DNS flip, rollback) | — (one-shot cutover procedure) |
+| [21](21-resilience-drills.md) | Phase 9 resilience drills (DR validation, chaos, custody, on-call, load) | `DRValidatorMissed`, `DRValidatorFailed` |
 
 Each runbook follows the same structure: Symptom → Confirm → Diagnose
 → Remediate → Verify → Post-incident. If a runbook deviates from this

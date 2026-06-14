@@ -43,6 +43,15 @@ resolve to the anycast IP — every miner connection arrives PROXY-fronted
 
 ## Deploy
 
+`bring-up.sh` orchestrates the steps below idempotently (skips anything already
+present, prompts before each mutating step):
+
+```bash
+KATPOOL_ORIGIN_HOST=kas-origin.katpool.com ops/edge/flyio/bring-up.sh
+```
+
+Or run them by hand:
+
 ```bash
 cd ops/edge/flyio
 
@@ -119,5 +128,29 @@ Point every hostname's `A`/`AAAA` at the anycast IPs from `fly ips list`:
    port table.
 3. Kill the nearest region; confirm anycast fails the miner over to the
    next region with reconnect only.
+
+## Load + failover test (pre-mainnet gate)
+
+Run before advertising the edge to real miners. Targets reflect legacy peak
+(~5–10k concurrent stratum sockets across ports):
+
+1. **Connection ramp** — open concurrent TCP connections to the anycast IP on a
+   live stratum port and hold them, ramping to ≥10k:
+   `for i in $(seq 1 10000); do nc -w0 <anycast-ip> 7777 & done` (or a proper
+   load tool). Confirm: no connection refusals, HAProxy `maxconn` (200000) not
+   approached, and origin `ks_anti_abuse_connection_reject_total` does not spike
+   (the real miner IPs arrive via PROXY v2, so the per-IP guard sees distinct
+   clients, not the fly egress IP).
+2. **Share latency** — with a real ASIC mining through the edge, compare
+   `katpool:share_accept_latency:p99_5m` to a direct-to-origin baseline; the
+   added edge hop should be a few ms, not tens.
+3. **Sustained soak** — keep the ASIC mining through the edge ≥1h; confirm
+   blocks are still found+accepted and `CanaryMinerNotPaid` stays green.
+4. **Failover** — `fly scale count` down the nearest region (or stop its
+   machine) mid-mine; confirm miners reconnect to the next region within
+   seconds and no shares are lost beyond the reconnect gap.
+5. **Origin firewall** — from a non-fly host, confirm the stratum ports are
+   refused (only fly egress IPs are allowlisted), while SSH/API/kaspad are
+   unaffected.
 
 See ADR-0022 "Confirmation" for the full acceptance list.

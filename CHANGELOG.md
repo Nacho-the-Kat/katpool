@@ -62,6 +62,32 @@ backward-incompatible ways at every minor bump.
   legacy importer, importer hot-run via `legacy-importer-rehearsal.sh`, DNS flip
   to the fly anycast edge, payouts dry-run→live, scripted rollback). Execution
   (72h shadow + the cutover itself) is operator/time-gated.
+- **Phase 9 resilience tooling** (cutover gate). `ops/dr/dr-validate.sh` is the
+  automated DR validator (ADR-0009 / Runbook 10): dump → restore into a scratch
+  DB → reconcile (schema completeness + core tables non-empty + referential
+  integrity), publishing `dr_validator_*` to VictoriaMetrics. New `DRValidatorMissed`
+  / `DRValidatorFailed` vmalert rules (`last_over_time[14d]` for the weekly cadence)
+  close the gap Runbook 10 referenced. `ops/dr/oncall-paging-test.sh` exercises the
+  ntfy paging last mile, and Runbook 21 documents the full Phase 9 drill set (DR,
+  chaos via `katpool-fault-injection`, custody EPERM, on-call, load, all-runbooks
+  sign-off). Verified the metric-push path end-to-end against the live stack
+  (push → vmauth import → read back via Grafana). Live execution (4 weekly DR
+  passes, chaos/load/soak) is operator/time-gated.
+- **fly.io edge bring-up script + load/failover checklist** (workstream C;
+  ADR-0022). `ops/edge/flyio/bring-up.sh` idempotently orchestrates the flyctl
+  bring-up (app, origin secret, dedicated anycast IPv4/v6, per-region egress IPs,
+  deploy + scale) with confirmation prompts and a final egress-IP summary for the
+  origin nftables allowlist. README gains a pre-mainnet **load + failover test**
+  checklist. Live deploy stays operator-gated (needs a fly account + anycast IP +
+  a real ASIC).
+- **Canary miner tool** (B7; ADR-0004 end-to-end probe). `ops/canary/` adds a
+  dependency-free Python watcher (`katpool-canary.py`) an operator runs **locally**
+  (MacBook/Linux) alongside any off-the-shelf CPU miner pointed at the pool with a
+  dedicated wallet. It polls the pool API for that wallet's `last_seen_at` and
+  publishes `canary_last_credited_timestamp_seconds` to VictoriaMetrics via the
+  vmauth import path, closing the `CanaryMinerNotPaid` loop — the ground-truth
+  "are we actually crediting miners" SLI. Validated the API field against the live
+  tn10 endpoint. Also de-duplicated a merge artifact in `SLO.md`.
 - **Treasury key-rotation auditor** (Phase 8; backs Runbook 11). New
   `katpool treasury audit` subcommand + an hourly
   `katpool-treasury-audit-<network>.timer` (installed by `scripts/deploy.sh`)
