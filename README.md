@@ -11,10 +11,11 @@ Railway TCP edges, and observed by a self-hosted Grafana LGTM stack.
 
 ## Status
 
-> **In active development.** The implementation plan and current phase
-> are tracked in [`docs/architecture.md`](docs/architecture.md) and the
-> root plan document. Production is the previous-generation pool at
-> `kas.katpool.com` until cutover (Phase 10).
+> **In active development.** Architecture is in
+> [`docs/architecture.md`](docs/architecture.md); the road-to-mainnet plan and
+> current phase/workstream status are tracked in
+> [`docs/roadmap.md`](docs/roadmap.md). Production is the previous-generation
+> pool at `kas.katpool.com` until cutover (Phase 10).
 
 ## At a glance
 
