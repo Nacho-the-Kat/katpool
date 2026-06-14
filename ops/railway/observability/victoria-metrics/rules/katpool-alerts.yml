@@ -266,6 +266,39 @@ groups:
           runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/02-nacho-payout-failed.md"
 
   # ---------------------------------------------------------------------------
+  - name: katpool-dr
+    interval: 1m
+    rules:
+      # `dr_validator_*` are pushed weekly by ops/dr/dr-validate.sh (ADR-0009,
+      # Runbook 10) — a low-frequency metric, so `last_over_time[14d]` retrieves
+      # the most recent value rather than letting it go stale between runs.
+      - alert: DRValidatorMissed
+        expr: time() - last_over_time(dr_validator_last_success_timestamp_seconds[14d]) > 864000
+        for: 1h
+        labels:
+          severity: page
+        annotations:
+          summary: "DR validator has not passed in over 10 days"
+          description: >-
+            No successful backup → restore → reconcile run has completed in 10
+            days. Backups are unverified — the restore path may be silently
+            broken. Run/inspect the validator before relying on DR.
+          runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/10-automated-dr-validation.md"
+
+      - alert: DRValidatorFailed
+        expr: last_over_time(dr_validator_success[14d]) == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "DR validator's most recent run reported a mismatch"
+          description: >-
+            The latest backup → restore → reconcile run failed (schema
+            incomplete, a core table empty, or referential integrity broken in
+            the restore). Backups cannot be trusted until resolved.
+          runbook_url: "https://github.com/Nacho-the-Kat/katpool/blob/main/docs/runbooks/10-automated-dr-validation.md"
+
+  # ---------------------------------------------------------------------------
   - name: katpool-canary
     interval: 1m
     rules:
