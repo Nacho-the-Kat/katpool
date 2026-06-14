@@ -18,12 +18,63 @@ import { CopyButton } from "@/components/dashboard/copy-button";
 import { miningConfig } from "@/lib/mining";
 import { formatNumber } from "@/lib/format";
 
-/** Popular kHeavyHash ASICs surfaced on the connect card. */
-const ASIC_MODELS = [
-  "IceRiver KS-series",
-  "Bitmain Antminer KS3 / KS5",
-  "Goldshell KA-series",
-] as const;
+/** Brand families surfaced as quick badges on the connect card. */
+const ASIC_BRANDS = ["IceRiver KS-series", "Bitmain Antminer KS-series", "Goldshell KA BOX"] as const;
+
+/**
+ * The full kHeavyHash (Kaspa) ASIC lineup, grouped by the stratum port whose
+ * starting difficulty best fits each model's hashrate. Vardiff fine-tunes from
+ * there — the only goal is to start close enough that the first shares validate.
+ * Starting far too high makes a small rig submit only rejects and reconnect
+ * before vardiff can settle, so when unsure, start lower (3333). Hashrates are
+ * per-manufacturer rated specs; the port mapping targets the pool's ~20
+ * shares/min vardiff setpoint.
+ */
+const PORT_GUIDE: {
+  port: number;
+  fits: string;
+  recommended?: boolean;
+  models: string[];
+}[] = [
+  {
+    port: 1111,
+    fits: "up to ~0.5 TH/s",
+    models: ["IceRiver KS0", "IceRiver KS0 Pro", "IceRiver KS0 Ultra"],
+  },
+  {
+    port: 2222,
+    fits: "~1–2 TH/s",
+    models: ["IceRiver KS1", "IceRiver KS2", "Goldshell KA BOX", "Goldshell KA BOX Pro"],
+  },
+  {
+    port: 3333,
+    fits: "~5–9 TH/s",
+    recommended: true,
+    models: ["IceRiver KS3L", "IceRiver KS3M", "IceRiver KS3", "Bitmain Antminer KS3"],
+  },
+  {
+    port: 4444,
+    fits: "~12–21 TH/s",
+    models: ["IceRiver KS5L", "IceRiver KS5M", "Bitmain Antminer KS5", "Bitmain Antminer KS5 Pro"],
+  },
+  {
+    port: 5555,
+    fits: "~25 TH/s and up",
+    models: ["IceRiver KS7", "Several rigs on one connection"],
+  },
+];
+
+/** Short per-port "best for" hint, keyed by port, for the ports table. */
+const PORT_FITS: Record<number, string> = {
+  1111: "Small — KS0 family",
+  2222: "Entry — KS1 / KS2 / KA BOX",
+  3333: "Recommended — KS3-class",
+  4444: "Large — KS5-class",
+  5555: "Very large — KS7",
+  6666: "Farm / multi-rig",
+  7777: "Farm / multi-rig",
+  8888: "Entry (alternate)",
+};
 
 /** A labelled, copyable monospace field (connection settings). */
 function CopyField({ label, value }: { label: string; value: string }) {
@@ -196,7 +247,7 @@ export function StartGuide() {
                 worker, password). Save — the rig reconnects to katpool automatically.
               </p>
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {ASIC_MODELS.map((model) => (
+                {ASIC_BRANDS.map((model) => (
                   <Badge key={model} variant="outline">
                     {model}
                   </Badge>
@@ -206,35 +257,92 @@ export function StartGuide() {
           </div>
         </Panel>
 
-        <Panel eyebrow="Choose a port" title="Ports & starting difficulty" description="Vardiff tunes from here — any port is fine.">
+        <Panel eyebrow="Choose a port" title="Ports & starting difficulty" description="Match your rig size — vardiff fine-tunes from there.">
           <div className="overflow-hidden rounded-xl border border-border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40 text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-2.5 font-medium">Port</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Start diff</th>
-                  <th className="px-4 py-2.5 text-right font-medium" />
+                  <th className="px-3 py-2.5 font-medium">Port</th>
+                  <th className="px-3 py-2.5 font-medium">Best for</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Start diff</th>
+                  <th className="px-3 py-2.5 text-right font-medium" />
                 </tr>
               </thead>
               <tbody>
-                {cfg.ports.map((p) => (
-                  <tr key={p.port} className="border-b border-border/60 last:border-0">
-                    <td className="px-4 py-2.5 font-mono">{p.port}</td>
-                    <td className="px-4 py-2.5 text-right tnum">{formatNumber(p.seed)}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      <CopyButton value={`${primary.host}:${p.port}`} label={`Copy ${primary.host}:${p.port}`} />
-                    </td>
-                  </tr>
-                ))}
+                {cfg.ports.map((p) => {
+                  const isRec = p.port === recommendedPort.port;
+                  return (
+                    <tr
+                      key={p.port}
+                      className={`border-b border-border/60 last:border-0 ${isRec ? "bg-primary/5" : ""}`}
+                    >
+                      <td className="px-3 py-2.5 font-mono">
+                        {p.port}
+                        {isRec ? <span className="ml-1.5 align-middle text-[0.625rem] text-primary">★</span> : null}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs text-muted-foreground">{PORT_FITS[p.port] ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right tnum">{formatNumber(p.seed)}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        <CopyButton value={`${primary.host}:${p.port}`} label={`Copy ${primary.host}:${p.port}`} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            Lower ports seed a lower difficulty (smaller rigs); higher ports seed higher. Because
-            variable difficulty is on everywhere, the seed is only a starting point.
+            The number is a <span className="font-medium text-foreground">starting</span> difficulty —
+            variable difficulty then converges you to a steady share rate. Picking one too high for a
+            small rig is the usual cause of constant rejects, so{" "}
+            <span className="font-medium text-foreground">when unsure, use {recommendedPort.port}</span>.
+            Not sure which fits your miner? See the guide below.
           </p>
         </Panel>
       </div>
+
+      {/* Which port for your miner */}
+      <Panel
+        eyebrow="Match your miner"
+        title="Which port for your ASIC?"
+        description="Every Kaspa miner runs kHeavyHash. Find your model, start on its port, and vardiff handles the rest."
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {PORT_GUIDE.map((g) => (
+            <div
+              key={g.port}
+              className={`flex flex-col gap-2.5 rounded-xl border p-4 ${
+                g.recommended ? "border-primary/40 bg-primary/5" : "border-border bg-background/40"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Cpu className="size-4 shrink-0 text-primary" />
+                  <span className="font-mono text-sm font-semibold">{primary.host}:{g.port}</span>
+                </div>
+                <CopyButton value={`${primary.host}:${g.port}`} label={`Copy ${primary.host}:${g.port}`} />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">{g.fits}</span>
+                {g.recommended ? <Badge variant="default">Start here if unsure</Badge> : null}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.models.map((m) => (
+                  <Badge key={m} variant="outline">
+                    {m}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Hashrates are manufacturer specs (±10%). Don&apos;t see your exact model? Pick the closest
+          size — the starting difficulty only needs to be in the right ballpark, and variable
+          difficulty converges from there. Ports 6666 and 7777 seed even higher for large multi-rig
+          connections.
+        </p>
+      </Panel>
 
       {/* Endpoints + fees */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -325,8 +433,10 @@ export function StartGuide() {
           <div>
             <dt className="text-sm font-medium text-foreground">Seeing rejects at first?</dt>
             <dd className="mt-1 text-sm text-muted-foreground">
-              A few are normal while difficulty converges. If they persist, start on a higher-difficulty
-              port for your hashrate.
+              A few are normal while difficulty converges. But if almost every share is rejected — or
+              your miner keeps reconnecting — the starting difficulty is too high for your rig: switch
+              to a <span className="font-medium text-foreground">lower</span> port (try{" "}
+              {recommendedPort.port} or below) using the port guide above.
             </dd>
           </div>
         </dl>
