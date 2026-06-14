@@ -53,6 +53,13 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **fly.io edge bring-up script + load/failover checklist** (workstream C;
+  ADR-0022). `ops/edge/flyio/bring-up.sh` idempotently orchestrates the flyctl
+  bring-up (app, origin secret, dedicated anycast IPv4/v6, per-region egress IPs,
+  deploy + scale) with confirmation prompts and a final egress-IP summary for the
+  origin nftables allowlist. README gains a pre-mainnet **load + failover test**
+  checklist. Live deploy stays operator-gated (needs a fly account + anycast IP +
+  a real ASIC).
 - **Least-privilege read-only DB role for the public API** (Phase 7/8 hardening;
   ADR-0021). The embedded read-only API can now connect on a separate pool as a
   SELECT-only role, isolated from the accountant/payout writers' full-privilege
