@@ -47,6 +47,14 @@ loki.write "vmauth" {
       password = sys.env("VMAUTH_PASSWORD")
     }
   }
+  // Durable buffering: persist log entries to the WAL (under --storage.path,
+  // mounted on a host volume) before remote-write, so a vmauth/Railway blip or
+  // an agent restart does not drop logs — they replay when the door reopens.
+  wal {
+    enabled         = true
+    max_segment_age = "1h"
+    drain_timeout   = "30s"
+  }
 }
 
 // ---- Traces: pool OTLP/gRPC (localhost) -> Tempo via vmauth (OTLP/HTTP) ----
@@ -63,6 +71,40 @@ otelcol.receiver.otlp "pool" {
 }
 
 otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.processor.tail_sampling.vmauth.input]
+  }
+}
+
+// Tail sampling bounds Tempo's volume at mainnet API request rates while always
+// keeping the traces that matter. On tn10 the probabilistic policy is 100 (keep
+// everything — the volume is tiny); lower `sampling_percentage` for mainnet
+// (e.g. 20) and error/slow traces are still kept in full by the other policies.
+otelcol.processor.tail_sampling "vmauth" {
+  // Keep any trace with an error span, regardless of the sample roll.
+  policy {
+    name = "errors"
+    type = "status_code"
+    status_code {
+      status_codes = ["ERROR"]
+    }
+  }
+  // Keep the slow tail (latency outliers are the point of having traces).
+  policy {
+    name = "slow"
+    type = "latency"
+    latency {
+      threshold_ms = 500
+    }
+  }
+  // Sample the rest. 100 = keep all (tn10 default); lower for mainnet volume.
+  policy {
+    name = "sample-rest"
+    type = "probabilistic"
+    probabilistic {
+      sampling_percentage = 100
+    }
+  }
   output {
     traces = [otelcol.exporter.otlphttp.vmauth.input]
   }
