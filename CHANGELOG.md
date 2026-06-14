@@ -61,6 +61,16 @@ backward-incompatible ways at every minor bump.
   vmauth import path, closing the `CanaryMinerNotPaid` loop — the ground-truth
   "are we actually crediting miners" SLI. Validated the API field against the live
   tn10 endpoint. Also de-duplicated a merge artifact in `SLO.md`.
+- **Treasury key-rotation auditor** (Phase 8; backs Runbook 11). New
+  `katpool treasury audit` subcommand + an hourly
+  `katpool-treasury-audit-<network>.timer` (installed by `scripts/deploy.sh`)
+  that continuously verifies the loaded treasury key still controls the
+  configured `KATPOOL_POOL_ADDRESS`. Read-only and offline — it derives the
+  key's schnorr P2PK address and compares (no funds move, nothing is signed for
+  broadcast); a mismatch (botched rotation / misconfig / compromise) logs a
+  structured `ERROR` and exits non-zero so the unit fails and the line ships to
+  Loki. Core logic lives in `payout-kas::audit` (`treasury_address_from_secret`
+  / `key_controls_address`) with unit tests.
 - **Least-privilege read-only DB role for the public API** (Phase 7/8 hardening;
   ADR-0021). The embedded read-only API can now connect on a separate pool as a
   SELECT-only role, isolated from the accountant/payout writers' full-privilege
