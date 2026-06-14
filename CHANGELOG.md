@@ -53,6 +53,17 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Phase 9 resilience tooling** (cutover gate). `ops/dr/dr-validate.sh` is the
+  automated DR validator (ADR-0009 / Runbook 10): dump → restore into a scratch
+  DB → reconcile (schema completeness + core tables non-empty + referential
+  integrity), publishing `dr_validator_*` to VictoriaMetrics. New `DRValidatorMissed`
+  / `DRValidatorFailed` vmalert rules (`last_over_time[14d]` for the weekly cadence)
+  close the gap Runbook 10 referenced. `ops/dr/oncall-paging-test.sh` exercises the
+  ntfy paging last mile, and Runbook 21 documents the full Phase 9 drill set (DR,
+  chaos via `katpool-fault-injection`, custody EPERM, on-call, load, all-runbooks
+  sign-off). Verified the metric-push path end-to-end against the live stack
+  (push → vmauth import → read back via Grafana). Live execution (4 weekly DR
+  passes, chaos/load/soak) is operator/time-gated.
 - **Least-privilege read-only DB role for the public API** (Phase 7/8 hardening;
   ADR-0021). The embedded read-only API can now connect on a separate pool as a
   SELECT-only role, isolated from the accountant/payout writers' full-privilege
