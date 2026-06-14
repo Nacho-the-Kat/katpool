@@ -209,7 +209,16 @@ impl StratumListener {
             // proxy_protocol listener is a hard reject.
             let (real_ip, remote_port) = if self.config.proxy_protocol {
                 match read_proxy_v2_source(&mut stream).await {
-                    Ok(src) => (src.ip(), src.port()),
+                    Ok(ProxyV2Source::Client(src)) => (src.ip(), src.port()),
+                    // LOCAL command = forwarder health check (HAProxy
+                    // `check-send-proxy`). The L4 connect already satisfied the
+                    // check; close quietly without a session or a warning so the
+                    // probe traffic does not flood the logs.
+                    Ok(ProxyV2Source::HealthCheck) => {
+                        debug!("[CONNECTION] PROXY LOCAL health check from {}; closing", addr.ip());
+                        drop(stream);
+                        continue;
+                    }
                     Err(e) => {
                         warn!("[CONNECTION] PROXY protocol parse failed from {}: {}; dropping", addr.ip(), e);
                         drop(stream);
@@ -997,16 +1006,32 @@ impl StratumListener {
     }
 }
 
+/// Outcome of reading a PROXY protocol v2 header from a connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyV2Source {
+    /// A PROXY command carrying the real client endpoint to attribute the
+    /// connection to.
+    Client(std::net::SocketAddr),
+    /// A LOCAL command: the forwarder's own connection, not a proxied
+    /// client. HAProxy emits this for `check-send-proxy` L4 health checks
+    /// (and TCP keepalives), so it must be accepted — and quietly closed —
+    /// rather than treated as a malformed header.
+    HealthCheck,
+}
+
 /// Read and parse a PROXY protocol **v2** header from the front of a
-/// freshly-accepted stream, returning the real client source address
-/// (ADR-0022). The fly.io edge is configured for v2
-/// (`proxy_proto_options = { version = "v2" }`), which is
-/// length-delimited, so we read exactly the header bytes and leave the
-/// stratum payload untouched in the socket — no buffer injection needed.
+/// freshly-accepted stream (ADR-0022). The fly.io edge is configured for v2
+/// (`proxy_proto_options = { version = "v2" }`), which is length-delimited,
+/// so we read exactly the header bytes and leave the stratum payload
+/// untouched in the socket — no buffer injection needed.
+///
+/// Returns [`ProxyV2Source::Client`] with the real source address for a PROXY
+/// command, or [`ProxyV2Source::HealthCheck`] for a LOCAL command (the
+/// forwarder's health-check probe, which per spec carries no client address).
 ///
 /// A 5s deadline bounds a stalled/malicious peer; the header normally
 /// arrives in the first segment alongside the connection.
-async fn read_proxy_v2_source<R: tokio::io::AsyncRead + Unpin>(stream: &mut R) -> Result<std::net::SocketAddr, String> {
+async fn read_proxy_v2_source<R: tokio::io::AsyncRead + Unpin>(stream: &mut R) -> Result<ProxyV2Source, String> {
     use std::net::{IpAddr, SocketAddr};
 
     // PROXY v2 12-byte signature, then ver/cmd, fam/proto, and a 2-byte
@@ -1026,8 +1051,12 @@ async fn read_proxy_v2_source<R: tokio::io::AsyncRead + Unpin>(stream: &mut R) -
 
         let header = ppp::v2::Header::try_from(buf.as_slice()).map_err(|e| format!("parse v2 header: {e:?}"))?;
         match header.addresses {
-            ppp::v2::Addresses::IPv4(a) => Ok(SocketAddr::new(IpAddr::V4(a.source_address), a.source_port)),
-            ppp::v2::Addresses::IPv6(a) => Ok(SocketAddr::new(IpAddr::V6(a.source_address), a.source_port)),
+            ppp::v2::Addresses::IPv4(a) => Ok(ProxyV2Source::Client(SocketAddr::new(IpAddr::V4(a.source_address), a.source_port))),
+            ppp::v2::Addresses::IPv6(a) => Ok(ProxyV2Source::Client(SocketAddr::new(IpAddr::V6(a.source_address), a.source_port))),
+            // A LOCAL command (health check / keepalive) carries no address
+            // block; the spec says to fall back to the real connection. We do
+            // not start a miner session for it.
+            ppp::v2::Addresses::Unspecified => Ok(ProxyV2Source::HealthCheck),
             other => Err(format!("unsupported PROXY address family: {other:?}")),
         }
     };
@@ -1040,8 +1069,8 @@ async fn read_proxy_v2_source<R: tokio::io::AsyncRead + Unpin>(stream: &mut R) -
 
 #[cfg(test)]
 mod proxy_protocol_tests {
-    use super::read_proxy_v2_source;
-    use ppp::v2::{Builder, Command, IPv4, IPv6, Protocol, Version};
+    use super::{ProxyV2Source, read_proxy_v2_source};
+    use ppp::v2::{Addresses, Builder, Command, IPv4, IPv6, Protocol, Version};
 
     /// A valid v2 IPv4 header yields the source address, and only the
     /// header bytes are consumed — the trailing stratum bytes remain.
@@ -1062,6 +1091,9 @@ mod proxy_protocol_tests {
         let mut cursor = stream.as_slice();
         let src = read_proxy_v2_source(&mut cursor).await.unwrap();
 
+        let ProxyV2Source::Client(src) = src else {
+            panic!("expected a client source, got {src:?}");
+        };
         assert_eq!(src.ip().to_string(), "203.0.113.5");
         assert_eq!(src.port(), 49_321);
         // The reader stopped exactly at the header boundary.
@@ -1080,8 +1112,23 @@ mod proxy_protocol_tests {
 
         let mut cursor = header.as_slice();
         let src = read_proxy_v2_source(&mut cursor).await.unwrap();
+        let ProxyV2Source::Client(src) = src else {
+            panic!("expected a client source, got {src:?}");
+        };
         assert_eq!(src.ip().to_string(), "2001:db8::42");
         assert_eq!(src.port(), 51_000);
+    }
+
+    /// A LOCAL command (HAProxy `check-send-proxy` health check) carries no
+    /// address block and must be reported as a health check, not an error.
+    #[tokio::test]
+    async fn parses_local_command_as_health_check() {
+        let header =
+            Builder::with_addresses(Version::Two | Command::Local, Protocol::Unspecified, Addresses::Unspecified).build().unwrap();
+
+        let mut cursor = header.as_slice();
+        let src = read_proxy_v2_source(&mut cursor).await.unwrap();
+        assert_eq!(src, ProxyV2Source::HealthCheck);
     }
 
     /// A stream that does not begin with the v2 signature is rejected
