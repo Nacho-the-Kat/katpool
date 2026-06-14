@@ -48,6 +48,25 @@ a latency objective has to be set here first (do not page on a guessed number).
   canary-miner service exporting `canary_last_credited_timestamp_seconds`, which
   does not exist yet. Until it is deployed that alert stays inert.
 
+- `ks_payout_cycles_total{instance, engine, status}` — one increment per leader
+  tick, by engine (`kas`/`krc20`) and terminal `PayoutCycleStatus`
+  (`settled` / `partially_settled` / `broadcasting` / `planned` / `failed`, plus
+  `error` for a failed tick). `PayoutCycleFailing` pages on a `failed`/`error`
+  increase.
+- `ks_payout_last_success_timestamp_seconds{instance, engine}` — last cycle that
+  settled (fully or partially). For dashboards/stall detection; deliberately
+  **not** paged on, to avoid false alarms on legitimately idle cycles (the canary
+  miner is the end-to-end "are we actually paying" truth).
+- `ks_treasury_balance_sompi{instance}` / `ks_treasury_spendable_utxos{instance}`
+  — from the latest consolidation snapshot; `TreasuryBalanceLow` warns below an
+  operator-tunable floor (see the rule). Absent if consolidation is disabled.
+
+## Known instrumentation gaps (do NOT alert on guessed metrics)
+
+- **Share-accept latency** — the bridge exposes share *counts*, not a
+  submit→accept latency histogram. Needs a new histogram in
+  `bridge/src/prom.rs` before a latency SLO is meaningful (next B7 follow-up).
+
 ## Retention policy
 
 | Signal | Store | Retention | Where set |
