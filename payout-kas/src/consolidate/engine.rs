@@ -199,6 +199,16 @@ impl<C: KaspadClient> ConsolidationEngine<C> {
         if let Err(e) = lock.release().await {
             warn!(instance = %self.config.instance_id, error = %e, "failed to release treasury lock");
         }
+
+        // Treasury-balance metrics (B7): publish the snapshot totals this tick
+        // observed. This is the workspace's authoritative treasury-balance gauge.
+        if let Ok(ConsolidationTickOutcome::Ran(report)) = &result {
+            katpool_metrics::set_treasury_snapshot(
+                &self.config.instance_id,
+                report.spendable_balance_sompi,
+                i64::try_from(report.spendable_utxos).unwrap_or(i64::MAX),
+            );
+        }
         result
     }
 

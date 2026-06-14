@@ -262,6 +262,24 @@ where
         if let Err(e) = lock.release().await {
             warn!(instance = %self.config.instance_id, error = %e, "failed to release krc20 payout lock");
         }
+
+        // Payout-cycle metrics (B7): one observation per leader tick.
+        match &result {
+            Ok(Krc20TickOutcome::Ran(report)) => {
+                katpool_metrics::record_payout_cycle(
+                    &self.config.instance_id,
+                    "krc20",
+                    report.status.as_str(),
+                );
+                if report.status.is_success() {
+                    katpool_metrics::mark_payout_success(&self.config.instance_id, "krc20");
+                }
+            }
+            Ok(Krc20TickOutcome::SkippedNotLeader) => {}
+            Err(_) => {
+                katpool_metrics::record_payout_cycle(&self.config.instance_id, "krc20", "error");
+            }
+        }
         result
     }
 
