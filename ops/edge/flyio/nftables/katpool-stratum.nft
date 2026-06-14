@@ -41,7 +41,13 @@ table inet katpool {
 
     set stratum_ports {
         type inet_service
-        elements = { 1111, 2222, 3333, 4444, 5555, 6666, 7777, 8888 }
+        # The ORIGIN listening ports of the new pool. Under mainnet co-residency
+        # the legacy pool still owns 1111-8888 on this host, so the new pool binds
+        # the 21111-28888 alt band (KATPOOL_STRATUM_PORTS in ops/env/mainnet.env)
+        # and the fly edge presents the canonical public 1111-8888, forwarding
+        # 1111->21111 ... 8888->28888 (see ops/edge/flyio/haproxy.cfg). Locking the
+        # alt band leaves legacy's 1111-8888 fully open (chain policy is accept).
+        elements = { 21111, 22222, 23333, 24444, 25555, 26666, 27777, 28888 }
     }
 
     chain stratum_input {
