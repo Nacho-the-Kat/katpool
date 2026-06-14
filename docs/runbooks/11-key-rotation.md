@@ -13,6 +13,35 @@
 
 Treat real rotation (not the drill) as SEV-2 minimum.
 
+## Automated key↔address audit (continuous)
+
+The `katpool-treasury-audit-<network>.timer` runs `katpool treasury audit`
+hourly (installed by `scripts/deploy.sh`). It is **read-only and offline**:
+loads the treasury key, derives its schnorr P2PK address, and compares it to
+`KATPOOL_POOL_ADDRESS`. It moves no funds and signs nothing for broadcast.
+
+- **Pass** → logs `result=ok` and exits 0.
+- **Mismatch** → logs a structured `ERROR` (`result=mismatch`,
+  `"TREASURY KEY AUDIT FAILED"`) and exits non-zero, so the unit enters
+  `failed` and the line ships to Loki. This means the running key does **not**
+  control the configured treasury address — a botched rotation, a
+  misconfiguration, or a possible compromise. Treat as SEV-2: stop payouts, do
+  not deploy, and reconcile the key/address before resuming.
+
+Run it on demand at any time (e.g. Phase D below): `katpool treasury audit`.
+
+Check the timer and last result:
+
+```sh
+systemctl status katpool-treasury-audit-<network>.timer
+journalctl -u katpool-treasury-audit-<network>.service -n 20
+```
+
+**Alerting hook:** page on the mismatch either via a Loki ruler rule matching
+`result=mismatch` on `{job="katpool"}`, or a systemd `OnFailure=` notify
+drop-in on the service. (Wiring the Loki rule is a follow-up; the audit trail
+and `failed` unit state exist now.)
+
 ## Prerequisites
 
 - Operator's workstation has both the current age private key and

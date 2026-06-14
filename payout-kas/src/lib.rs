@@ -30,6 +30,7 @@
 
 #![cfg_attr(not(test), warn(missing_docs))]
 
+pub mod audit;
 pub mod client;
 pub mod confirm;
 pub mod consolidate;
@@ -41,6 +42,7 @@ mod plan;
 pub mod signer;
 pub mod window;
 
+pub use audit::{key_controls_address, treasury_address_from_secret};
 pub use client::{GrpcKaspadClient, KaspadClient, KaspadError, TreasuryUtxoSnapshot};
 pub use confirm::{
     ConfirmationInputs, ConfirmationState, KAS_PAYOUT_CONFIRMATION_DAA, classify_confirmation,

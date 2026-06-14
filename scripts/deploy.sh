@@ -222,6 +222,24 @@ sed -e "s|__NETWORK__|${network}|g" -e "s|__DEPLOY_DIR__|${deploy_dir}|g" \
 install -m 0644 "${tmp_unit}" "${unit_dst}"
 echo "    installed unit -> ${unit_dst}"
 
+# Treasury key-rotation audit timer (Phase 8 / Runbook 11): renders the same
+# __NETWORK__/__DEPLOY_DIR__ placeholders. Optional — only installed when the
+# templates exist — so older checkouts still deploy cleanly.
+audit_svc_tmpl="${REPO_ROOT}/ops/systemd/katpool-treasury-audit.service.in"
+audit_timer_tmpl="${REPO_ROOT}/ops/systemd/katpool-treasury-audit.timer.in"
+if [[ -f "${audit_svc_tmpl}" && -f "${audit_timer_tmpl}" ]]; then
+    for kind in service timer; do
+        tmpl="${REPO_ROOT}/ops/systemd/katpool-treasury-audit.${kind}.in"
+        dst="/etc/systemd/system/katpool-treasury-audit-${network}.${kind}"
+        tmp_f="$(mktemp)"
+        sed -e "s|__NETWORK__|${network}|g" -e "s|__DEPLOY_DIR__|${deploy_dir}|g" \
+            "${tmpl}" > "${tmp_f}"
+        install -m 0644 "${tmp_f}" "${dst}"
+        rm -f "${tmp_f}"
+        echo "    installed unit -> ${dst}"
+    done
+fi
+
 # ----- Back up + install the binary ----------------------------------------
 install -d -m 0755 "${deploy_dir}"
 dst_bin="${deploy_dir}/katpool"
@@ -241,6 +259,14 @@ echo "    installed bin  -> ${dst_bin}"
 # ----- Activate ------------------------------------------------------------
 systemctl daemon-reload
 systemctl enable "${service}" >/dev/null 2>&1 || true
+
+# Enable + start the treasury-audit timer if it was installed above.
+audit_timer="katpool-treasury-audit-${network}.timer"
+if [[ -f "/etc/systemd/system/${audit_timer}" ]]; then
+    systemctl enable --now "${audit_timer}" >/dev/null 2>&1 \
+        && echo "    enabled timer  -> ${audit_timer}" \
+        || echo "    warn: could not enable ${audit_timer}"
+fi
 
 if [[ ${do_restart} -eq 0 ]]; then
     echo "==> --skip-restart: not restarting ${service}"
