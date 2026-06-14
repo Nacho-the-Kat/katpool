@@ -39,6 +39,12 @@ backward-incompatible ways at every minor bump.
 
 ### Added
 
+- **Share-accept latency histogram** (B7). The bridge now emits
+  `ks_share_accept_latency_seconds{instance}`, observed on the accepted-share
+  path (`bridge/src/share_handler.rs`, submit → accept), with a
+  `katpool:share_accept_latency:p99_5m` recording rule for dashboards. Closes the
+  second `SLO.md` instrumentation gap; no alert until a latency objective is set
+  (no guessed threshold).
 - **Payout-cycle + treasury metrics** (B7, highest-value instrumentation gap in
   `SLO.md`). The KAS/KRC-20 payout engines and the consolidation engine now emit
   Prometheus series via `katpool-metrics` (previously a stub): per-tick

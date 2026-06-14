@@ -346,6 +346,9 @@ impl ShareHandler {
         // ShareCredited / BlockFound / BlockAccepted lifecycle.
         let correlation_id = CorrelationId::new_v4();
 
+        // Start of the submit→accept latency window (observed on the accept path).
+        let submit_started = Instant::now();
+
         let prefix = self.log_prefix();
         debug!("{} [SUBMIT] ===== SHARE SUBMISSION FROM {} =====", prefix, ctx.remote_addr);
         debug!("{} [SUBMIT] Event ID: {:?}", prefix, event.id);
@@ -1224,6 +1227,7 @@ impl ShareHandler {
             },
             hash_value,
         );
+        crate::prom::observe_share_accept_latency(&self.instance_id, submit_started.elapsed().as_secs_f64());
 
         // Emit ShareCredited. We use the worker's *assigned* pool
         // difficulty here (the value the stratum layer set on the
