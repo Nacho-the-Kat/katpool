@@ -53,7 +53,10 @@ mod tests {
         let addr = treasury_address_from_secret(&secret, Prefix::Testnet).expect("derive");
         assert_eq!(addr.version, Version::PubKey);
         assert_eq!(addr.prefix, Prefix::Testnet);
-        assert!(key_controls_address(&secret, &addr), "key must control its own address");
+        assert!(
+            key_controls_address(&secret, &addr),
+            "key must control its own address"
+        );
     }
 
     #[test]
@@ -62,6 +65,9 @@ mod tests {
         // A P2PK address for a different public key the secret does not control —
         // i.e. the configured treasury address no longer matches the loaded key.
         let other = Address::new(Prefix::Testnet, Version::PubKey, &[0x22u8; 32]);
-        assert!(!key_controls_address(&secret, &other), "must reject an address it cannot spend");
+        assert!(
+            !key_controls_address(&secret, &other),
+            "must reject an address it cannot spend"
+        );
     }
 }
