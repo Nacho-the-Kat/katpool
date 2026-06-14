@@ -35,11 +35,18 @@ The KAS/KRC-20 payout engines and the consolidation engine emit these via
   — from the latest consolidation snapshot; `TreasuryBalanceLow` warns below an
   operator-tunable floor (see the rule). Absent if consolidation is disabled.
 
+## Share-accept latency (B7)
+
+The bridge emits `ks_share_accept_latency_seconds{instance}` (histogram, observed
+on the accepted-share path in `bridge/src/share_handler.rs`), recorded as
+`katpool:share_accept_latency:p99_5m`. Exposed for dashboards; **no alert yet** —
+a latency objective has to be set here first (do not page on a guessed number).
+
 ## Known instrumentation gaps (do NOT alert on guessed metrics)
 
-- **Share-accept latency** — the bridge exposes share *counts*, not a
-  submit→accept latency histogram. Needs a new histogram in
-  `bridge/src/prom.rs` before a latency SLO is meaningful (next B7 follow-up).
+- **Canary miner** — the `CanaryMinerNotPaid` page depends on an external
+  canary-miner service exporting `canary_last_credited_timestamp_seconds`, which
+  does not exist yet. Until it is deployed that alert stays inert.
 
 ## Retention policy
 
