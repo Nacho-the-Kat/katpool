@@ -73,6 +73,10 @@ kaspad               = { git = "https://github.com/kaspanet/rusty-kaspa", tag = 
 # Additional bridge support crates (crates.io)
 dirs = "5"
 num-traits = "0.2"
+# Exact base-10 fixed-point for the KAS→NACHO floor-price derivation (ADR-0016):
+# CoinGecko quotes NACHO and KAS in USD; KAS-per-NACHO = nacho_usd / kaspa_usd is
+# computed exactly (no f64, ADR-0013) and floored to a fixed scale.
+bigdecimal = "0.4"
 once_cell = "1"
 futures-util = "0.3"
 parking_lot = "0.12"
@@ -89,7 +93,10 @@ futures = "0.3"
 async-trait = "0.1"
 # Serialization
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `raw_value` captures the verbatim JSON number text so a price quote is parsed
+# exactly (CoinGecko returns 18-sig-fig floats); a plain `serde_json::Number`
+# round-trips through f64 unless `arbitrary_precision` is on (ADR-0013).
+serde_json = { version = "1", features = ["raw_value"] }
 toml = "0.8"
 # Errors
 thiserror = "2"

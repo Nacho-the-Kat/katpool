@@ -16,8 +16,9 @@
 //! - **M5.2**: KAS→NACHO payout conversion ([`nacho_base_units`]
 //!   over an exact fixed-point [`FloorPrice`], no payout-time multiplier —
 //!   the tier rebate is already in `accrued_sompi`) and the floor-price
-//!   quote source ([`FloorPriceSource`] + [`KaspaComFloorPrice`]) guarded by
-//!   a fail-closed [`CircuitBreaker`] (see ADR-0016).
+//!   quote source ([`FloorPriceSource`] + [`CoinGeckoFloorPrice`], deriving
+//!   KAS-per-NACHO from `CoinGecko` USD spot) guarded by a fail-closed
+//!   [`CircuitBreaker`] (see ADR-0016).
 //! - **M5.3**: the mass-aware commit/reveal planner
 //!   ([`plan_commit_reveal`]) — sizes signature scripts to their signed
 //!   length so the reveal's `transient_storage_mass` (driven by the
@@ -76,9 +77,9 @@ pub use plan::{
     PlannedCommitReveal, STANDARD_SIGNATURE_SCRIPT_LEN, plan_commit_reveal,
 };
 pub use quote::{
-    BreakeredSource, CircuitBreaker, CircuitState, DEFAULT_HTTP_TIMEOUT, DEFAULT_QUOTE_BASE,
-    DEFAULT_QUOTE_TICKER, FloorPriceSource, KaspaComFloorPrice, QuoteError,
-    parse_floor_price_response,
+    BreakeredSource, CircuitBreaker, CircuitState, CoinGeckoFloorPrice, DEFAULT_HTTP_TIMEOUT,
+    DEFAULT_KASPA_COIN_ID, DEFAULT_NACHO_COIN_ID, DEFAULT_QUOTE_BASE, DEFAULT_QUOTE_TICKER,
+    FloorPriceSource, QuoteError, derive_floor_price, parse_simple_price_response,
 };
 pub use rebate::{
     DEFAULT_MIN_NACHO_BASE_UNITS, DEFAULT_MIN_PENDING_SOMPI, FloorPrice, RebateError, is_payable,

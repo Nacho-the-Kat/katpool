@@ -74,9 +74,10 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox.railway.internal:9115
 
-  # Blackbox probes of the third-party indexer dependencies the KRC-20 payout
-  # path leans on (ADR-0016/0019). Pairs with the IndexerDependency* alerts and
-  # the in-process circuit-breaker metrics shipped from the origin (B7).
+  # Blackbox probes of the third-party indexer/price dependencies the KRC-20
+  # payout path leans on (ADR-0016/0019): the Kasplex indexer and the CoinGecko
+  # quote that backs the KAS-per-NACHO floor price. Pairs with the
+  # IndexerDependency* alerts and the in-process circuit-breaker metrics (B7).
   - job_name: blackbox-indexers
     metrics_path: /probe
     params:
@@ -84,7 +85,7 @@ scrape_configs:
     static_configs:
       - targets:
           - https://api.kasplex.org/v1/info
-          - https://api.kaspa.com/info/price
+          - "https://api.coingecko.com/api/v3/simple/price?ids=nacho-the-kat,kaspa&vs_currencies=usd"
         labels:
           probe: indexer
     relabel_configs:
