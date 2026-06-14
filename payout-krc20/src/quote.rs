@@ -143,7 +143,7 @@ pub fn derive_floor_price(nacho_usd: &str, kaspa_usd: &str) -> Result<FloorPrice
 ///
 /// # Errors
 ///
-/// [`QuoteError::Malformed`] for unparseable JSON, a missing coin/quote leg, or
+/// [`QuoteError::Malformed`] for unparsable JSON, a missing coin/quote leg, or
 /// a non-derivable ratio (see [`derive_floor_price`]).
 pub fn parse_simple_price_response(
     body: &[u8],
