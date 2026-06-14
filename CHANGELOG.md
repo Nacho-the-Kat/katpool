@@ -12,6 +12,11 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Observability mainnet scaling guidance** (`SLO.md`). Documents the ingest
+  levers that scale with miner count (Loki `ingestion_rate_mb`, Alloy trace
+  `sampling_percentage`, VM retention/volume sizing) and a baseline-then-3×
+  method, so retention/limits are tuned from a real mainnet baseline instead of
+  guessed. No runtime values changed.
 - **Origin Alloy: durable log buffering + trace sampling** (B7 hardening). The
   netcup Alloy agent now persists `loki.write`'s WAL to a host volume
   (`--storage.path` on `/etc/katpool/obs-tn10/alloy-data`, `wal { enabled = true }`),
@@ -58,6 +63,15 @@ backward-incompatible ways at every minor bump.
   structured `ERROR` and exits non-zero so the unit fails and the line ships to
   Loki. Core logic lives in `payout-kas::audit` (`treasury_address_from_secret`
   / `key_controls_address`) with unit tests.
+- **Least-privilege read-only DB role for the public API** (Phase 7/8 hardening;
+  ADR-0021). The embedded read-only API can now connect on a separate pool as a
+  SELECT-only role, isolated from the accountant/payout writers' full-privilege
+  pool. Set `KATPOOL_API_DATABASE_URL` to opt in (unset ⇒ shares the writers'
+  pool, unchanged behaviour). The role is provisioned out-of-band via
+  `ops/db/api-readonly-role.sql` (idempotent; kept out of `sqlx` migrations so no
+  `CREATEROLE` is required at deploy and no credentials are committed). Verified
+  the API issues no writes (only `SELECT 1` readiness) and the SQL applies + rolls
+  back cleanly against the live schema.
 - **fail2ban jails for the origin host** (Phase 7/8 edge hardening; ADR-0021,
   ADR-0008, threat-model). `ops/security/fail2ban/` adds an OS-level backstop to
   the in-process controls: a `katpool-api-4xx` jail bans clients that keep
