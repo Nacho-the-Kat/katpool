@@ -12,6 +12,11 @@ backward-incompatible ways at every minor bump.
 
 ### Changed
 
+- **Observability mainnet scaling guidance** (`SLO.md`). Documents the ingest
+  levers that scale with miner count (Loki `ingestion_rate_mb`, Alloy trace
+  `sampling_percentage`, VM retention/volume sizing) and a baseline-then-3×
+  method, so retention/limits are tuned from a real mainnet baseline instead of
+  guessed. No runtime values changed.
 - **Origin Alloy: durable log buffering + trace sampling** (B7 hardening). The
   netcup Alloy agent now persists `loki.write`'s WAL to a host volume
   (`--storage.path` on `/etc/katpool/obs-tn10/alloy-data`, `wal { enabled = true }`),
