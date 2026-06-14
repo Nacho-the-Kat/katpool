@@ -17,6 +17,10 @@
 //   KATPOOL_NETWORK       log/trace label, e.g. testnet-10
 //   KATPOOL_INSTANCE      pool instance id, e.g. tn10-phase5 (correlates w/ metrics)
 //   KATPOOL_JOURNAL_UNIT  systemd unit to tail, e.g. katpool-tn10.service
+//   KATPOOL_OTLP_GRPC_ADDR  OTLP/gRPC receive address; defaults to 127.0.0.1:4317.
+//                           Override only when two origin agents share a host
+//                           (mainnet co-resident with tn10 → e.g. 127.0.0.1:4327);
+//                           it must match the pool's KATPOOL_OTLP_ENDPOINT.
 //
 // The host journal is mounted read-only at /var/log/journal regardless of whether
 // the host stores it persistently (/var/log/journal) or volatile (/run/log/journal).
@@ -63,7 +67,9 @@ loki.write "vmauth" {
 // switch here.
 otelcol.receiver.otlp "pool" {
   grpc {
-    endpoint = "127.0.0.1:4317"
+    // Defaults to 127.0.0.1:4317; override via KATPOOL_OTLP_GRPC_ADDR when a
+    // second origin agent shares the host (co-resident mainnet + tn10).
+    endpoint = coalesce(sys.env("KATPOOL_OTLP_GRPC_ADDR"), "127.0.0.1:4317")
   }
   output {
     traces = [otelcol.processor.batch.default.input]
