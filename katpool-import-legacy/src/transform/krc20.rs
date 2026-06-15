@@ -38,11 +38,29 @@ const LEGACY_NETWORK: &str = "mainnet";
 
 /// Run the `pending_krc20_transfers` →
 /// `payout_cycle`+`payout`+`krc20_pending_transfer` transform.
+/// Rejected `pending_krc20_transfers` rows by legacy status.
+///
+/// Lets the reconcile's per-status count checks tolerate exactly the rows the
+/// importer dropped as invalid.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StatusRejects {
+    /// Rejected rows whose legacy `nacho_transfer_status` is `PENDING`.
+    pub pending: i64,
+    /// Rejected rows in `COMPLETED` state.
+    pub completed: i64,
+    /// Rejected rows in `FAILED` state.
+    pub failed: i64,
+}
+
+/// Run the `pending_krc20_transfers` → payout transform.
+///
+/// Returns the per-transform stats and the rejected-row counts by legacy status
+/// (for the reconcile's per-status allowance).
 pub async fn run(
     source: &sqlx::PgPool,
     target: &sqlx::PgPool,
     dry_run: bool,
-) -> Result<TransformStats, anyhow::Error> {
+) -> Result<(TransformStats, StatusRejects), anyhow::Error> {
     let rows = source::fetch_krc20_transfers(source).await?;
     info!(
         row_count = rows.len(),
@@ -50,6 +68,7 @@ pub async fn run(
     );
 
     let mut stats = TransformStats::default();
+    let mut rejects = StatusRejects::default();
     for row in rows {
         stats.read += 1;
         match import_one(target, &row, dry_run).await {
@@ -57,6 +76,12 @@ pub async fn run(
             Ok(Outcome::Skipped) => stats.skipped += 1,
             Ok(Outcome::Rejected(reason)) => {
                 stats.rejected += 1;
+                // Attribute the reject to its legacy status for the reconcile.
+                match row.nacho_transfer_status.as_deref() {
+                    Some("COMPLETED") => rejects.completed += 1,
+                    Some("FAILED") => rejects.failed += 1,
+                    _ => rejects.pending += 1,
+                }
                 warn!(id = row.id, reason, "pending_krc20_transfers row rejected");
             }
             Err(e) => return Err(e.context(format!("import krc20 id={}", row.id))),
@@ -64,7 +89,7 @@ pub async fn run(
     }
 
     info!(stats = %stats, "pending_krc20_transfers import complete");
-    Ok(stats)
+    Ok((stats, rejects))
 }
 
 #[derive(Debug)]

@@ -119,8 +119,9 @@ async fn reconcile_all_passes_after_full_import() {
         .await
         .unwrap();
     let _ = krc20::run(&env.legacy, &env.target, false).await.unwrap();
+    // reconcile signature now takes reject Allowances (Default = exact checks).
 
-    let report = reconcile::run(&env.legacy, &env.target)
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile");
     for c in &report.checks {
@@ -162,7 +163,7 @@ async fn reconcile_fails_when_target_is_empty() {
     seed_full_legacy(&env.legacy).await;
 
     // Do NOT run any transforms. Target stays empty; reconcile must fail.
-    let report = reconcile::run(&env.legacy, &env.target)
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile");
     assert!(!report.all_passed, "must fail when target is empty");

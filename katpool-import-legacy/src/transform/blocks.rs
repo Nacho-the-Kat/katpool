@@ -98,6 +98,9 @@ async fn process_one(
         Ok(Imported::Skipped) => stats.skipped += 1,
         Ok(Imported::Rejected(reason)) => {
             stats.rejected += 1;
+            // Carry the rejected row's reward so the reconcile's reward-sum
+            // check can tolerate exactly this much (legacy sums all rows).
+            stats.rejected_amount = stats.rejected_amount.saturating_add(row.miner_reward);
             warn!(hash = %row.mined_block_hash, reason, "block row rejected");
         }
         Err(e) => return Err(e.context(format!("import block {}", row.mined_block_hash))),

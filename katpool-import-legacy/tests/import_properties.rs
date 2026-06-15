@@ -166,7 +166,7 @@ async fn rerun_with_new_rows_picks_up_only_new_data() {
     assert_eq!(count_target_payouts(&env.target).await, 2);
 
     // Reconcile passes against the post-grow legacy DB.
-    let report = reconcile::run(&env.legacy, &env.target)
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile");
     assert!(
@@ -311,7 +311,7 @@ async fn partial_failure_restart_converges() {
     assert_eq!(payments2.inserted, 1);
 
     // Reconcile converges.
-    let report = reconcile::run(&env.legacy, &env.target)
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile");
     assert!(report.all_passed);
@@ -348,7 +348,7 @@ async fn reconcile_detects_legacy_mutation_after_import() {
 
     // Pre-mutation, reconcile passes.
     assert!(
-        reconcile::run(&env.legacy, &env.target)
+        reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
             .await
             .unwrap()
             .all_passed
@@ -365,7 +365,9 @@ async fn reconcile_detects_legacy_mutation_after_import() {
     .await;
 
     // Reconcile MUST now fail; specifically on the payments amount aggregate.
-    let report = reconcile::run(&env.legacy, &env.target).await.unwrap();
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
+        .await
+        .unwrap();
     assert!(
         !report.all_passed,
         "reconcile should detect legacy growth after import"

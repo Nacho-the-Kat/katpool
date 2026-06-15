@@ -240,7 +240,7 @@ async fn run_scale(block_count: usize) {
     let nacho_stats = nacho_payments::run(&env.legacy, &env.target, false)
         .await
         .expect("nacho");
-    let krc20_stats = krc20::run(&env.legacy, &env.target, false)
+    let (krc20_stats, _) = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("krc20");
     let import_elapsed = import_start.elapsed();
@@ -256,7 +256,7 @@ async fn run_scale(block_count: usize) {
     );
 
     let reconcile_start = Instant::now();
-    let report = reconcile::run(&env.legacy, &env.target)
+    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile");
     let reconcile_elapsed = reconcile_start.elapsed();
@@ -301,12 +301,12 @@ async fn run_scale(block_count: usize) {
         .expect("payments rerun");
     assert_eq!(payments2.inserted, 0);
 
-    let krc20_2 = krc20::run(&env.legacy, &env.target, false)
+    let (krc20_2, _) = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("krc20 rerun");
     assert_eq!(krc20_2.inserted, 0);
 
-    let report2 = reconcile::run(&env.legacy, &env.target)
+    let report2 = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
         .await
         .expect("reconcile rerun");
     for c in &report2.checks {

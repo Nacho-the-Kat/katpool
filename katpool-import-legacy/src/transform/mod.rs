@@ -26,6 +26,9 @@ pub struct TransformStats {
     /// Rows rejected by the importer because their data fails the
     /// new schema's validation (typically wallet-address format).
     pub rejected: u64,
+    /// Sum of the monetary field (sompi) over the rejected rows, for the
+    /// reconcile's sum-check allowance. `0` for transforms with no sum check.
+    pub rejected_amount: i64,
 }
 
 impl TransformStats {
@@ -37,6 +40,7 @@ impl TransformStats {
             inserted: self.inserted + other.inserted,
             skipped: self.skipped + other.skipped,
             rejected: self.rejected + other.rejected,
+            rejected_amount: self.rejected_amount + other.rejected_amount,
         }
     }
 }
@@ -45,8 +49,8 @@ impl fmt::Display for TransformStats {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "read={} inserted={} skipped={} rejected={}",
-            self.read, self.inserted, self.skipped, self.rejected
+            "read={} inserted={} skipped={} rejected={} rejected_amount={}",
+            self.read, self.inserted, self.skipped, self.rejected, self.rejected_amount
         )
     }
 }
