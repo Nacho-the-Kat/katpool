@@ -26,6 +26,18 @@ export interface BlockCounts {
   orphaned: number;
 }
 
+/**
+ * Total blocks the pool has ever found, across every lifecycle status.
+ * `BlockCounts.found` alone is only the transient just-detected state (≈0 in
+ * steady state, since blocks immediately progress to confirmed/matured), so the
+ * "Blocks found" headline must sum all statuses.
+ */
+export function totalBlocksFound(b: BlockCounts): number {
+  return (
+    b.found + b.submitted_to_node + b.confirmed_blue + b.matured + b.orphaned
+  );
+}
+
 export interface PayoutTotals {
   kas_confirmed: KasAmount;
   nacho_confirmed: KasAmount;

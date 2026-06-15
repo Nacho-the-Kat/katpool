@@ -8,6 +8,7 @@ import { CountUp } from "@/components/dashboard/count-up";
 import { DeltaChip } from "@/components/dashboard/delta-chip";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { usePoolHashrateHistory, usePoolStats, useNetworkContext } from "@/lib/api/hooks";
+import { totalBlocksFound } from "@/lib/api/types";
 import { formatCompact, formatHashrate, formatNumber, formatUsd } from "@/lib/format";
 import { resolveRange } from "@/lib/range";
 
@@ -146,7 +147,7 @@ export function OverviewHero() {
               />
               <HeroStat
                 label="Blocks found"
-                value={stats.data ? formatCompact(stats.data.blocks.found) : null}
+                value={stats.data ? formatCompact(totalBlocksFound(stats.data.blocks)) : null}
                 loading={loading}
               />
               <HeroStat
