@@ -127,8 +127,8 @@ echo "    git=$GIT_REV" >&2
 # -------- run importer ---------------------------------------------
 set +e
 "$IMPORT_BIN" \
-  --source "$LEGACY_DATABASE_URL" \
-  --target "$KATPOOL_DATABASE_URL" \
+  --source-url "$LEGACY_DATABASE_URL" \
+  --target-url "$KATPOOL_DATABASE_URL" \
   $DRY_RUN_FLAG \
   > "$JSON_OUT" \
   2> "$LOG_OUT"
