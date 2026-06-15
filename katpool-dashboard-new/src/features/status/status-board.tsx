@@ -11,6 +11,7 @@ import {
   useBlocks,
   useActiveSessions,
 } from "@/lib/api/hooks";
+import { totalBlocksFound } from "@/lib/api/types";
 import { formatCompact, formatHashrate, formatKas, formatNumber, formatRelative, formatUsd, sompiToUsd, truncateMiddle } from "@/lib/format";
 import { streamAddress } from "@/lib/explorer";
 import { miningConfig } from "@/lib/mining";
@@ -136,7 +137,7 @@ export function StatusBoard() {
           <Metric label="Last block found" value={lastBlockAge} />
           <Metric
             label="Blocks found"
-            value={stats.data ? formatCompact(stats.data.blocks.found) : "—"}
+            value={stats.data ? formatCompact(totalBlocksFound(stats.data.blocks)) : "—"}
           />
           <Metric
             label="Active miners"
