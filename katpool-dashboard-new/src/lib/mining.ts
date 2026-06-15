@@ -95,6 +95,12 @@ export interface MiningConfig {
   feePercent: number;
   /** Minimum KAS balance before a payout cycle includes a wallet. */
   minPayoutKas: number;
+  /**
+   * Public treasury address, for the on-chain reserves link on the Status page.
+   * Operator-set per deployment (`NEXT_PUBLIC_TREASURY_ADDRESS`); omitted until
+   * configured so nothing misleading is shown.
+   */
+  treasuryAddress?: string;
 }
 
 const FALLBACK_PORT: StratumPort = { port: 3333, seed: 4096 };
@@ -131,5 +137,6 @@ export function miningConfig(): MiningConfig {
     addressPrefix: network === "testnet-10" ? "kaspatest" : "kaspa",
     feePercent: 0.75,
     minPayoutKas: 10,
+    treasuryAddress: env("NEXT_PUBLIC_TREASURY_ADDRESS"),
   };
 }
