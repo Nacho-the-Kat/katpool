@@ -97,6 +97,9 @@
 //! - `KATPOOL_MATURITY_POLL_SECS`    default 15
 //! - `KATPOOL_COINBASE_MATURITY`     default 1000 (DAA-score depth)
 //! - `KATPOOL_WINDOW_DAA_SPAN`       default 600
+//! - `KATPOOL_COINBASE_MIN_DAA_SCORE` default 0 (disabled). Cutover floor:
+//!   ignore coinbase UTXOs below this DAA score so a prior pool's historical
+//!   coinbases on a shared treasury address are never re-discovered.
 //! - `KATPOOL_BROADCAST_CAPACITY`    default 4096
 //! - `KATPOOL_GEOIP_DB`              optional `GeoLite2`/`GeoIP2` Country `.mmdb`
 //!   path (ADR-0025). When set + loadable, sessions are tagged with an
@@ -1373,6 +1376,10 @@ impl RuntimeConfig {
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?
             .or(file.maturity_batch_size)
             .unwrap_or(200);
+        // Cutover DAA floor (0 = disabled): ignore coinbase UTXOs below this
+        // DAA score so a prior pool's historical coinbases on a shared treasury
+        // address are not re-discovered. Set at cutover (see Runbook 22).
+        let coinbase_min_daa_score = optional_u64("KATPOOL_COINBASE_MIN_DAA_SCORE")?.unwrap_or(0);
         let network = resolve_network(
             &pool_addresses,
             optional("KATPOOL_NETWORK").or_else(|| file.network.clone()),
@@ -1477,6 +1484,7 @@ impl RuntimeConfig {
                 coinbase_maturity,
                 window_daa_span,
                 batch_size,
+                coinbase_min_daa_score,
             },
             payout_enabled,
             payout,
