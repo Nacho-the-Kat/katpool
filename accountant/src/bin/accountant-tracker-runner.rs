@@ -198,6 +198,7 @@ impl RunnerConfig {
         let coinbase_maturity = optional_u64("KATPOOL_COINBASE_MATURITY")?.unwrap_or(1000);
         let window_daa_span = optional_u64("KATPOOL_WINDOW_DAA_SPAN")?.unwrap_or(600);
         let batch_size = optional_i64("KATPOOL_MATURITY_BATCH_SIZE")?.unwrap_or(200);
+        let coinbase_min_daa_score = optional_u64("KATPOOL_COINBASE_MIN_DAA_SCORE")?.unwrap_or(0);
         Ok(Self {
             kaspad_url,
             database_url,
@@ -209,6 +210,7 @@ impl RunnerConfig {
                 coinbase_maturity,
                 window_daa_span,
                 batch_size,
+                coinbase_min_daa_score,
             },
         })
     }

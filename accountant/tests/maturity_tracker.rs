@@ -199,6 +199,7 @@ fn default_cfg() -> MaturityConfig {
         coinbase_maturity: 1000,
         window_daa_span: 600,
         batch_size: 200,
+        coinbase_min_daa_score: 0,
     }
 }
 
@@ -325,6 +326,48 @@ async fn matured_coinbase_utxo_is_recorded_and_allocated() {
     .await
     .unwrap();
     assert_eq!(n, 1, "exactly one wallet contributed → one allocation");
+}
+
+#[tokio::test]
+async fn coinbase_utxo_below_cutover_daa_floor_is_skipped() {
+    // A matured coinbase whose block predates the cutover floor must be
+    // ignored entirely — never recorded, never allocated — even with
+    // contributing shares present (it was paid by the prior pool).
+    let env = setup().await;
+    let (w, wk) = ensure_wallet_worker(&env.db, MINER_A, "rig-01").await;
+    for i in 0..5 {
+        seed_share(&env.db, w, wk, 1024.0, 1_000_000 + i).await;
+    }
+
+    let kaspad = FakeKaspad::new();
+    kaspad.set_virtual_daa_score(1_001_010).await;
+    kaspad
+        .add_utxo(CoinbaseUtxo {
+            transaction_id: [0xb2; 32],
+            index: 0,
+            amount_sompi: 500_000_000,
+            // Matured (depth 1000) but below the floor below.
+            block_daa_score: 1_000_010,
+        })
+        .await;
+
+    let cfg = MaturityConfig {
+        coinbase_min_daa_score: 1_000_011, // floor just above the UTXO's daa
+        ..default_cfg()
+    };
+    let tracker = build_tracker(env.db.clone(), kaspad, cfg);
+    let stats = tracker.run_once().await.unwrap();
+    assert_eq!(stats.rewards_discovered, 0);
+    assert_eq!(stats.rewards_allocated, 0);
+    assert_eq!(stats.rewards_skipped_below_floor, 1);
+
+    assert!(
+        coinbase_reward::find_by_outpoint(&env.db, &[0xb2; 32], 0)
+            .await
+            .unwrap()
+            .is_none(),
+        "a below-floor coinbase must not be recorded"
+    );
 }
 
 #[tokio::test]

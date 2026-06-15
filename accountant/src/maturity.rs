@@ -140,6 +140,14 @@ pub struct MaturityConfig {
     pub window_daa_span: u64,
     /// Max block transitions and reward allocations per sweep.
     pub batch_size: i64,
+    /// Cutover DAA-score floor. Coinbase UTXOs whose `block_daa_score` is
+    /// **below** this are ignored entirely — never recorded in
+    /// `coinbase_reward`, never allocated. `0` (the default) disables the
+    /// floor. Set it to the cutover DAA score when this pool adopts a treasury
+    /// address that a prior pool already mined to, so the prior pool's
+    /// historical coinbases are not re-discovered and retained as no-wallet
+    /// rewards (they were already paid out by the prior pool).
+    pub coinbase_min_daa_score: u64,
 }
 
 impl Default for MaturityConfig {
@@ -149,6 +157,7 @@ impl Default for MaturityConfig {
             coinbase_maturity: DEFAULT_COINBASE_MATURITY,
             window_daa_span: DEFAULT_WINDOW_DAA_SPAN,
             batch_size: DEFAULT_BATCH_SIZE,
+            coinbase_min_daa_score: 0,
         }
     }
 }
@@ -173,6 +182,9 @@ pub struct SweepStats {
     pub rewards_empty: u64,
     /// Per-item errors that didn't kill the sweep.
     pub errors: u64,
+    /// Coinbase UTXOs ignored because they predate the cutover DAA floor
+    /// (`coinbase_min_daa_score`). Always 0 when no floor is configured.
+    pub rewards_skipped_below_floor: u64,
 }
 
 /// The tracker.
@@ -353,6 +365,14 @@ impl MaturityTracker {
                 utxo.block_daa_score,
                 self.cfg.coinbase_maturity,
             ) {
+                continue;
+            }
+            // Cutover DAA floor: a coinbase UTXO from before the floor predates
+            // this pool's takeover of the treasury address (e.g. the legacy
+            // pool's historical blocks). Ignore it entirely so it is never
+            // recorded or allocated — it was already paid out by the prior pool.
+            if utxo.block_daa_score < self.cfg.coinbase_min_daa_score {
+                stats.rewards_skipped_below_floor += 1;
                 continue;
             }
             let Ok(amount) = i64::try_from(utxo.amount_sompi) else {
