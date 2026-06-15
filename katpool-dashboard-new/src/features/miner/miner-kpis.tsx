@@ -1,15 +1,25 @@
 "use client";
 
+import { useMemo } from "react";
 import { Coins, Cpu, Gauge, ThumbsDown, ThumbsUp, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
+import { useMinerHashrateHistory, useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
 import { formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd } from "@/lib/format";
+import { resolveRange } from "@/lib/range";
 
 /** KPI grid for a single miner. */
 export function MinerKpis({ address }: { address: string }) {
   const { data, isLoading } = useMinerProfile(address);
   const network = useNetworkContext();
   const kasUsd = network.data?.prices.kas_usd ?? null;
+
+  // Headline hashrate matches the chart below: the latest point of the same
+  // 24h bucketed history, not the noisy short-window profile estimate. Falls
+  // back to the profile estimate until the history loads.
+  const day = useMemo(() => resolveRange("24h"), []);
+  const history = useMinerHashrateHistory(address, { from: day.from, to: day.to, bucket: day.bucket });
+  const latestPoint = history.data?.points?.at(-1);
+  const hashrate = latestPoint ? latestPoint.hashrate_hs : (data?.hashrate_hs ?? null);
 
   const total = (data?.accepted_shares ?? 0) + (data?.rejected_shares ?? 0);
   const rejectRate = total > 0 ? ((data?.rejected_shares ?? 0) / total) * 100 : 0;
@@ -20,10 +30,10 @@ export function MinerKpis({ address }: { address: string }) {
       <StatCard
         label="Hashrate"
         icon={<Gauge className="size-4" />}
-        value={data?.hashrate_hs ?? null}
+        value={hashrate}
         format={(v) => formatHashrate(v)}
-        loading={isLoading}
-        hint="Estimated from this miner's accepted shares in the window."
+        loading={isLoading && history.isLoading}
+        hint="Latest point of your 24h hashrate trend (matches the chart below)."
       />
       <StatCard
         label="Workers"
