@@ -260,6 +260,75 @@ pub struct BlocksPage {
     pub next_before: Option<i64>,
 }
 
+/// One block in the legacy `MiningPoolStats` `top_100_blocks` feed.
+///
+/// Field names mirror the legacy pool's JSON **exactly** so the aggregator
+/// listing survives the cutover unchanged. `reward_block_hash` has no analogue
+/// in the new schema and is emitted empty (the legacy feed also emits `""` for
+/// blocks whose coinbase has not yet been attributed).
+#[derive(Debug, Serialize)]
+pub struct MpsBlock {
+    /// Hash of the block the pool found, lowercase hex.
+    pub mined_block_hash: String,
+    /// Finding worker's name.
+    pub miner_id: String,
+    /// Pool coinbase/treasury address (same for every block).
+    pub pool_address: String,
+    /// Chain block that paid the coinbase — not tracked; always `""`.
+    pub reward_block_hash: String,
+    /// Finding miner's wallet address.
+    pub wallet: String,
+    /// DAA score of the block.
+    pub daa_score: i64,
+    /// Coinbase reward in sompi (`0` until matured).
+    pub miner_reward: i64,
+    /// When the block was found, ISO-8601 (millisecond precision, `Z`).
+    pub timestamp: String,
+}
+
+/// Legacy-compatible `MiningPoolStats` feed (`GET /api/pool/miningPoolStats`).
+///
+/// The JSON shape (including the `camelCase` keys and `advertise_image_link`)
+/// is a byte-for-byte match of the legacy pool's feed so the public aggregator
+/// listing is uninterrupted by the cutover. `advertise_image_link` is retained
+/// only for parity — `MiningPoolStats` does not render it (verified).
+#[derive(Debug, Serialize)]
+pub struct MiningPoolStats {
+    /// Always `"Kaspa"`.
+    pub coin_mined: String,
+    /// Pool display name.
+    pub pool_name: String,
+    /// Pool website (host only).
+    pub url: String,
+    /// Topline fee, percent (JSON number).
+    #[serde(rename = "poolFee")]
+    pub pool_fee: f64,
+    /// Pool hashrate as a compact unit string, e.g. `"766.99TH/s"`.
+    #[serde(rename = "current_hashRate")]
+    pub current_hash_rate: String,
+    /// Up to the 100 most recent blocks, newest-first.
+    pub top_100_blocks: Vec<MpsBlock>,
+    /// Total blocks the pool has ever found.
+    #[serde(rename = "totalBlocksCount")]
+    pub total_blocks_count: i64,
+    /// Advertisement image URL (not rendered by `MiningPoolStats`).
+    pub advertise_image_link: String,
+    /// Minimum payout in whole KAS.
+    #[serde(rename = "minPay")]
+    pub min_pay: i64,
+    /// Two-letter country code.
+    pub country: String,
+    /// Payout scheme label (PROP).
+    #[serde(rename = "feeType")]
+    pub fee_type: String,
+    /// Most recent block hash, lowercase hex (`""` if none).
+    pub lastblock: String,
+    /// When the most recent block was found, ISO-8601 (`""` if none). Kept a
+    /// string in all cases — including the no-blocks case — to match the legacy
+    /// feed's type exactly (it never emits `null` here).
+    pub lastblocktime: String,
+}
+
 /// A payout cycle in a list response.
 #[derive(Debug, Serialize)]
 pub struct CycleView {
@@ -629,4 +698,89 @@ pub struct FullRebateResponse {
     /// `true` iff the wallet's most-recent allocation was the Elite
     /// (100% rebate) tier.
     pub full_rebate: bool,
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+mod tests {
+    use super::{MiningPoolStats, MpsBlock};
+
+    /// The `MiningPoolStats` feed must serialize to the EXACT legacy key set
+    /// (`camelCase` keys included) so the aggregator listing is uninterrupted
+    /// by the cutover. This pins the wire contract independent of the DB layer.
+    #[test]
+    fn mining_pool_stats_matches_legacy_shape() {
+        let resp = MiningPoolStats {
+            coin_mined: "Kaspa".to_owned(),
+            pool_name: "Kat Pool".to_owned(),
+            url: "app.katpool.com".to_owned(),
+            pool_fee: 0.75,
+            current_hash_rate: "766.99TH/s".to_owned(),
+            top_100_blocks: vec![MpsBlock {
+                mined_block_hash: "ab".to_owned(),
+                miner_id: "rig1".to_owned(),
+                pool_address: "kaspa:qz".to_owned(),
+                reward_block_hash: String::new(),
+                wallet: "kaspa:qp".to_owned(),
+                daa_score: 460_626_407,
+                miner_reward: 259_565_436,
+                timestamp: "2026-06-15T00:10:58.396Z".to_owned(),
+            }],
+            total_blocks_count: 567_424,
+            advertise_image_link: "https://app.katpool.xyz/images/katpoolad.gif".to_owned(),
+            min_pay: 10,
+            country: "US".to_owned(),
+            fee_type: "PROP".to_owned(),
+            lastblock: "ab".to_owned(),
+            lastblocktime: "2026-06-15T00:12:00.950Z".to_owned(),
+        };
+
+        let v = serde_json::to_value(&resp).unwrap();
+        let obj = v.as_object().unwrap();
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        let mut expected = [
+            "coin_mined",
+            "pool_name",
+            "url",
+            "poolFee",
+            "current_hashRate",
+            "top_100_blocks",
+            "totalBlocksCount",
+            "advertise_image_link",
+            "minPay",
+            "country",
+            "feeType",
+            "lastblock",
+            "lastblocktime",
+        ];
+        expected.sort_unstable();
+        assert_eq!(
+            keys, expected,
+            "top-level MiningPoolStats keys drifted from the legacy feed"
+        );
+
+        // poolFee is a JSON number; minPay is an integer.
+        assert!(obj["poolFee"].is_number());
+        assert_eq!(obj["minPay"].as_i64(), Some(10));
+
+        let block = obj["top_100_blocks"][0].as_object().unwrap();
+        let mut bkeys: Vec<&str> = block.keys().map(String::as_str).collect();
+        bkeys.sort_unstable();
+        let mut bexpected = [
+            "mined_block_hash",
+            "miner_id",
+            "pool_address",
+            "reward_block_hash",
+            "wallet",
+            "daa_score",
+            "miner_reward",
+            "timestamp",
+        ];
+        bexpected.sort_unstable();
+        assert_eq!(
+            bkeys, bexpected,
+            "MpsBlock keys drifted from the legacy feed"
+        );
+    }
 }
