@@ -282,8 +282,8 @@ pub struct MpsBlock {
     pub daa_score: i64,
     /// Coinbase reward in sompi (`0` until matured).
     pub miner_reward: i64,
-    /// When the block was found.
-    pub timestamp: DateTime<Utc>,
+    /// When the block was found, ISO-8601 (millisecond precision, `Z`).
+    pub timestamp: String,
 }
 
 /// Legacy-compatible `MiningPoolStats` feed (`GET /api/pool/miningPoolStats`).
@@ -323,8 +323,10 @@ pub struct MiningPoolStats {
     pub fee_type: String,
     /// Most recent block hash, lowercase hex (`""` if none).
     pub lastblock: String,
-    /// When the most recent block was found (`null` if none).
-    pub lastblocktime: Option<DateTime<Utc>>,
+    /// When the most recent block was found, ISO-8601 (`""` if none). Kept a
+    /// string in all cases — including the no-blocks case — to match the legacy
+    /// feed's type exactly (it never emits `null` here).
+    pub lastblocktime: String,
 }
 
 /// A payout cycle in a list response.
@@ -702,7 +704,6 @@ pub struct FullRebateResponse {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 mod tests {
     use super::{MiningPoolStats, MpsBlock};
-    use chrono::{TimeZone, Utc};
 
     /// The `MiningPoolStats` feed must serialize to the EXACT legacy key set
     /// (`camelCase` keys included) so the aggregator listing is uninterrupted
@@ -723,7 +724,7 @@ mod tests {
                 wallet: "kaspa:qp".to_owned(),
                 daa_score: 460_626_407,
                 miner_reward: 259_565_436,
-                timestamp: Utc.timestamp_opt(1_760_000_000, 0).unwrap(),
+                timestamp: "2026-06-15T00:10:58.396Z".to_owned(),
             }],
             total_blocks_count: 567_424,
             advertise_image_link: "https://app.katpool.xyz/images/katpoolad.gif".to_owned(),
@@ -731,7 +732,7 @@ mod tests {
             country: "US".to_owned(),
             fee_type: "PROP".to_owned(),
             lastblock: "ab".to_owned(),
-            lastblocktime: Some(Utc.timestamp_opt(1_760_000_000, 0).unwrap()),
+            lastblocktime: "2026-06-15T00:12:00.950Z".to_owned(),
         };
 
         let v = serde_json::to_value(&resp).unwrap();

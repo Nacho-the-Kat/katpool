@@ -174,9 +174,14 @@ async fn build_mining_pool_stats(state: AppState) -> Result<Value, ApiError> {
     let recent = block::list_recent_with_identity(&state.pool, 100).await?;
     let total_blocks_count = block::total_count(&state.pool).await?;
 
+    // Millisecond-precision UTC with a `Z` suffix, matching the legacy feed's
+    // timestamp format byte-for-byte.
+    let iso =
+        |t: chrono::DateTime<chrono::Utc>| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+
     let (lastblock, lastblocktime) = recent.first().map_or_else(
-        || (String::new(), None),
-        |b| (hex::encode(&b.hash), Some(b.found_at)),
+        || (String::new(), String::new()),
+        |b| (hex::encode(&b.hash), iso(b.found_at)),
     );
 
     let top_100_blocks = recent
@@ -189,7 +194,7 @@ async fn build_mining_pool_stats(state: AppState) -> Result<Value, ApiError> {
             wallet: b.wallet_address.clone(),
             daa_score: b.daa_score,
             miner_reward: b.miner_reward_sompi.unwrap_or(0),
-            timestamp: b.found_at,
+            timestamp: iso(b.found_at),
         })
         .collect();
 
