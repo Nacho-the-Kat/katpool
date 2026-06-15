@@ -62,6 +62,12 @@ pub struct Allowances {
     pub blocks_count: i64,
     /// Sum of `miner_reward` over the rejected `block_details` rows.
     pub blocks_reward_sompi: i64,
+    /// Sompi over `payments` rows rejected or collapsed by a within-cycle
+    /// duplicate wallet (`rejected_amount + deduped_amount`).
+    pub payments_sompi: i64,
+    /// NACHO base units over `nacho_payments` rows rejected or collapsed by a
+    /// within-cycle duplicate wallet (`rejected_amount + deduped_amount`).
+    pub nacho_amount: i64,
     /// `pending_krc20_transfers` rejects, by legacy status.
     pub krc20_pending: i64,
     /// `pending_krc20_transfers` rejects in COMPLETED state.
@@ -125,10 +131,11 @@ pub async fn run(
     )
     .await?
     .unwrap_or(0);
-    checks.push(Check::from_pair(
+    checks.push(Check::with_allowance(
         "payments.amount_total_sompi",
         legacy_payments_amount,
         new_kas_payouts_amount,
+        allow.payments_sompi,
     ));
 
     // ----- nacho_payments ((krc20)) ---------------------------------
@@ -144,10 +151,11 @@ pub async fn run(
     )
     .await?
     .unwrap_or(0);
-    checks.push(Check::from_pair(
+    checks.push(Check::with_allowance(
         "nacho_payments.amount_total",
         legacy_nacho_amount,
         new_nacho_payouts_amount,
+        allow.nacho_amount,
     ));
 
     // ----- miners_balance.nacho_rebate_kas → nacho_rebate_accrual ---

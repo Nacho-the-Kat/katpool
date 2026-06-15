@@ -134,6 +134,12 @@ async fn main() -> Result<(), anyhow::Error> {
     let allowances = reconcile::Allowances {
         blocks_count: i64::try_from(blocks_stats.rejected).unwrap_or(i64::MAX),
         blocks_reward_sompi: blocks_stats.rejected_amount,
+        payments_sompi: payments_stats
+            .rejected_amount
+            .saturating_add(payments_stats.deduped_amount),
+        nacho_amount: nacho_stats
+            .rejected_amount
+            .saturating_add(nacho_stats.deduped_amount),
         krc20_pending: krc20_rejects.pending,
         krc20_completed: krc20_rejects.completed,
         krc20_failed: krc20_rejects.failed,
@@ -177,6 +183,7 @@ fn stats_to_json(s: &TransformStats) -> serde_json::Value {
         "skipped": s.skipped,
         "rejected": s.rejected,
         "rejected_amount": s.rejected_amount,
+        "deduped_amount": s.deduped_amount,
     })
 }
 
