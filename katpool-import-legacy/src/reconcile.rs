@@ -8,6 +8,8 @@
 //! a clean reconciliation is a Phase 7 cutover precondition, not a
 //! Phase 2 build-time blocker.
 
+use std::collections::HashSet;
+
 use num_traits::cast::ToPrimitive;
 use tracing::{info, warn};
 
@@ -87,11 +89,16 @@ pub struct ReconcileReport {
 }
 
 /// Execute every reconcile check against both pools.
-#[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
+#[allow(
+    clippy::cognitive_complexity,
+    clippy::too_many_lines,
+    clippy::implicit_hasher
+)]
 pub async fn run(
     source: &sqlx::PgPool,
     target: &sqlx::PgPool,
     allow: &Allowances,
+    skip: &HashSet<String>,
 ) -> Result<ReconcileReport, anyhow::Error> {
     info!("starting reconciliation pass");
     let mut checks = Vec::new();
@@ -99,111 +106,127 @@ pub async fn run(
     // ----- blocks ----------------------------------------------------
     // Block rows can be rejected (invalid legacy wallet/worker), so tolerate
     // exactly the rejected count + their reward sum — any other gap still fails.
-    let legacy_blocks = source::count_block_details(source).await?;
-    let new_blocks = single_i64(target, "SELECT count(*)::bigint FROM block").await?;
-    checks.push(Check::with_allowance(
-        "blocks.row_count",
-        legacy_blocks,
-        new_blocks,
-        allow.blocks_count,
-    ));
+    // Skipped when the blocks transform was deferred (e.g. backfilled after
+    // promote): a stale `block` count would otherwise fail a meaningless check.
+    if !skip.contains("blocks") {
+        let legacy_blocks = source::count_block_details(source).await?;
+        let new_blocks = single_i64(target, "SELECT count(*)::bigint FROM block").await?;
+        checks.push(Check::with_allowance(
+            "blocks.row_count",
+            legacy_blocks,
+            new_blocks,
+            allow.blocks_count,
+        ));
 
-    let legacy_reward = source::sum_bigint(source, "block_details", "miner_reward").await?;
-    let new_reward = single_i64_opt(target, "SELECT sum(miner_reward_sompi)::bigint FROM block")
-        .await?
-        .unwrap_or(0);
-    checks.push(Check::with_allowance(
-        "blocks.miner_reward_total_sompi",
-        legacy_reward,
-        new_reward,
-        allow.blocks_reward_sompi,
-    ));
+        let legacy_reward = source::sum_bigint(source, "block_details", "miner_reward").await?;
+        let new_reward =
+            single_i64_opt(target, "SELECT sum(miner_reward_sompi)::bigint FROM block")
+                .await?
+                .unwrap_or(0);
+        checks.push(Check::with_allowance(
+            "blocks.miner_reward_total_sompi",
+            legacy_reward,
+            new_reward,
+            allow.blocks_reward_sompi,
+        ));
+    }
 
     // ----- payments ((kas)) -----------------------------------------
-    let legacy_payments_amount = source::sum_bigint(source, "payments", "amount").await?;
-    let new_kas_payouts_amount = single_i64_opt(
-        target,
-        "SELECT sum(p.amount_sompi)::bigint
-           FROM payout p
-           JOIN payout_cycle c ON c.id = p.cycle_id
-          WHERE c.kind = 'kas'
-            AND c.idempotency_key LIKE 'kas-legacy-%'",
-    )
-    .await?
-    .unwrap_or(0);
-    checks.push(Check::with_allowance(
-        "payments.amount_total_sompi",
-        legacy_payments_amount,
-        new_kas_payouts_amount,
-        allow.payments_sompi,
-    ));
+    if !skip.contains("payments") {
+        let legacy_payments_amount = source::sum_bigint(source, "payments", "amount").await?;
+        let new_kas_payouts_amount = single_i64_opt(
+            target,
+            "SELECT sum(p.amount_sompi)::bigint
+               FROM payout p
+               JOIN payout_cycle c ON c.id = p.cycle_id
+              WHERE c.kind = 'kas'
+                AND c.idempotency_key LIKE 'kas-legacy-%'",
+        )
+        .await?
+        .unwrap_or(0);
+        checks.push(Check::with_allowance(
+            "payments.amount_total_sompi",
+            legacy_payments_amount,
+            new_kas_payouts_amount,
+            allow.payments_sompi,
+        ));
+    }
 
     // ----- nacho_payments ((krc20)) ---------------------------------
-    let legacy_nacho_amount = source::sum_bigint(source, "nacho_payments", "nacho_amount").await?;
-    let new_nacho_payouts_amount = single_i64_opt(
-        target,
-        "SELECT sum(p.amount_sompi)::bigint
-           FROM payout p
-           JOIN payout_cycle c ON c.id = p.cycle_id
-          WHERE c.kind = 'krc20_nacho'
-            AND c.idempotency_key LIKE 'krc20-legacy-%'
-            AND c.idempotency_key NOT LIKE 'krc20-legacy-pending-%'",
-    )
-    .await?
-    .unwrap_or(0);
-    checks.push(Check::with_allowance(
-        "nacho_payments.amount_total",
-        legacy_nacho_amount,
-        new_nacho_payouts_amount,
-        allow.nacho_amount,
-    ));
+    if !skip.contains("nacho_payments") {
+        let legacy_nacho_amount =
+            source::sum_bigint(source, "nacho_payments", "nacho_amount").await?;
+        let new_nacho_payouts_amount = single_i64_opt(
+            target,
+            "SELECT sum(p.amount_sompi)::bigint
+               FROM payout p
+               JOIN payout_cycle c ON c.id = p.cycle_id
+              WHERE c.kind = 'krc20_nacho'
+                AND c.idempotency_key LIKE 'krc20-legacy-%'
+                AND c.idempotency_key NOT LIKE 'krc20-legacy-pending-%'",
+        )
+        .await?
+        .unwrap_or(0);
+        checks.push(Check::with_allowance(
+            "nacho_payments.amount_total",
+            legacy_nacho_amount,
+            new_nacho_payouts_amount,
+            allow.nacho_amount,
+        ));
+    }
 
     // ----- miners_balance.nacho_rebate_kas → nacho_rebate_accrual ---
-    let legacy_rebate = source::sum_numeric(source, "miners_balance", "nacho_rebate_kas")
+    if !skip.contains("balances") {
+        let legacy_rebate = source::sum_numeric(source, "miners_balance", "nacho_rebate_kas")
+            .await?
+            .to_i64()
+            .unwrap_or_default();
+        let new_accrued = single_i64_opt(
+            target,
+            "SELECT sum(accrued_sompi)::bigint FROM nacho_rebate_accrual",
+        )
         .await?
-        .to_i64()
-        .unwrap_or_default();
-    let new_accrued = single_i64_opt(
-        target,
-        "SELECT sum(accrued_sompi)::bigint FROM nacho_rebate_accrual",
-    )
-    .await?
-    .unwrap_or(0);
-    checks.push(Check::from_pair(
-        "miners_balance.nacho_rebate_total",
-        legacy_rebate,
-        new_accrued,
-    ));
+        .unwrap_or(0);
+        checks.push(Check::from_pair(
+            "miners_balance.nacho_rebate_total",
+            legacy_rebate,
+            new_accrued,
+        ));
+    }
 
     // ----- pending_krc20_transfers (per status, count only) ---------
     // Each status tolerates its own rejected count (invalid legacy rows).
-    for (legacy_status, new_status, status_allowance) in [
-        ("PENDING", "pending", allow.krc20_pending),
-        ("COMPLETED", "completed", allow.krc20_completed),
-        ("FAILED", "failed", allow.krc20_failed),
-    ] {
-        let l = single_i64(
-            source,
-            // safe interpolation — status is a static literal
-            &format!(
-                "SELECT count(*)::bigint FROM pending_krc20_transfers \
-                 WHERE nacho_transfer_status = '{legacy_status}'"
-            ),
-        )
-        .await?;
-        let n = single_i64(
-            target,
-            &format!(
-                "SELECT count(*)::bigint FROM krc20_pending_transfer WHERE status = '{new_status}'"
-            ),
-        )
-        .await?;
-        checks.push(Check::with_allowance(
-            Box::leak(format!("krc20_pending_transfer.count[{legacy_status}]").into_boxed_str()),
-            l,
-            n,
-            status_allowance,
-        ));
+    if !skip.contains("krc20") {
+        for (legacy_status, new_status, status_allowance) in [
+            ("PENDING", "pending", allow.krc20_pending),
+            ("COMPLETED", "completed", allow.krc20_completed),
+            ("FAILED", "failed", allow.krc20_failed),
+        ] {
+            let l = single_i64(
+                source,
+                // safe interpolation — status is a static literal
+                &format!(
+                    "SELECT count(*)::bigint FROM pending_krc20_transfers \
+                     WHERE nacho_transfer_status = '{legacy_status}'"
+                ),
+            )
+            .await?;
+            let n = single_i64(
+                target,
+                &format!(
+                    "SELECT count(*)::bigint FROM krc20_pending_transfer WHERE status = '{new_status}'"
+                ),
+            )
+            .await?;
+            checks.push(Check::with_allowance(
+                Box::leak(
+                    format!("krc20_pending_transfer.count[{legacy_status}]").into_boxed_str(),
+                ),
+                l,
+                n,
+                status_allowance,
+            ));
+        }
     }
 
     let all_passed = checks.iter().all(|c| c.passed);
