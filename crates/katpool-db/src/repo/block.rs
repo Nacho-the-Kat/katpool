@@ -305,6 +305,60 @@ pub async fn list_recent<'e, E: PgExecutor<'e>>(
     .map_err(DbError::from)
 }
 
+/// One recent block joined with its finder's worker name and wallet address.
+///
+/// Backs the legacy-compatible `MiningPoolStats` feed (`top_100_blocks`), which
+/// reports the finding worker + wallet by their human identifiers rather than
+/// the internal FK ids carried by [`Block`].
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RecentBlockIdentity {
+    /// 32-byte block hash.
+    pub hash: Vec<u8>,
+    /// Finder's worker name (`worker.name`).
+    pub worker_name: String,
+    /// Finder's wallet address (`wallet.address`).
+    pub wallet_address: String,
+    /// DAA score of the block.
+    pub daa_score: i64,
+    /// Coinbase reward in sompi, populated at maturity (else `NULL`).
+    pub miner_reward_sompi: Option<i64>,
+    /// When the bridge detected the candidate.
+    pub found_at: DateTime<Utc>,
+}
+
+/// The `limit` most recent blocks (newest-first) joined to the finder's worker
+/// name and wallet address. Backs the `MiningPoolStats` `top_100_blocks` feed.
+pub async fn list_recent_with_identity<'e, E: PgExecutor<'e>>(
+    executor: E,
+    limit: i64,
+) -> Result<Vec<RecentBlockIdentity>, DbError> {
+    sqlx::query_as::<_, RecentBlockIdentity>(
+        "SELECT b.hash,
+                w.name      AS worker_name,
+                wal.address AS wallet_address,
+                b.daa_score,
+                b.miner_reward_sompi,
+                b.found_at
+           FROM block b
+           JOIN worker w   ON w.id   = b.finder_worker_id
+           JOIN wallet wal ON wal.id = b.finder_wallet_id
+          ORDER BY b.id DESC
+          LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// Total number of blocks the pool has found across all statuses.
+pub async fn total_count<'e, E: PgExecutor<'e>>(executor: E) -> Result<i64, DbError> {
+    sqlx::query_scalar::<_, i64>("SELECT count(*)::bigint FROM block")
+        .fetch_one(executor)
+        .await
+        .map_err(DbError::from)
+}
+
 /// Count blocks grouped by lifecycle status. Only statuses with ≥ 1
 /// row appear; the caller zero-fills the rest. Drives the pool-stats
 /// block-lifecycle breakdown.

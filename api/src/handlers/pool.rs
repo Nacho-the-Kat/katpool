@@ -14,8 +14,8 @@ use crate::models::{
     ActiveMinersHistory, ActiveMinersPointView, ActiveSessionsView, BlockCounts, BlockView,
     BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown,
     GeoEntryView, HashrateHistory, HashratePointView, HashrateSnapshot, LeaderboardEntryView,
-    LeaderboardResponse, PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount,
-    TreasuryView,
+    LeaderboardResponse, MiningPoolStats, MpsBlock, PayoutTotals, PoolRejectsResponse, PoolStats,
+    RejectReasonCount, TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
@@ -141,6 +141,95 @@ pub async fn blocks(
         })
     })
     .await
+}
+
+/// `GET /api/pool/miningPoolStats` — legacy-compatible `MiningPoolStats` feed.
+///
+/// Unversioned path matching the legacy pool **exactly** so the public
+/// aggregator listing (miningpoolstats.stream) is uninterrupted by the
+/// cutover. Composed from the same repo functions as the rest of the API.
+pub async fn mining_pool_stats(
+    State(state): State<AppState>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let cache = state.pool_cache.clone();
+    cached_json(
+        &cache,
+        "pool/miningPoolStats".to_owned(),
+        build_mining_pool_stats(state),
+    )
+    .await
+}
+
+// `poolFee` is a fee percent derived from integer basis points, and the
+// hashrate string is a base-1000 scale — both are display-only float math.
+#[allow(clippy::float_arithmetic)]
+async fn build_mining_pool_stats(state: AppState) -> Result<Value, ApiError> {
+    let cfg = &state.config;
+
+    // Pool hashrate over the same 10-minute window as `/pool/stats`.
+    let now = chrono::Utc::now();
+    let since = now - chrono::Duration::seconds(600);
+    let hashrate_hs = share_stats::hashrate_estimate_pool_wide(&state.pool, since, now).await?;
+
+    let recent = block::list_recent_with_identity(&state.pool, 100).await?;
+    let total_blocks_count = block::total_count(&state.pool).await?;
+
+    let (lastblock, lastblocktime) = recent.first().map_or_else(
+        || (String::new(), None),
+        |b| (hex::encode(&b.hash), Some(b.found_at)),
+    );
+
+    let top_100_blocks = recent
+        .iter()
+        .map(|b| MpsBlock {
+            mined_block_hash: hex::encode(&b.hash),
+            miner_id: b.worker_name.clone(),
+            pool_address: cfg.mps_pool_address.clone(),
+            reward_block_hash: String::new(),
+            wallet: b.wallet_address.clone(),
+            daa_score: b.daa_score,
+            miner_reward: b.miner_reward_sompi.unwrap_or(0),
+            timestamp: b.found_at,
+        })
+        .collect();
+
+    let resp = MiningPoolStats {
+        coin_mined: "Kaspa".to_owned(),
+        pool_name: cfg.mps_pool_name.clone(),
+        url: cfg.mps_url.clone(),
+        pool_fee: f64::from(cfg.mps_fee_bps) / 100.0,
+        current_hash_rate: format_hashrate_compact(hashrate_hs),
+        top_100_blocks,
+        total_blocks_count,
+        advertise_image_link: cfg.mps_ad_image_link.clone(),
+        min_pay: cfg.mps_min_pay_kas,
+        country: cfg.mps_country.clone(),
+        fee_type: cfg.mps_fee_type.clone(),
+        lastblock,
+        lastblocktime,
+    };
+    to_value(&resp)
+}
+
+/// Format an H/s rate as a compact unit string with no space, e.g.
+/// `766.99TH/s` — matching the legacy `MiningPoolStats` `current_hashRate`.
+// Base-1000 scaling + a log are inherent float math for a display string.
+#[allow(
+    clippy::float_arithmetic,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing
+)]
+fn format_hashrate_compact(hs: f64) -> String {
+    const UNITS: [&str; 8] = [
+        "H/s", "KH/s", "MH/s", "GH/s", "TH/s", "PH/s", "EH/s", "ZH/s",
+    ];
+    if !hs.is_finite() || hs <= 0.0 {
+        return "0.00H/s".to_owned();
+    }
+    let exp = ((hs.log10() / 3.0).floor() as usize).min(UNITS.len() - 1);
+    let scaled = hs / 1000_f64.powi(exp as i32);
+    format!("{scaled:.2}{}", UNITS[exp])
 }
 
 /// `GET /api/v1/pool/payouts` — recent payout cycles, keyset-paginated.

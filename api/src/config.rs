@@ -49,6 +49,26 @@ pub struct ApiConfig {
     /// browser same-origin policy applies (dashboard served same-origin
     /// behind nginx).
     pub cors_allow_origin: Option<String>,
+    /// Display metadata for the legacy-compatible `MiningPoolStats` feed
+    /// (`GET /api/pool/miningPoolStats`). These drive the public aggregator
+    /// listing and must stay accurate across the cutover.
+    pub mps_pool_name: String,
+    /// Pool website shown in the listing (host only, no scheme).
+    pub mps_url: String,
+    /// Two-letter country code for the listing flag.
+    pub mps_country: String,
+    /// Payout scheme label shown in the listing (the engine is PROP).
+    pub mps_fee_type: String,
+    /// Topline fee in basis points; the feed reports `bps / 100` as a percent.
+    pub mps_fee_bps: u32,
+    /// Minimum payout, in whole KAS, shown in the listing.
+    pub mps_min_pay_kas: i64,
+    /// Pool coinbase/treasury address echoed per block in the feed (the first
+    /// `KATPOOL_POOL_ADDRESS`); empty if unset.
+    pub mps_pool_address: String,
+    /// Advertisement image URL echoed in the feed. NOTE: `MiningPoolStats` does
+    /// not render this (verified) — retained only for legacy shape parity.
+    pub mps_ad_image_link: String,
 }
 
 impl Default for ApiConfig {
@@ -60,6 +80,14 @@ impl Default for ApiConfig {
             pool_cache_ttl: Duration::from_secs(10),
             wallet_cache_ttl: Duration::from_secs(5),
             cors_allow_origin: None,
+            mps_pool_name: "Kat Pool".to_owned(),
+            mps_url: "app.katpool.com".to_owned(),
+            mps_country: "US".to_owned(),
+            mps_fee_type: "PROP".to_owned(),
+            mps_fee_bps: 75,
+            mps_min_pay_kas: 10,
+            mps_pool_address: String::new(),
+            mps_ad_image_link: "https://app.katpool.xyz/images/katpoolad.gif".to_owned(),
         }
     }
 }
@@ -109,6 +137,39 @@ impl ApiConfig {
             let trimmed = raw.trim();
             if !trimmed.is_empty() {
                 cfg.cors_allow_origin = Some(trimmed.to_owned());
+            }
+        }
+
+        // ----- MiningPoolStats listing metadata (all optional) -------------
+        let set_str = |slot: &mut String, raw: Option<String>| {
+            if let Some(v) = raw {
+                let t = v.trim();
+                if !t.is_empty() {
+                    t.clone_into(slot);
+                }
+            }
+        };
+        set_str(&mut cfg.mps_pool_name, lookup("KATPOOL_MPS_POOL_NAME"));
+        set_str(&mut cfg.mps_url, lookup("KATPOOL_MPS_URL"));
+        set_str(&mut cfg.mps_country, lookup("KATPOOL_MPS_COUNTRY"));
+        set_str(&mut cfg.mps_fee_type, lookup("KATPOOL_MPS_FEE_TYPE"));
+        set_str(
+            &mut cfg.mps_ad_image_link,
+            lookup("KATPOOL_MPS_AD_IMAGE_LINK"),
+        );
+        // The displayed fee tracks the runtime's real topline fee.
+        if let Some(raw) = lookup("KATPOOL_FEE_TOPLINE_BPS") {
+            cfg.mps_fee_bps = parse(&raw, "KATPOOL_FEE_TOPLINE_BPS")?;
+        }
+        if let Some(raw) = lookup("KATPOOL_MPS_MIN_PAY_KAS") {
+            cfg.mps_min_pay_kas = parse(&raw, "KATPOOL_MPS_MIN_PAY_KAS")?;
+        }
+        // The per-block pool_address echoes the runtime coinbase address; the
+        // bridge's coinbase override uses the first of a comma-separated list.
+        if let Some(raw) = lookup("KATPOOL_POOL_ADDRESS") {
+            let first = raw.split(',').next().unwrap_or(&raw).trim();
+            if !first.is_empty() {
+                first.clone_into(&mut cfg.mps_pool_address);
             }
         }
 

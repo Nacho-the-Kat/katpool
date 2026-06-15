@@ -106,6 +106,13 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(handlers::health::health))
         .route("/ready", get(handlers::health::ready))
         .route("/started", get(handlers::health::started))
+        // Legacy-compatible aggregator feed at the EXACT unversioned path the
+        // legacy pool served, so the miningpoolstats.stream listing survives
+        // the cutover unchanged (ADR-0021 keeps the rest under /api/v1).
+        .route(
+            "/api/pool/miningPoolStats",
+            get(handlers::pool::mining_pool_stats),
+        )
         .nest("/api/v1", v1)
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_BYTES))
