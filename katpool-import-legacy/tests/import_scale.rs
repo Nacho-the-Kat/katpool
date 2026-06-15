@@ -208,6 +208,7 @@ async fn scale_acceptance_local_rehearsal() {
     run_scale(10_000).await;
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_scale(block_count: usize) {
     let env = setup().await;
 
@@ -256,9 +257,14 @@ async fn run_scale(block_count: usize) {
     );
 
     let reconcile_start = Instant::now();
-    let report = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
-        .await
-        .expect("reconcile");
+    let report = reconcile::run(
+        &env.legacy,
+        &env.target,
+        &reconcile::Allowances::default(),
+        &std::collections::HashSet::new(),
+    )
+    .await
+    .expect("reconcile");
     let reconcile_elapsed = reconcile_start.elapsed();
     eprintln!(
         "scale: reconciled {} checks in {:.2?}",
@@ -306,9 +312,14 @@ async fn run_scale(block_count: usize) {
         .expect("krc20 rerun");
     assert_eq!(krc20_2.inserted, 0);
 
-    let report2 = reconcile::run(&env.legacy, &env.target, &reconcile::Allowances::default())
-        .await
-        .expect("reconcile rerun");
+    let report2 = reconcile::run(
+        &env.legacy,
+        &env.target,
+        &reconcile::Allowances::default(),
+        &std::collections::HashSet::new(),
+    )
+    .await
+    .expect("reconcile rerun");
     for c in &report2.checks {
         assert!(c.passed, "post-rerun reconcile mismatch on `{}`", c.name);
     }

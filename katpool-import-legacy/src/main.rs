@@ -54,14 +54,35 @@ struct Args {
     /// is a snapshot that already has the schema applied.
     #[arg(long, default_value_t = false)]
     skip_migrate: bool,
+
+    /// Transforms to skip this run (comma-separated): `blocks`, `balances`,
+    /// `payments`, `nacho_payments`, `krc20`. Skipped transforms are not run
+    /// and their reconcile checks are omitted from the gate. Used at cutover to
+    /// run the fast money tables in the dark window (`--skip blocks`) and
+    /// backfill the display-only blocks afterwards (`--skip
+    /// balances,payments,nacho_payments,krc20`).
+    #[arg(long, value_delimiter = ',')]
+    skip: Vec<String>,
 }
 
+const TRANSFORMS: [&str; 5] = ["blocks", "balances", "payments", "nacho_payments", "krc20"];
+
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
     init_tracing();
 
-    info!(dry_run = args.dry_run, "katpool-import-legacy starting");
+    let skip: std::collections::HashSet<String> = args.skip.iter().cloned().collect();
+    for s in &skip {
+        anyhow::ensure!(
+            TRANSFORMS.contains(&s.as_str()),
+            "unknown --skip transform '{s}'; valid: {}",
+            TRANSFORMS.join(", ")
+        );
+    }
+
+    info!(dry_run = args.dry_run, skip = ?skip, "katpool-import-legacy starting");
 
     // Source pool — small, read-only workload.
     let source_cfg = PoolConfig {
@@ -97,34 +118,64 @@ async fn main() -> Result<(), anyhow::Error> {
     // every later transform reads via `wallet::ensure`), then the
     // independent transforms. Each is idempotent so a partial-failure
     // restart re-runs from the beginning safely.
-    let blocks_stats = blocks::run(&source, &target, args.dry_run)
-        .await
-        .context("transform: block_details")?;
-    info!(transform = "blocks", stats = %blocks_stats, "blocks transform done");
+    let blocks_stats = if skip.contains("blocks") {
+        info!(transform = "blocks", "skipped (--skip)");
+        TransformStats::default()
+    } else {
+        let s = blocks::run(&source, &target, args.dry_run)
+            .await
+            .context("transform: block_details")?;
+        info!(transform = "blocks", stats = %s, "blocks transform done");
+        s
+    };
     totals = totals.add(&blocks_stats);
 
-    let balances_stats = balances::run(&source, &target, args.dry_run)
-        .await
-        .context("transform: miners_balance")?;
-    info!(transform = "balances", stats = %balances_stats, "balances transform done");
+    let balances_stats = if skip.contains("balances") {
+        info!(transform = "balances", "skipped (--skip)");
+        TransformStats::default()
+    } else {
+        let s = balances::run(&source, &target, args.dry_run)
+            .await
+            .context("transform: miners_balance")?;
+        info!(transform = "balances", stats = %s, "balances transform done");
+        s
+    };
     totals = totals.add(&balances_stats);
 
-    let payments_stats = payments::run(&source, &target, args.dry_run)
-        .await
-        .context("transform: payments")?;
-    info!(transform = "payments", stats = %payments_stats, "payments transform done");
+    let payments_stats = if skip.contains("payments") {
+        info!(transform = "payments", "skipped (--skip)");
+        TransformStats::default()
+    } else {
+        let s = payments::run(&source, &target, args.dry_run)
+            .await
+            .context("transform: payments")?;
+        info!(transform = "payments", stats = %s, "payments transform done");
+        s
+    };
     totals = totals.add(&payments_stats);
 
-    let nacho_stats = nacho_payments::run(&source, &target, args.dry_run)
-        .await
-        .context("transform: nacho_payments")?;
-    info!(transform = "nacho_payments", stats = %nacho_stats, "nacho_payments transform done");
+    let nacho_stats = if skip.contains("nacho_payments") {
+        info!(transform = "nacho_payments", "skipped (--skip)");
+        TransformStats::default()
+    } else {
+        let s = nacho_payments::run(&source, &target, args.dry_run)
+            .await
+            .context("transform: nacho_payments")?;
+        info!(transform = "nacho_payments", stats = %s, "nacho_payments transform done");
+        s
+    };
     totals = totals.add(&nacho_stats);
 
-    let (krc20_stats, krc20_rejects) = krc20::run(&source, &target, args.dry_run)
-        .await
-        .context("transform: pending_krc20_transfers")?;
-    info!(transform = "krc20", stats = %krc20_stats, "krc20 transform done");
+    let (krc20_stats, krc20_rejects) = if skip.contains("krc20") {
+        info!(transform = "krc20", "skipped (--skip)");
+        (TransformStats::default(), krc20::StatusRejects::default())
+    } else {
+        let (s, r) = krc20::run(&source, &target, args.dry_run)
+            .await
+            .context("transform: pending_krc20_transfers")?;
+        info!(transform = "krc20", stats = %s, "krc20 transform done");
+        (s, r)
+    };
     totals = totals.add(&krc20_stats);
 
     // Reconciliation pass is read-only and runs even in dry-run
@@ -144,7 +195,7 @@ async fn main() -> Result<(), anyhow::Error> {
         krc20_completed: krc20_rejects.completed,
         krc20_failed: krc20_rejects.failed,
     };
-    let reconcile_report = reconcile::run(&source, &target, &allowances)
+    let reconcile_report = reconcile::run(&source, &target, &allowances, &skip)
         .await
         .context("reconcile")?;
 
@@ -154,6 +205,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let report = serde_json::json!({
         "version": katpool_import_legacy::VERSION,
         "dry_run": args.dry_run,
+        "skipped_transforms": &args.skip,
         "elapsed_secs": elapsed.as_secs_f64(),
         "transforms": {
             "blocks":          stats_to_json(&blocks_stats),

@@ -54,18 +54,26 @@ legacy stops, sessions drop and reconnect to the new edge.
 ## Pre-import (ahead of the window, legacy still serving)
 
 Run the importer once into the **production DB** (the one the promoted pool will
-use — *not* the canary soak DB) so the heavy lifting is already done and proven:
+use — *not* the canary soak DB) so the bulk is already loaded and proven:
 
 ```
 LEGACY_DATABASE_URL=…  KATPOOL_DATABASE_URL=<prod-db>  \
   ./scripts/legacy-importer-rehearsal.sh --no-dry-run
 ```
 
-**Gate:** exit 0 and `reconcile_all_passed == true` (reject-aware — the only
-tolerated gap is the importer's documented invalid-row rejects). The importer is
-idempotent, so re-running at T-0 only writes the rows legacy added since.
+The importer re-scans every legacy row (it is **idempotent**, not incremental),
+so a full run is ~15–30 min — dominated by `block_details` (~567k rows). Against
+a *live* legacy DB the reconcile will show small residuals on the append/mutate
+tables (`blocks` grows; `nacho_rebate` moves); those go to **zero at T-0** once
+legacy is stopped. What the pre-import proves is that the documented
+reject/dedup **allowances are exact** (the money checks go green).
 
-## Cutover (dark window ≈ one reconnect, ~30–60 s)
+## Cutover (split import → dark window ≈ a few minutes)
+
+The slow `blocks` transform is **display-only** (not used by the treasury scan
+or payouts), so it is deferred out of the dark window. Only the money-critical
+tables — `balances`/`payments`/`nacho_payments`/`krc20` (seconds) — are imported
+and gated before promote; `blocks` is backfilled afterwards.
 
 1. **Snapshot (rollback safety).** `pg_dump` the legacy DB →
    `cutover-evidence/…pre_cutover_<ts>.sql.gz`; record treasury KAS/NACHO
@@ -75,9 +83,12 @@ idempotent, so re-running at T-0 only writes the rows legacy added since.
 3. **Stop legacy.** `docker compose stop katpool-app go-app katpool-payment
    katpool-monitor katpool-backup` — **do not remove** (rollback). *(Invariant 2.)*
    The dark window starts here.
-4. **Delta import + reconcile.** Re-run the importer (same env as pre-import).
-   Because the bulk is already imported this is fast.
-   **Gate:** importer exit 0 **and** `reconcile_all_passed == true`, else abort.
+4. **Fast money import + reconcile gate.** Re-run the importer with
+   `--skip blocks` (balances/payments/nacho/krc20 only; ~2–3 min). With legacy
+   stopped this is exact. **Gate:** exit 0 **and** `reconcile_all_passed == true`
+   (blocks checks are omitted by `--skip`), else abort. This also refreshes the
+   carried `nacho_rebate` balances to their final post-flush values *before* the
+   pool can accrue forward (avoids a rebate write race).
 5. **Promote the new pool.** In `ops/env/mainnet.env`: point at the prod DB, set
    `KATPOOL_POOL_ADDRESS` → the treasury address, `KATPOOL_TREASURY_CREDENTIAL`
    (key cred), `KATPOOL_COINBASE_MIN_DAA_SCORE` → the current treasury DAA, and
@@ -85,8 +96,13 @@ idempotent, so re-running at T-0 only writes the rows legacy added since.
    (`scripts/deploy.sh --network mainnet`) and confirm `/ready`.
 6. **Flip DNS** — point every `.xyz` stratum record (and `kas.katpool.com`) at
    the fly anycast IP **`137.66.3.144`** / **`2a09:8280:1::129:8e82:0`**. Miners
-   reconnect once over ~30–60 s. *(Invariant 5 is the reverse of this.)*
-7. **Verify, then go live.** Shares accepted; coinbases land on the treasury;
+   reconnect once over ~30–60 s. *(Invariant 5 is the reverse of this.)* The dark
+   window ends here.
+7. **Backfill blocks (background, legacy still stopped).** Run the importer with
+   `--skip balances,payments,nacho_payments,krc20` (blocks only — historical
+   display; legacy hashes never collide with the live pool's new blocks). When it
+   finishes, a full `--skip` (none) reconcile should be all-green.
+8. **Verify, then go live.** Shares accepted; coinbases land on the treasury;
    the public API + MiningPoolStats feed (`/api/pool/miningPoolStats`) serve
    from the new pool. Let one payout **dry-run** cycle log a clean plan, then
    flip `KATPOOL_PAYOUT_DRY_RUN=false` + `KATPOOL_KRC20_PAYOUT_DRY_RUN=false`
