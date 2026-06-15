@@ -38,7 +38,7 @@
     clippy::explicit_auto_deref
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use katpool_db::repo::payout::{self, PayoutKind};
@@ -80,6 +80,8 @@ pub async fn run(
                 stats.inserted += g.inserted;
                 stats.skipped += g.skipped;
                 stats.rejected += g.rejected;
+                stats.rejected_amount = stats.rejected_amount.saturating_add(g.rejected_amount);
+                stats.deduped_amount = stats.deduped_amount.saturating_add(g.deduped_amount);
             }
             Err(e) => return Err(e.context(format!("import payments cycle tx_hash={tx_hash}"))),
         }
@@ -94,6 +96,10 @@ struct GroupStats {
     inserted: u64,
     skipped: u64,
     rejected: u64,
+    /// Sompi over rejected rows (invalid wallet/tx/amount).
+    rejected_amount: i64,
+    /// Sompi collapsed by a within-cycle duplicate wallet.
+    deduped_amount: i64,
 }
 
 async fn import_group(
@@ -107,6 +113,9 @@ async fn import_group(
         // The on-chain tx hash itself didn't parse — reject every
         // row in this cycle.
         stats.rejected += group.len() as u64;
+        stats.rejected_amount = group
+            .iter()
+            .fold(0_i64, |acc, r| acc.saturating_add(r.amount));
         warn!(tx_hash, "payments cycle rejected: tx_hash not 64-char hex");
         return Ok(stats);
     };
@@ -129,8 +138,24 @@ async fn import_group(
     let mut cycle_total: i64 = 0;
     let mut cycle_recipients: i32 = 0;
     let earliest_ts = group_earliest_ts(group);
+    // Wallets credited in this cycle THIS run. A second row for the same wallet
+    // is collapsed by UNIQUE (cycle_id, wallet_id); tracking it here (rather
+    // than via ON CONFLICT) keeps the deduped tally run-stable across the
+    // idempotent T-0 delta re-run.
+    let mut seen: HashSet<i64> = HashSet::new();
+    let mut deduped: i64 = 0;
     for row in group {
-        match insert_payout_for_row(&mut *tx, cycle.id, tx_hash_bytes, earliest_ts, row).await? {
+        match insert_payout_for_row(
+            &mut *tx,
+            cycle.id,
+            tx_hash_bytes,
+            earliest_ts,
+            row,
+            &mut seen,
+            &mut deduped,
+        )
+        .await?
+        {
             PayoutOutcome::Inserted(amount) => {
                 stats.inserted += 1;
                 cycle_total = cycle_total.saturating_add(amount);
@@ -139,10 +164,12 @@ async fn import_group(
             PayoutOutcome::Skipped => stats.skipped += 1,
             PayoutOutcome::Rejected(reason) => {
                 stats.rejected += 1;
+                stats.rejected_amount = stats.rejected_amount.saturating_add(row.amount);
                 warn!(id = row.id, reason, "payments row rejected");
             }
         }
     }
+    stats.deduped_amount = deduped;
 
     payout::set_cycle_totals(&mut *tx, cycle.id, cycle_total, cycle_recipients).await?;
     payout::mark_cycle_broadcasting(&mut *tx, cycle.id).await?;
@@ -164,6 +191,8 @@ async fn insert_payout_for_row(
     tx_hash: BlockHash,
     earliest_ts: Option<NaiveDateTime>,
     row: &LegacyPayment,
+    seen: &mut HashSet<i64>,
+    deduped: &mut i64,
 ) -> Result<PayoutOutcome, anyhow::Error> {
     // Legacy `wallet_address` is `text[]`. Production data always has
     // exactly one entry per row, but the importer is defensive and
@@ -187,12 +216,25 @@ async fn insert_payout_for_row(
     }
 
     // Resolve each recipient address → wallet row.
+    let mut any_inserted = false;
     for addr in &row.wallet_address {
         let Ok(wallet_addr) = WalletAddress::new(addr.clone()) else {
             return Ok(PayoutOutcome::Rejected("wallet fails domain validation"));
         };
         let w = wallet::ensure(&mut *tx, &wallet_addr, LEGACY_NETWORK).await?;
-        let outcome = insert_one_payout(
+        if !seen.insert(w.id.0) {
+            // Same wallet already credited in this cycle this run: the
+            // UNIQUE (cycle_id, wallet_id) constraint collapses it. Count the
+            // amount so the reconcile can tolerate exactly this much.
+            *deduped = deduped.saturating_add(per_recipient_sompi);
+            debug!(
+                cycle_id,
+                wallet = addr,
+                "within-cycle duplicate wallet; collapsed"
+            );
+            continue;
+        }
+        match insert_one_payout(
             tx,
             cycle_id,
             w.id,
@@ -200,13 +242,22 @@ async fn insert_payout_for_row(
             tx_hash,
             earliest_ts,
         )
-        .await?;
-        if matches!(outcome, InsertOutcome::AlreadyExists) {
-            debug!(cycle_id, wallet = addr, "payout already exists; skip");
-            return Ok(PayoutOutcome::Skipped);
+        .await?
+        {
+            InsertOutcome::Inserted => any_inserted = true,
+            // Already in the target from a prior idempotent run — not a dedup.
+            InsertOutcome::AlreadyExists => {
+                debug!(cycle_id, wallet = addr, "payout already exists; skip");
+            }
         }
     }
-    Ok(PayoutOutcome::Inserted(row.amount))
+    // `Inserted` if anything was newly credited; otherwise `Skipped` (the row
+    // was either an idempotent re-hit or fully collapsed into `deduped`).
+    if any_inserted {
+        Ok(PayoutOutcome::Inserted(row.amount))
+    } else {
+        Ok(PayoutOutcome::Skipped)
+    }
 }
 
 enum InsertOutcome {
@@ -250,16 +301,19 @@ async fn insert_one_payout(
 fn classify_dry_run(row: &LegacyPayment, mut stats: GroupStats) -> GroupStats {
     if row.wallet_address.is_empty() {
         stats.rejected += 1;
+        stats.rejected_amount = stats.rejected_amount.saturating_add(row.amount);
         return stats;
     }
     let per = row.amount / (row.wallet_address.len() as i64);
     if per <= 0 {
         stats.rejected += 1;
+        stats.rejected_amount = stats.rejected_amount.saturating_add(row.amount);
         return stats;
     }
     for addr in &row.wallet_address {
         if WalletAddress::new(addr.clone()).is_err() {
             stats.rejected += 1;
+            stats.rejected_amount = stats.rejected_amount.saturating_add(row.amount);
             return stats;
         }
     }
