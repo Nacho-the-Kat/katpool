@@ -121,15 +121,24 @@ async fn main() -> Result<(), anyhow::Error> {
     info!(transform = "nacho_payments", stats = %nacho_stats, "nacho_payments transform done");
     totals = totals.add(&nacho_stats);
 
-    let krc20_stats = krc20::run(&source, &target, args.dry_run)
+    let (krc20_stats, krc20_rejects) = krc20::run(&source, &target, args.dry_run)
         .await
         .context("transform: pending_krc20_transfers")?;
     info!(transform = "krc20", stats = %krc20_stats, "krc20 transform done");
     totals = totals.add(&krc20_stats);
 
     // Reconciliation pass is read-only and runs even in dry-run
-    // mode (so operators see "this is what cutover would prove").
-    let reconcile_report = reconcile::run(&source, &target)
+    // mode (so operators see "this is what cutover would prove"). The reconcile
+    // tolerates exactly the rows each transform intentionally rejected (invalid
+    // legacy data), so the gate is green iff the only legacy→new gap is those.
+    let allowances = reconcile::Allowances {
+        blocks_count: i64::try_from(blocks_stats.rejected).unwrap_or(i64::MAX),
+        blocks_reward_sompi: blocks_stats.rejected_amount,
+        krc20_pending: krc20_rejects.pending,
+        krc20_completed: krc20_rejects.completed,
+        krc20_failed: krc20_rejects.failed,
+    };
+    let reconcile_report = reconcile::run(&source, &target, &allowances)
         .await
         .context("reconcile")?;
 
@@ -167,6 +176,7 @@ fn stats_to_json(s: &TransformStats) -> serde_json::Value {
         "inserted": s.inserted,
         "skipped": s.skipped,
         "rejected": s.rejected,
+        "rejected_amount": s.rejected_amount,
     })
 }
 

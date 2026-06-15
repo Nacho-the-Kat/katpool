@@ -87,7 +87,7 @@ async fn krc20_maps_each_status_correctly() {
     )
     .await;
 
-    let stats = krc20::run(&env.legacy, &env.target, false)
+    let (stats, _) = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("run");
     assert_eq!(stats.read, 3);
@@ -177,7 +177,7 @@ async fn krc20_idempotent_rerun() {
     let _ = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("run1");
-    let stats2 = krc20::run(&env.legacy, &env.target, false)
+    let (stats2, _) = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("run2");
     assert_eq!(stats2.skipped, 1);
@@ -227,7 +227,7 @@ async fn krc20_rejects_invalid_recipient_or_amounts() {
     )
     .await;
 
-    let stats = krc20::run(&env.legacy, &env.target, false)
+    let (stats, _) = krc20::run(&env.legacy, &env.target, false)
         .await
         .expect("run");
     assert_eq!(stats.read, 3);
@@ -250,7 +250,7 @@ async fn krc20_dry_run_writes_nothing() {
     )
     .await;
 
-    let stats = krc20::run(&env.legacy, &env.target, true)
+    let (stats, _) = krc20::run(&env.legacy, &env.target, true)
         .await
         .expect("dry");
     assert_eq!(stats.inserted, 1);
