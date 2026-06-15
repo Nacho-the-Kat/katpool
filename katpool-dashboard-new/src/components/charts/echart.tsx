@@ -61,25 +61,33 @@ export function EChart({
 }: EChartProps) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
-  // True while the pointer is over the canvas. Applying new data mid-hover
+  // True while the pointer is over the chart. Applying new data mid-hover
   // strands the axis pointer (it freezes and stops tracking) and resets pie
   // emphasis (a visible flicker) — a known ECharts setOption-during-hover
   // interaction. We hold the latest update here and flush it on pointer-leave.
+  //
+  // Hover is tracked with the CONTAINER's mouseenter/mouseleave — NOT zrender's
+  // mousemove/globalout. ECharts renders its (confined) tooltip as a child of
+  // the container, so when the tooltip slides under the cursor the canvas fires
+  // a spurious `globalout`; the old code treated that as "left the chart",
+  // flushed a setOption mid-hover, and stranded the crosshair (it stopped
+  // following the mouse and never cleared). mouseleave ignores moves onto child
+  // elements, so it only fires when the pointer truly leaves the chart.
   const hoveringRef = useRef(false);
   const pendingRef = useRef<PendingUpdate | null>(null);
 
   useEffect(() => {
-    if (!ref.current) return;
-    const chart = echarts.init(ref.current, undefined, { renderer: "canvas" });
+    const el = ref.current;
+    if (!el) return;
+    const chart = echarts.init(el, undefined, { renderer: "canvas" });
     chartRef.current = chart;
     const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(ref.current);
+    ro.observe(el);
 
-    const zr = chart.getZr();
-    const onMove = () => {
+    const onEnter = () => {
       hoveringRef.current = true;
     };
-    const onOut = () => {
+    const onLeave = () => {
       hoveringRef.current = false;
       const pending = pendingRef.current;
       if (pending) {
@@ -90,13 +98,13 @@ export function EChart({
         });
       }
     };
-    zr.on("mousemove", onMove);
-    zr.on("globalout", onOut);
+    el.addEventListener("mouseenter", onEnter);
+    el.addEventListener("mouseleave", onLeave);
 
     return () => {
       ro.disconnect();
-      zr.off("mousemove", onMove);
-      zr.off("globalout", onOut);
+      el.removeEventListener("mouseenter", onEnter);
+      el.removeEventListener("mouseleave", onLeave);
       chart.dispose();
       chartRef.current = null;
     };
