@@ -63,7 +63,14 @@ export function OverviewHero() {
   );
   const hashDelta = useMemo(() => trendDelta(hashSpark), [hashSpark]);
 
-  const poolHs = stats.data?.hashrate_hs ?? null;
+  // Headline matches the sparkline: use the latest point of the same 24h
+  // history series (a bucket-averaged value) rather than the noisy
+  // short-window stats estimate, so the big number and the chart agree and it
+  // stops jumping. Falls back to the stats estimate before history loads.
+  const poolHs =
+    hashSpark.length > 0
+      ? (hashSpark[hashSpark.length - 1] ?? null)
+      : (stats.data?.hashrate_hs ?? null);
   const netHs = network.data?.network_hashrate_hs ?? 0;
   const netShare = poolHs != null && netHs > 0 ? (poolHs / netHs) * 100 : null;
   // Only surface a network share when it's physically plausible. A pool cannot
