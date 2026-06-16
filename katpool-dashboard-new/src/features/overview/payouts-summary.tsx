@@ -52,12 +52,6 @@ export function PayoutsSummary() {
             value={formatKas(data.payouts.kas_confirmed.kas)}
             sub={kasUsd != null ? formatUsd(sompiToUsd(data.payouts.kas_confirmed.sompi, kasUsd)) : undefined}
           />
-          <Row
-            icon={<Sparkles className="size-4" />}
-            label="NACHO paid (KAS value)"
-            value={formatKas(data.payouts.nacho_confirmed.kas)}
-            sub={`${formatNumber(data.payouts.confirmed_payouts)} payouts`}
-          />
           {data.treasury ? (
             <>
               <Separator className="my-1" />
