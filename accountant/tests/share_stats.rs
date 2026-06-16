@@ -142,10 +142,17 @@ async fn hashrate_estimate_uses_2_pow_32_factor() {
         .await
         .unwrap();
     }
-    // Use a window that's wide enough that the rate query is well
-    // above the 1-second floor.
-    let until = Utc::now() + Duration::seconds(60);
-    let since = until - Duration::seconds(100);
+    // Anchor the window to the first share so the (pool-age-clamped)
+    // denominator is exactly the intended 100 s: shares are all credited at
+    // insert time, and the hashrate estimator divides by
+    // `until - max(since, first_share_in_window)`, so a window that started
+    // before the first share would otherwise shrink the denominator.
+    let first: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT min(credited_at) FROM share")
+        .fetch_one(&env.db)
+        .await
+        .unwrap();
+    let since = first;
+    let until = first + Duration::seconds(100);
     let rate = share_stats::hashrate_estimate_for_wallet(&env.db, wa, since, until)
         .await
         .unwrap();
