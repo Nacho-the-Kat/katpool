@@ -910,6 +910,73 @@ async fn kas_eligible_wallets_subtracts_confirmed_kas_payouts() {
 }
 
 #[tokio::test]
+async fn kas_eligible_excludes_legacy_imported_payouts() {
+    // A legacy payout imported at cutover (cycle keyed `kas-legacy-<hash>`)
+    // settles pre-cutover earnings that were never imported into
+    // share_allocation. It must NOT reduce the post-cutover payable balance —
+    // otherwise every migrated wallet shows a massively negative payable and
+    // the payout engine never selects it (regression: cutover balance bug).
+    let (pool, _ctr) = fresh_pool().await;
+    let (_block_id, reward_id, wallet_id) = make_matured_block(&pool).await;
+
+    let row = share_allocation::NewAllocation {
+        wallet_id,
+        weight: 1.0,
+        window_total: 1.0,
+        gross_share_sompi: 1_000_000_000,
+        pool_fee_sompi: 5_000_000,
+        nacho_accrual_sompi: 2_000_000,
+        net_payout_sompi: 993_000_000,
+        applied_topline_bps: 75,
+        applied_rebate_bps: 3_300,
+        applied_tier: share_allocation::DbWalletTier::Standard,
+    };
+    share_allocation::insert_batch(&pool, reward_id, &[row])
+        .await
+        .expect("alloc");
+
+    // Insert a legacy-tagged cutover cycle directly — create_cycle only mints
+    // `kas-<daa>-<daa>` keys; the importer uses `kas-legacy-<hash>`.
+    sqlx::query(
+        "INSERT INTO payout_cycle (kind, daa_start, daa_end, idempotency_key)
+         VALUES ('kas'::payout_kind, 0, 1, 'kas-legacy-deadbeef')",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert legacy cycle");
+    let legacy = payout::find_cycle_by_idempotency_key(&pool, "kas-legacy-deadbeef")
+        .await
+        .expect("find legacy cycle")
+        .expect("legacy cycle exists");
+
+    // A large confirmed legacy payout that would drive payable negative if counted.
+    let p = payout::insert_payout(&pool, legacy.id, wallet_id, 5_000_000_000)
+        .await
+        .expect("legacy payout");
+    payout::mark_payout_submitted(&pool, p.id, BlockHash::from_bytes([2_u8; 32]))
+        .await
+        .expect("submit");
+    payout::mark_payout_confirmed(&pool, p.id)
+        .await
+        .expect("confirm");
+
+    // Legacy payout is excluded: payable stays at the post-cutover allocation.
+    let eligible = payout::list_kas_eligible_wallets(&pool, 500_000_000)
+        .await
+        .expect("eligible");
+    assert_eq!(eligible.len(), 1);
+    assert_eq!(eligible[0].confirmed_paid_sompi, 0);
+    assert_eq!(eligible[0].payable_sompi, 993_000_000);
+
+    // Single-wallet path agrees.
+    let bal = payout::kas_payable_for_wallet(&pool, wallet_id)
+        .await
+        .expect("balance");
+    assert_eq!(bal.confirmed_paid_sompi, 0);
+    assert_eq!(bal.payable_sompi, 993_000_000);
+}
+
+#[tokio::test]
 async fn idempotency_key_format_is_stable() {
     assert_eq!(
         payout::idempotency_key(PayoutKind::Kas, DaaScore::new(100), DaaScore::new(200)),
