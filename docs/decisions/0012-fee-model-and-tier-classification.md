@@ -17,10 +17,12 @@ and required to remain operationally identical:
 - **Elite miners.** Same topline fee; receive 100% of it back as
   NACHO tokens. Effective KAS net: `gross × (1 − topline)`.
 
-A miner qualifies as Elite by either:
+A miner qualifies as Elite by **any one** of:
 1. Owning at least one token from the `NACHO` KRC-721 collection
    on Kasplex, **or**
-2. Holding at least 100,000,000 NACHO tokens (at the KRC-20
+2. Owning at least one token from the `KATCLAIM` KRC-721 collection
+   on Kasplex, **or**
+3. Holding at least 100,000,000 NACHO tokens (at the KRC-20
    standard 8-decimal precision = 10¹⁶ base units).
 
 The new accountant must reproduce this model exactly while making
@@ -89,11 +91,13 @@ implementations:
 
 - `StaticTierClassifier` (this milestone) — always returns a
   configured tier; for tests and as a safe fallback.
-- `KasplexTierClassifier` (Phase 3 M3) — HTTP client backed by two
-  endpoints:
+- `KasplexTierClassifier` (Phase 3 M3) — HTTP client backed by three
+  endpoints (any one true ⇒ Elite):
     1. `GET https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/NACHO`
        — wallet has ≥ 1 NACHO KRC-721 token iff `result.is_empty() == false`.
-    2. `GET https://api.kasplex.org/v1/krc20/address/{addr}/token/NACHO`
+    2. `GET https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/KATCLAIM`
+       — wallet has ≥ 1 KATCLAIM KRC-721 token iff `result.is_empty() == false`.
+    3. `GET https://api.kasplex.org/v1/krc20/address/{addr}/token/NACHO`
        — wallet has ≥ 100M NACHO iff `balance + locked >= 10^16`
        base units (NACHO is 8-decimal precision, so 100M tokens
        = `10^16` base units).

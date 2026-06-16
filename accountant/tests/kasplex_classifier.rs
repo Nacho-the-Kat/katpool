@@ -99,6 +99,60 @@ async fn returns_elite_when_wallet_holds_an_nft() {
 }
 
 #[tokio::test]
+async fn returns_elite_when_wallet_holds_katclaim_nft_only() {
+    // No NACHO NFT, no threshold KRC-20 balance — but a KATCLAIM NFT
+    // independently qualifies the wallet as Elite.
+    let nft_server = MockServer::start().await;
+    let krc20_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/krc721/mainnet/address/{TEST_WALLET}/NACHO"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "success",
+            "result": []
+        })))
+        .mount(&nft_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/krc721/mainnet/address/{TEST_WALLET}/KATCLAIM"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "success",
+            "result": [{"tick": "KATCLAIM", "tokenId": "458", "opScoreMod": "1"}]
+        })))
+        .mount(&nft_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/krc20/address/{TEST_WALLET}/token/NACHO")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "successful",
+            "result": []
+        })))
+        .mount(&krc20_server)
+        .await;
+
+    let cfg = KasplexConfig {
+        nft_base: nft_server.uri(),
+        krc20_base: krc20_server.uri(),
+        nft_ticker: "NACHO".to_owned(),
+        krc20_ticker: "NACHO".to_owned(),
+        elite_krc20_threshold_base_units: 10_000_000_000_000_000,
+        ttl: Duration::from_secs(60),
+        http_timeout: Duration::from_secs(2),
+        ..KasplexConfig::default()
+    };
+    let cls = KasplexTierClassifier::new(cfg).expect("build classifier");
+    let tier = cls.classify(&test_wallet()).await.expect("classify");
+    assert_eq!(
+        tier,
+        WalletTier::Elite,
+        "KATCLAIM NFT alone should mark elite"
+    );
+}
+
+#[tokio::test]
 async fn returns_elite_when_wallet_holds_threshold_krc20_balance() {
     // 10^16 = exactly the threshold.
     let (cls, _nft, _krc20) =
@@ -176,6 +230,17 @@ async fn caches_result_within_ttl() {
         .mount(&nft_server)
         .await;
     Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/krc721/mainnet/address/{TEST_WALLET}/KATCLAIM"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "success",
+            "result": []
+        })))
+        .expect(1)
+        .mount(&nft_server)
+        .await;
+    Mock::given(method("GET"))
         .and(path(format!("/v1/krc20/address/{TEST_WALLET}/token/NACHO")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "message": "successful",
@@ -227,6 +292,17 @@ async fn clear_cache_forces_refetch() {
     Mock::given(method("GET"))
         .and(path(format!(
             "/api/v1/krc721/mainnet/address/{TEST_WALLET}/NACHO"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "message": "success",
+            "result": []
+        })))
+        .expect(2)
+        .mount(&nft_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/api/v1/krc721/mainnet/address/{TEST_WALLET}/KATCLAIM"
         )))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "message": "success",
