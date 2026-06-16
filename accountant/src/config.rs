@@ -127,9 +127,10 @@ impl FeeConfig {
 pub enum WalletTier {
     /// Default tier; 33% NACHO rebate on the topline fee.
     Standard,
-    /// Holds at least one `NACHO` KRC-721 token, OR ≥ 100M NACHO
-    /// (10^16 base units at 8 decimals). 100% NACHO rebate on the
-    /// topline fee.
+    /// Holds at least one `NACHO` KRC-721 token, OR at least one
+    /// `KATCLAIM` KRC-721 token, OR ≥ 100M NACHO (10^16 base units at
+    /// 8 decimals). Any single trigger qualifies. 100% NACHO rebate on
+    /// the topline fee.
     Elite,
 }
 

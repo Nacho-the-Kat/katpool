@@ -1,17 +1,20 @@
 //! Cached HTTP [`TierClassifier`] backed by Kasplex (KRC-721 +
 //! KRC-20) indexers.
 //!
-//! Elite criterion (per [ADR-0012]):
+//! Elite criterion (per [ADR-0012]) — **any one** of three:
 //! 1. **OR**: the wallet owns ≥ 1 token in the `NACHO` KRC-721
 //!    collection, looked up via
 //!    `GET {nft_base}/api/v1/krc721/mainnet/address/{addr}/NACHO`.
-//! 2. **OR**: the wallet's NACHO KRC-20 balance + locked
+//! 2. **OR**: the wallet owns ≥ 1 token in the `KATCLAIM` KRC-721
+//!    collection, looked up via
+//!    `GET {nft_base}/api/v1/krc721/mainnet/address/{addr}/KATCLAIM`.
+//! 3. **OR**: the wallet's NACHO KRC-20 balance + locked
 //!    holdings ≥ 100,000,000 NACHO at the token's 8-decimal
 //!    precision (≥ 10^16 base units), looked up via
 //!    `GET {krc20_base}/v1/krc20/address/{addr}/token/NACHO`.
 //!
-//! Either condition individually qualifies the wallet as Elite.
-//! Both endpoints are queried in parallel for latency.
+//! Any single condition qualifies the wallet as Elite. All three
+//! endpoints are queried in parallel for latency.
 //!
 //! ## Safety fallback
 //!
@@ -67,6 +70,10 @@ pub const DEFAULT_KRC20_BASE: &str = "https://api.kasplex.org";
 /// Default NACHO collection ticker (case-sensitive on kasplex).
 pub const DEFAULT_NACHO_TICKER: &str = "NACHO";
 
+/// Default KATCLAIM KRC-721 collection ticker (case-sensitive on kasplex).
+/// Holding any KATCLAIM NFT independently qualifies a wallet as Elite.
+pub const DEFAULT_KATCLAIM_TICKER: &str = "KATCLAIM";
+
 /// Default minimum KRC-20 NACHO base-unit holding for Elite tier:
 /// `100_000_000 NACHO × 10^8 base-units-per-NACHO = 10^16`.
 pub const DEFAULT_ELITE_KRC20_THRESHOLD: u128 = 10_000_000_000_000_000;
@@ -94,8 +101,11 @@ pub struct KasplexConfig {
     pub nft_base: String,
     /// Base URL for the KRC-20 indexer (no trailing slash).
     pub krc20_base: String,
-    /// Collection ticker — case-sensitive on kasplex.
+    /// NACHO KRC-721 collection ticker — case-sensitive on kasplex.
     pub nft_ticker: String,
+    /// KATCLAIM KRC-721 collection ticker — case-sensitive on kasplex.
+    /// Queried on the same `nft_base` indexer as `nft_ticker`.
+    pub katclaim_nft_ticker: String,
     /// KRC-20 ticker (same as collection ticker in production).
     pub krc20_ticker: String,
     /// Minimum KRC-20 base-unit holding for Elite tier.
@@ -116,6 +126,7 @@ impl Default for KasplexConfig {
             nft_base: DEFAULT_NFT_BASE.to_owned(),
             krc20_base: DEFAULT_KRC20_BASE.to_owned(),
             nft_ticker: DEFAULT_NACHO_TICKER.to_owned(),
+            katclaim_nft_ticker: DEFAULT_KATCLAIM_TICKER.to_owned(),
             krc20_ticker: DEFAULT_NACHO_TICKER.to_owned(),
             elite_krc20_threshold_base_units: DEFAULT_ELITE_KRC20_THRESHOLD,
             ttl: DEFAULT_TTL,
@@ -265,16 +276,20 @@ impl KasplexTierClassifier {
         self.cache.lock().await.insert(key, entry);
     }
 
-    /// Returns `Ok(true)` iff the wallet owns ≥ 1 NACHO NFT.
-    /// `Ok(false)` for legitimate empty results; `Err(...)` for
-    /// any failure mode the caller should treat as
-    /// classification-degraded.
-    async fn fetch_nft(&self, wallet: &WalletAddress) -> Result<bool, ClassifierError> {
+    /// Returns `Ok(true)` iff the wallet owns ≥ 1 token in the given
+    /// KRC-721 `ticker` collection. `Ok(false)` for legitimate empty
+    /// results; `Err(...)` for any failure mode the caller should
+    /// treat as classification-degraded.
+    async fn fetch_nft(
+        &self,
+        wallet: &WalletAddress,
+        ticker: &str,
+    ) -> Result<bool, ClassifierError> {
         let url = format!(
             "{}/api/v1/krc721/mainnet/address/{}/{}",
             self.cfg.nft_base,
             wallet.as_str(),
-            self.cfg.nft_ticker
+            ticker
         );
         let resp = self
             .http
@@ -365,40 +380,46 @@ impl TierClassifier for KasplexTierClassifier {
             return Ok(WalletTier::Standard);
         }
 
-        // Query both endpoints in parallel; either-true ⇒ Elite.
-        // We do NOT short-circuit on the first response because the
-        // second request is already in flight; cancelling it would
-        // leak a connection. Joining both completes both, then
-        // takes the disjunction.
-        let nft_fut = self.fetch_nft(wallet);
+        // Query all three triggers in parallel; any-true ⇒ Elite. We do
+        // NOT short-circuit on the first response because the others are
+        // already in flight; cancelling would leak connections. Join all,
+        // then take the disjunction.
+        let nacho_nft_fut = self.fetch_nft(wallet, &self.cfg.nft_ticker);
+        let katclaim_nft_fut = self.fetch_nft(wallet, &self.cfg.katclaim_nft_ticker);
         let krc20_fut = self.fetch_krc20(wallet);
-        let (nft_res, krc20_res) = tokio::join!(nft_fut, krc20_fut);
+        let (nacho_nft, katclaim_nft, krc20) =
+            tokio::join!(nacho_nft_fut, katclaim_nft_fut, krc20_fut);
 
-        match (nft_res, krc20_res) {
-            (Ok(true), _) | (_, Ok(true)) => {
-                self.breaker.lock().await.on_success();
-                self.store(key, WalletTier::Elite).await;
-                Ok(WalletTier::Elite)
-            }
-            (Ok(false), Ok(false)) => {
-                self.breaker.lock().await.on_success();
-                self.store(key, WalletTier::Standard).await;
-                Ok(WalletTier::Standard)
-            }
-            // At least one endpoint errored. Record the failure (which may trip
-            // the breaker) and fall back to the safe `Standard` tier without
-            // caching, so an Elite wallet is re-evaluated once the upstream
-            // recovers rather than being pinned to Standard for the full TTL.
-            (nft, krc20) => {
-                self.breaker.lock().await.on_failure(Instant::now());
-                warn!(
-                    wallet = %wallet.as_str(),
-                    nft_err = ?nft.err(),
-                    krc20_err = ?krc20.err(),
-                    "tier classification degraded; defaulting to Standard"
-                );
-                Ok(WalletTier::Standard)
-            }
+        // Any single trigger (NACHO NFT, KATCLAIM NFT, or ≥100M NACHO)
+        // qualifies — even if a sibling endpoint errored.
+        let any_elite = matches!(nacho_nft, Ok(true))
+            || matches!(katclaim_nft, Ok(true))
+            || matches!(krc20, Ok(true));
+        let any_err = nacho_nft.is_err() || katclaim_nft.is_err() || krc20.is_err();
+
+        if any_elite {
+            self.breaker.lock().await.on_success();
+            self.store(key, WalletTier::Elite).await;
+            Ok(WalletTier::Elite)
+        } else if !any_err {
+            // Every trigger returned a definitive `false`.
+            self.breaker.lock().await.on_success();
+            self.store(key, WalletTier::Standard).await;
+            Ok(WalletTier::Standard)
+        } else {
+            // No definitive Elite and at least one endpoint errored. Record the
+            // failure (which may trip the breaker) and fall back to the safe
+            // `Standard` tier WITHOUT caching, so an Elite wallet is re-evaluated
+            // once the upstream recovers rather than pinned to Standard for the TTL.
+            self.breaker.lock().await.on_failure(Instant::now());
+            warn!(
+                wallet = %wallet.as_str(),
+                nacho_nft_err = ?nacho_nft.as_ref().err(),
+                katclaim_nft_err = ?katclaim_nft.as_ref().err(),
+                krc20_err = ?krc20.as_ref().err(),
+                "tier classification degraded; defaulting to Standard"
+            );
+            Ok(WalletTier::Standard)
         }
     }
 }
@@ -489,6 +510,8 @@ mod tests {
         let c = KasplexConfig::default();
         assert_eq!(c.nft_base, DEFAULT_NFT_BASE);
         assert_eq!(c.krc20_base, DEFAULT_KRC20_BASE);
+        assert_eq!(c.nft_ticker, DEFAULT_NACHO_TICKER);
+        assert_eq!(c.katclaim_nft_ticker, DEFAULT_KATCLAIM_TICKER);
         assert_eq!(c.elite_krc20_threshold_base_units, 10_000_000_000_000_000);
         assert_eq!(c.ttl, DEFAULT_TTL);
         assert_eq!(c.breaker_threshold, DEFAULT_BREAKER_THRESHOLD);
