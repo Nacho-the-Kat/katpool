@@ -375,7 +375,7 @@ pub struct KasEligibleWallet {
     pub network: String,
     /// Lifetime `sum(net_payout_sompi)` from `share_allocation`.
     pub allocated_sompi: i64,
-    /// Lifetime KAS payouts with `status = confirmed`.
+    /// Confirmed KAS payouts, excluding legacy cutover imports.
     pub confirmed_paid_sompi: i64,
     /// `allocated_sompi - confirmed_paid_sompi`.
     pub payable_sompi: i64,
@@ -384,7 +384,9 @@ pub struct KasEligibleWallet {
 /// Wallets whose payable KAS balance meets `threshold_sompi`.
 ///
 /// Payable balance is `sum(share_allocation.net_payout_sompi)` minus
-/// `sum(payout.amount_sompi)` for confirmed rows in `kas` cycles only.
+/// `sum(payout.amount_sompi)` for confirmed rows in `kas` cycles only,
+/// excluding legacy payouts imported at cutover (which settle pre-cutover
+/// earnings not present in `share_allocation`).
 /// In-flight (`planned` / `submitted`) payouts do not reduce payable
 /// balance — the planner records idempotent rows before broadcast (M4.4).
 pub async fn list_kas_eligible_wallets<'e, E: PgExecutor<'e>>(
@@ -411,6 +413,13 @@ pub async fn list_kas_eligible_wallets<'e, E: PgExecutor<'e>>(
                  INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
                 WHERE pc.kind = 'kas'
                   AND po.status = 'confirmed'
+                  -- Exclude legacy payouts imported at cutover. They settle
+                  -- pre-cutover earnings that were NOT imported into
+                  -- share_allocation, so counting them here would subtract the
+                  -- entire legacy payment history from a post-cutover-only
+                  -- allocation total and drive payable deeply negative. The
+                  -- importer tags every imported cycle `kind-legacy-<hash>`.
+                  AND pc.idempotency_key NOT LIKE 'kas-legacy-%'
                 GROUP BY po.wallet_id
            ) p ON p.wallet_id = w.id
           WHERE a.allocated_sompi - COALESCE(p.confirmed_paid_sompi, 0) >= $1
@@ -560,7 +569,8 @@ pub async fn get_payout<'e, E: PgExecutor<'e>>(
 pub struct WalletKasBalance {
     /// Lifetime `sum(share_allocation.net_payout_sompi)`.
     pub allocated_sompi: i64,
-    /// Lifetime confirmed KAS payouts (`payout.amount_sompi`, `kas` cycles).
+    /// Confirmed KAS payouts (`payout.amount_sompi`, `kas` cycles),
+    /// excluding legacy cutover imports.
     pub confirmed_paid_sompi: i64,
     /// `allocated_sompi - confirmed_paid_sompi` — the unpaid KAS balance.
     pub payable_sompi: i64,
@@ -588,6 +598,10 @@ pub async fn kas_payable_for_wallet<'e, E: PgExecutor<'e>>(
                        INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
                       WHERE pc.kind = 'kas'
                         AND po.status = 'confirmed'
+                        -- Exclude legacy payouts imported at cutover (they
+                        -- settle pre-cutover earnings absent from
+                        -- share_allocation); see list_kas_eligible_wallets.
+                        AND pc.idempotency_key NOT LIKE 'kas-legacy-%'
                         AND po.wallet_id = $1), 0)",
     )
     .bind(wallet_id.0)
