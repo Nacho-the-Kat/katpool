@@ -48,6 +48,31 @@ fn hashrate_hs(weight: f64, secs: f64) -> f64 {
     weight * HASHES_PER_DIFFICULTY / secs
 }
 
+/// Wall-clock seconds to divide a windowed share-weight by, clamped to the
+/// span the pool actually existed within `[since, until)`.
+///
+/// A windowed hashrate is `weight × 2^32 / seconds`. Dividing by the full
+/// nominal window over-states the denominator whenever the pool is younger
+/// than the window (e.g. a 24h leaderboard the day after a fresh cutover):
+/// there is no share data for the part of the window that predates the pool,
+/// so every figure is uniformly under-reported. `pool_first` is the earliest
+/// share present in the window (pool-wide); when it is later than `since` it
+/// becomes the effective window start, so the rate reflects the period over
+/// which shares could actually have been produced. For a pool older than the
+/// window `pool_first <= since`, leaving the full window in force. Never < 1.
+#[must_use]
+fn effective_window_secs(
+    since: DateTime<Utc>,
+    until: DateTime<Utc>,
+    pool_first: Option<DateTime<Utc>>,
+) -> f64 {
+    let start = match pool_first {
+        Some(first) if first > since => first,
+        _ => since,
+    };
+    (until - start).num_seconds().max(1) as f64
+}
+
 /// Per-miner accepted-share aggregates over a time window.
 #[derive(Debug, Clone, Copy, PartialEq, sqlx::FromRow)]
 pub struct AcceptedShareStats {
@@ -129,8 +154,12 @@ where
             message: "hashrate_estimate_for_wallet: until must be after since".to_owned(),
         });
     }
-    let weight: Option<f64> = sqlx::query_scalar(
-        "SELECT sum(difficulty)
+    // Pool-wide `min(credited_at)` (not wallet-scoped) so the denominator
+    // corrects only for pool age, not for when this wallet joined.
+    let row: (Option<f64>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT sum(difficulty),
+                (SELECT min(credited_at) FROM share
+                  WHERE credited_at >= $2 AND credited_at < $3)
            FROM share
           WHERE wallet_id = $1
             AND credited_at >= $2
@@ -141,8 +170,8 @@ where
     .bind(until)
     .fetch_one(executor)
     .await?;
-    let weight = weight.unwrap_or(0.0);
-    let secs = (until - since).num_seconds().max(1) as f64;
+    let weight = row.0.unwrap_or(0.0);
+    let secs = effective_window_secs(since, until, row.1);
     Ok(hashrate_hs(weight, secs))
 }
 
@@ -160,8 +189,8 @@ where
             message: "hashrate_estimate_pool_wide: until must be after since".to_owned(),
         });
     }
-    let weight: Option<f64> = sqlx::query_scalar(
-        "SELECT sum(difficulty)
+    let row: (Option<f64>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT sum(difficulty), min(credited_at)
            FROM share
           WHERE credited_at >= $1
             AND credited_at <  $2",
@@ -170,8 +199,8 @@ where
     .bind(until)
     .fetch_one(executor)
     .await?;
-    let weight = weight.unwrap_or(0.0);
-    let secs = (until - since).num_seconds().max(1) as f64;
+    let weight = row.0.unwrap_or(0.0);
+    let secs = effective_window_secs(since, until, row.1);
     Ok(hashrate_hs(weight, secs))
 }
 
@@ -269,8 +298,10 @@ where
             message: "hashrate_estimate_for_worker: until must be after since".to_owned(),
         });
     }
-    let weight: Option<f64> = sqlx::query_scalar(
-        "SELECT sum(difficulty)
+    let row: (Option<f64>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT sum(difficulty),
+                (SELECT min(credited_at) FROM share
+                  WHERE credited_at >= $2 AND credited_at < $3)
            FROM share
           WHERE worker_id = $1
             AND credited_at >= $2
@@ -281,8 +312,8 @@ where
     .bind(until)
     .fetch_one(executor)
     .await?;
-    let weight = weight.unwrap_or(0.0);
-    let secs = (until - since).num_seconds().max(1) as f64;
+    let weight = row.0.unwrap_or(0.0);
+    let secs = effective_window_secs(since, until, row.1);
     Ok(hashrate_hs(weight, secs))
 }
 
@@ -428,6 +459,11 @@ pub struct LeaderboardEntry {
     pub hashrate_hs: f64,
 }
 
+/// Raw leaderboard row: address, network, accepted-share count, summed
+/// difficulty, and the pool-wide earliest share in the window (identical on
+/// every row; used to clamp the hashrate denominator for a young pool).
+type LeaderboardRow = (String, String, i64, Option<f64>, Option<DateTime<Utc>>);
+
 /// Top `limit` miners by summed share difficulty over `[since, until)`.
 ///
 /// Joins `share` to `wallet` so the caller receives the address directly,
@@ -450,10 +486,15 @@ where
             message: "leaderboard: until must be after since".to_owned(),
         });
     }
-    let rows: Vec<(String, String, i64, Option<f64>)> = sqlx::query_as(
+    // `pool_first` (same value every row) is the earliest share in the window
+    // pool-wide; it clamps the denominator so a pool younger than the window
+    // isn't divided by time it could not have mined (uniform under-reporting).
+    let rows: Vec<LeaderboardRow> = sqlx::query_as(
         "SELECT w.address, w.network,
                 count(*)::bigint AS accepted_shares,
-                sum(s.difficulty) AS total_weight
+                sum(s.difficulty) AS total_weight,
+                (SELECT min(credited_at) FROM share
+                  WHERE credited_at >= $1 AND credited_at < $2) AS pool_first
            FROM share s
            JOIN wallet w ON w.id = s.wallet_id
           WHERE s.credited_at >= $1
@@ -467,10 +508,11 @@ where
     .bind(limit)
     .fetch_all(executor)
     .await?;
-    let secs = (until - since).num_seconds().max(1) as f64;
+    let pool_first = rows.first().and_then(|r| r.4);
+    let secs = effective_window_secs(since, until, pool_first);
     Ok(rows
         .into_iter()
-        .map(|(address, network, accepted_shares, weight)| {
+        .map(|(address, network, accepted_shares, weight, _pool_first)| {
             let total_weight = weight.unwrap_or(0.0);
             LeaderboardEntry {
                 address,
@@ -580,7 +622,42 @@ mod tests {
     // the conversion constants, not lossy measurements.
     #![allow(clippy::float_cmp)]
 
-    use super::{HASHES_PER_DIFFICULTY, hashrate_hs};
+    use chrono::{Duration, Utc};
+
+    use super::{HASHES_PER_DIFFICULTY, effective_window_secs, hashrate_hs};
+
+    #[test]
+    fn effective_secs_uses_full_window_for_a_mature_pool() {
+        // Pool first share predates the window ⇒ full nominal window applies.
+        let until = Utc::now();
+        let since = until - Duration::hours(24);
+        let pool_first = since - Duration::days(30);
+        assert_eq!(
+            effective_window_secs(since, until, Some(pool_first)),
+            24.0 * 3600.0
+        );
+        // No clamp data (empty window) also leaves the full window.
+        assert_eq!(effective_window_secs(since, until, None), 24.0 * 3600.0);
+    }
+
+    #[test]
+    fn effective_secs_clamps_to_pool_age_for_a_young_pool() {
+        // Pool only 6h old inside a 24h window ⇒ divide by 6h, not 24h, so a
+        // fresh-cutover leaderboard isn't uniformly under-reported by 4x.
+        let until = Utc::now();
+        let since = until - Duration::hours(24);
+        let pool_first = until - Duration::hours(6);
+        assert_eq!(
+            effective_window_secs(since, until, Some(pool_first)),
+            6.0 * 3600.0
+        );
+    }
+
+    #[test]
+    fn effective_secs_never_below_one() {
+        let t = Utc::now();
+        assert_eq!(effective_window_secs(t, t, Some(t)), 1.0);
+    }
 
     #[test]
     fn hashrate_uses_two_pow_32_per_difficulty() {
