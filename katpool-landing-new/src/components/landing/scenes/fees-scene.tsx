@@ -38,11 +38,11 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
         </p>
         <dl className="mt-6 space-y-3 border-t border-border/60 pt-5 text-sm">
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">Aggregator listing</dt>
+            <dt className="text-muted-foreground">Effective fee</dt>
             <dd className="metric font-semibold">{listedFee}%</dd>
           </div>
           <div className="flex justify-between">
-            <dt className="text-muted-foreground">Topline allocation</dt>
+            <dt className="text-muted-foreground">Topline fee</dt>
             <dd className="metric font-semibold">{toplineFeePercent}%</dd>
           </div>
           <div className="flex justify-between">

@@ -1,26 +1,16 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Globe2, Zap } from "lucide-react";
 import { miningConfig } from "@/lib/mining";
-
-const REGION_COORDS: Record<string, { x: number; y: number }> = {
-  "na-west": { x: 14, y: 38 },
-  "na-east": { x: 26, y: 36 },
-  eu: { x: 48, y: 30 },
-  ap: { x: 72, y: 52 },
-  hkg: { x: 76, y: 44 },
-  sa: { x: 30, y: 68 },
-  au: { x: 82, y: 72 },
-};
+import { EDGE_REGIONS } from "@/lib/edge-regions";
+import { EdgeGlobe } from "../edge-globe";
 
 export function EdgeScene() {
-  const { regions, host } = miningConfig();
-  const edgeRegions = regions.filter((r) => !r.primary);
+  const { host } = miningConfig();
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl gap-8 lg:grid-cols-[1fr_1.1fr] lg:items-center">
-      <div>
+    <div className="mx-auto grid w-full max-w-6xl items-center gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:gap-10">
+      <div className="order-2 lg:order-1">
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -32,9 +22,9 @@ export function EdgeScene() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.06 }}
-          className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl"
+          className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl lg:text-[2.75rem] lg:leading-[1.08]"
         >
-          Seven regions.
+          Seven edge regions.
           <br />
           <span className="text-grad">One stratum URL.</span>
         </motion.h2>
@@ -42,93 +32,58 @@ export function EdgeScene() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.12 }}
-          className="mt-5 max-w-md text-muted-foreground"
+          className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground sm:text-base"
         >
-          Fly.io anycast routes miners to the nearest edge automatically. Point your rig at{" "}
-          <span className="font-mono text-foreground">{host}</span> or pick a regional host for
-          deterministic routing.
+          Fly.io anycast routes hashrate to the nearest healthy edge. Use{" "}
+          <span className="font-mono text-foreground">{host}</span> for automatic routing, or
+          pin a regional host below.
         </motion.p>
 
-        <motion.ul
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="mt-6 grid gap-2 sm:grid-cols-2"
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.18 }}
+          className="mt-6 space-y-1.5"
         >
-          {edgeRegions.map((r, i) => (
-            <li
+          {EDGE_REGIONS.map((r, i) => (
+            <motion.div
               key={r.host}
-              className="flex items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-sm"
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.22 + i * 0.04 }}
+              className="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 transition hover:border-border/50 hover:bg-card/35"
             >
-              <span className="size-1.5 rounded-full bg-primary" style={{ animationDelay: `${i * 0.15}s` }} />
-              <span className="text-muted-foreground">{r.label}</span>
-              <span className="ml-auto truncate font-mono text-xs text-foreground/80">{r.host}</span>
-            </li>
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/8 font-mono text-[10px] font-medium uppercase tracking-wide text-primary">
+                {r.fly}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground">{r.label}</p>
+                <p className="truncate font-mono text-[11px] text-muted-foreground">{r.host}</p>
+              </div>
+              <span className="live-dot size-1.5 shrink-0 rounded-full bg-success opacity-0 transition group-hover:opacity-100" />
+            </motion.div>
           ))}
-        </motion.ul>
+        </motion.div>
       </div>
 
       <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
+        initial={{ opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.1, duration: 0.6 }}
-        className="glass-panel relative aspect-[4/3] overflow-hidden rounded-3xl p-6"
+        transition={{ delay: 0.08, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        className="order-1 flex flex-col items-center lg:order-2"
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,oklch(0.82_0.15_184/12%),transparent_65%)]" />
+        <EdgeGlobe />
 
-        {/* Stylized world map dots */}
-        <svg viewBox="0 0 100 80" className="relative h-full w-full" aria-hidden>
-          <defs>
-            <radialGradient id="pulse" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="oklch(0.82 0.15 184)" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="oklch(0.82 0.15 184)" stopOpacity="0" />
-            </radialGradient>
-          </defs>
-          {/* Abstract continent silhouettes */}
-          <ellipse cx="22" cy="38" rx="14" ry="18" fill="oklch(1 0 0 / 4%)" />
-          <ellipse cx="50" cy="32" rx="12" ry="16" fill="oklch(1 0 0 / 4%)" />
-          <ellipse cx="74" cy="48" rx="16" ry="14" fill="oklch(1 0 0 / 4%)" />
-          <ellipse cx="82" cy="70" rx="8" ry="6" fill="oklch(1 0 0 / 4%)" />
-
-          {edgeRegions.map((r, i) => {
-            const prefix = r.host.split(".")[0] ?? "";
-            const pos = REGION_COORDS[prefix] ?? { x: 50, y: 40 };
-            return (
-              <g key={r.host}>
-                <motion.circle
-                  cx={pos.x}
-                  cy={pos.y}
-                  r="6"
-                  fill="url(#pulse)"
-                  initial={{ opacity: 0.3, scale: 0.6 }}
-                  animate={{ opacity: [0.3, 0.7, 0.3], scale: [0.6, 1.1, 0.6] }}
-                  transition={{ duration: 2.8, repeat: Infinity, delay: i * 0.25 }}
-                />
-                <circle cx={pos.x} cy={pos.y} r="1.8" fill="oklch(0.82 0.15 184)" />
-              </g>
-            );
-          })}
-
-          {/* Center anycast hub */}
-          <motion.circle
-            cx="50"
-            cy="42"
-            r="3.5"
-            fill="oklch(0.83 0.14 78)"
-            animate={{ scale: [1, 1.15, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-        </svg>
-
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between rounded-xl border border-border/50 bg-background/50 px-3 py-2 text-xs backdrop-blur-sm">
-          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-            <Globe2 className="size-3.5 text-primary" />
-            Anycast origin
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-[#49eacb]" />
+            Origin · Germany
           </span>
-          <span className="inline-flex items-center gap-1.5 font-mono text-foreground">
-            <Zap className="size-3.5 text-secondary" />
-            {host}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-[#70c7ba]" />
+            Edge · 7 regions
           </span>
+          <span className="font-mono text-foreground/80">{host}</span>
         </div>
       </motion.div>
     </div>

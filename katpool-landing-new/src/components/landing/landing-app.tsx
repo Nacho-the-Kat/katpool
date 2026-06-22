@@ -127,35 +127,37 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
         />
       </div>
 
-      {/* Header */}
-      <header className="absolute inset-x-0 top-0 z-40 flex items-center justify-between px-5 py-4 sm:px-8">
-        <Link href="/" className="flex items-center" aria-label="Kat Pool home">
-          <Image
-            src="/katpool-wordmark.png"
-            alt="Kat Pool"
-            width={2500}
-            height={800}
-            priority
-            className="h-8 w-auto select-none sm:h-9"
-          />
-        </Link>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <a
-            href={GITHUB_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:inline-flex"
-          >
-            <Github className="size-3.5" />
-            Open source
-          </a>
-          <a
-            href={APP_URL}
-            className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_0_40px_oklch(0.82_0.15_184/25%)] transition hover:brightness-110"
-          >
-            Dashboard
-            <ArrowRight className="size-3.5" />
-          </a>
+      {/* Header — brand-bg matches the wordmark PNG plate (#060e11) */}
+      <header className="absolute inset-x-0 top-0 z-40 border-b border-white/[0.06] bg-brand-bg">
+        <div className="flex h-16 items-center justify-between px-5 sm:h-[4.5rem] sm:px-8">
+          <Link href="/" className="flex items-center" aria-label="Kat Pool home">
+            <Image
+              src="/katpool-wordmark.png"
+              alt="Kat Pool"
+              width={2500}
+              height={800}
+              priority
+              className="h-8 w-auto select-none sm:h-9"
+            />
+          </Link>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground sm:inline-flex"
+            >
+              <Github className="size-3.5" />
+              Open source
+            </a>
+            <a
+              href={APP_URL}
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-[0_0_40px_oklch(0.82_0.15_184/25%)] transition hover:brightness-110"
+            >
+              Dashboard
+              <ArrowRight className="size-3.5" />
+            </a>
+          </div>
         </div>
       </header>
 
