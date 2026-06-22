@@ -131,6 +131,22 @@ export interface CyclesPage {
   next_before: number | null;
 }
 
+export interface CycleRecipientView {
+  payout_id: number;
+  address: string;
+  amount: KasAmount;
+  status: PayoutStatus;
+  tx_hash: string | null;
+  krc20_commit_hash: string | null;
+  krc20_reveal_hash: string | null;
+  nacho_amount: string | null;
+}
+
+export interface CycleDetailPage {
+  cycle: CycleView;
+  recipients: CycleRecipientView[];
+}
+
 export interface LeaderboardEntryView {
   rank: number;
   address: string;
@@ -251,6 +267,7 @@ export interface MinerPayoutView {
   submitted_at: string | null;
   confirmed_at: string | null;
   failure_reason: string | null;
+  nacho_amount: string | null;
 }
 
 export interface MinerPayoutsPage {

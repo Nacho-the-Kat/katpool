@@ -6,7 +6,7 @@
 //! `katpool-db` repo functions:
 //!
 //! - `GET /health` / `/ready` / `/started` — liveness / readiness / startup.
-//! - `GET /api/v1/pool/{stats,hashrate,hashrate/history,blocks,payouts}`.
+//! - `GET /api/v1/pool/{stats,hashrate,hashrate/history,blocks,payouts,payouts/:id}`.
 //! - `GET /api/v1/pool/{leaderboard,miners/history,firmware,rejects,geo}`.
 //! - `GET /api/v1/pool/active-sessions` — live connected-now snapshot.
 //! - `GET /api/v1/balance/{address}`.
@@ -79,6 +79,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/pool/blocks", get(handlers::pool::blocks))
         .route("/pool/payouts", get(handlers::pool::payouts))
+        .route("/pool/payouts/{cycle_id}", get(handlers::pool::payout_cycle))
         .route("/pool/leaderboard", get(handlers::pool::leaderboard))
         .route(
             "/pool/miners/history",

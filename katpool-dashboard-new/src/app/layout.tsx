@@ -20,19 +20,34 @@ export const metadata: Metadata = {
   description:
     "Real-time hashrate, blocks, payouts and per-miner analytics for the katpool Kaspa mining pool.",
   applicationName: POOL_NAME,
+  keywords: [
+    "Kaspa",
+    "KAS",
+    "mining pool",
+    "katpool",
+    "NACHO",
+    "stratum",
+    "hashrate",
+    "crypto mining",
+  ],
+  authors: [{ name: "Kat Pool" }],
+  creator: "Kat Pool",
   openGraph: {
     title: `${POOL_NAME} — Kaspa Mining Pool`,
     description: "Real-time pool analytics: hashrate, blocks, payouts, and miner insights.",
     siteName: POOL_NAME,
     type: "website",
     url: "/",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
     title: `${POOL_NAME} — Kaspa Mining Pool`,
     description: "Real-time pool analytics: hashrate, blocks, payouts, and miner insights.",
+    creator: "@katpool",
   },
   robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
 };
 
 export const viewport: Viewport = {
