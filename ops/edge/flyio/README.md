@@ -117,6 +117,26 @@ public `1111-8888` and forwards `1111->21111 … 8888->28888`
 (see [`haproxy.cfg`](haproxy.cfg)). Once the legacy pool is decommissioned the
 new pool can move back to `1111-8888` and `stratum_ports` should follow.
 
+### Legacy MiningPoolStats API (`:8080`)
+
+miningpoolstats.stream polls `http://kas.katpool.xyz:8080/api/pool/miningPoolStats`.
+Miners also use `kas.katpool.xyz` on the **same anycast IP** for stratum, so DNS
+must **not** be repointed at the origin. Instead:
+
+1. **fly edge** — `fly.toml` exposes TCP `:8080` (no `proxy_proto`; HTTP clients
+   do not send PROXY headers). `haproxy.cfg` forwards plain TCP to
+   `origin:8080`.
+2. **origin nginx** — `ops/nginx/kas.katpool.xyz-legacy-api.conf` proxies
+   `/api/pool/miningPoolStats` to the loopback pool API (`:18081`).
+
+Port `8080` is **not** in the nftables `stratum_ports` set (input policy is
+`accept`), so fly egress can reach origin nginx without a firewall change.
+After editing `haproxy.cfg` / `fly.toml`, redeploy the edge:
+
+```bash
+cd ops/edge/flyio && fly deploy -a katpool-edge
+```
+
 Persist across reboots with the committed oneshot unit (preferred over an
 `include` in the distro `nftables.conf`, whose `flush ruleset` would wipe
 Docker's tables — the unit reloads only the self-contained `inet katpool`

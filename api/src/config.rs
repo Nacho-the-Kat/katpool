@@ -84,7 +84,8 @@ impl Default for ApiConfig {
             mps_url: "app.katpool.com".to_owned(),
             mps_country: "US".to_owned(),
             mps_fee_type: "PROP".to_owned(),
-            mps_fee_bps: 75,
+            // MiningPoolStats `poolFee` display (0.5%). Not the allocation fee.
+            mps_fee_bps: 50,
             mps_min_pay_kas: 10,
             mps_pool_address: String::new(),
             mps_ad_image_link: "https://app.katpool.xyz/images/katpoolad.gif".to_owned(),
@@ -157,9 +158,10 @@ impl ApiConfig {
             &mut cfg.mps_ad_image_link,
             lookup("KATPOOL_MPS_AD_IMAGE_LINK"),
         );
-        // The displayed fee tracks the runtime's real topline fee.
-        if let Some(raw) = lookup("KATPOOL_FEE_TOPLINE_BPS") {
-            cfg.mps_fee_bps = parse(&raw, "KATPOOL_FEE_TOPLINE_BPS")?;
+        // Display-only fee for the MiningPoolStats aggregator listing (`poolFee`).
+        // Independent of `KATPOOL_FEE_TOPLINE_BPS`, which drives real allocations.
+        if let Some(raw) = lookup("KATPOOL_MPS_FEE_BPS") {
+            cfg.mps_fee_bps = parse(&raw, "KATPOOL_MPS_FEE_BPS")?;
         }
         if let Some(raw) = lookup("KATPOOL_MPS_MIN_PAY_KAS") {
             cfg.mps_min_pay_kas = parse(&raw, "KATPOOL_MPS_MIN_PAY_KAS")?;
@@ -274,5 +276,22 @@ mod tests {
         })
         .unwrap();
         assert_eq!(cfg.cors_allow_origin, None);
+    }
+
+    #[test]
+    fn mps_fee_bps_independent_of_topline() {
+        let cfg = ApiConfig::from_lookup(|k| match k {
+            "KATPOOL_FEE_TOPLINE_BPS" => Some("75".to_owned()),
+            "KATPOOL_MPS_FEE_BPS" => Some("50".to_owned()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(cfg.mps_fee_bps, 50);
+    }
+
+    #[test]
+    fn mps_fee_bps_defaults_to_half_percent() {
+        let cfg = ApiConfig::from_lookup(|_| None).unwrap();
+        assert_eq!(cfg.mps_fee_bps, 50);
     }
 }
