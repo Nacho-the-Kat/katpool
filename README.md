@@ -11,13 +11,14 @@ Railway TCP edges, and observed by a self-hosted Grafana LGTM stack.
 
 ## Status
 
-> **In active development.** Architecture is in
-> [`docs/architecture.md`](docs/architecture.md); the road-to-mainnet plan and
-> current phase/workstream status are tracked in
-> [`docs/roadmap.md`](docs/roadmap.md). Production is the previous-generation
-> pool at `kas.katpool.com` until cutover (Phase 10).
+> **Live on mainnet.** The Rust pool at `kas.katpool.com` runs stratum,
+> accounting, KAS payouts, and NACHO rebates. Architecture is in
+> [`docs/architecture.md`](docs/architecture.md); phase history and
+> remaining hardening work are in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## At a glance
+
+**Runtime** (what `cargo build --bin katpool` ships):
 
 | Component | Responsibility |
 |---|---|
@@ -28,6 +29,9 @@ Railway TCP edges, and observed by a self-hosted Grafana LGTM stack.
 | [`api/`](api/) | Read-only `axum` HTTP API (`/health`, `/balance`, `/api/pool/*`). Phase 6. |
 | [`katpool/`](katpool/) | Main wiring binary that runs all of the above in one process. |
 | [`crates/`](crates/) | Shared libraries: `katpool-domain`, `-db`, `-config`, `-metrics`, `-storagemass`, `-idempotency`, `-telemetry`, `-secrets`, `-fault-injection`. |
+
+**Frontends** (deploy separately on Railway): `katpool-dashboard-new/`,
+`katpool-landing-new/`.
 
 ## Architecture (target)
 

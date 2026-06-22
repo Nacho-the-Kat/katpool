@@ -20,17 +20,6 @@ members = [
     # Forked stratum bridge (one-time source vendor from rusty-kaspa v1.1.0;
     # kaspa-* deps now tracked at tn10-toc3, see bridge/UPSTREAM.md and ADR-0002).
     "bridge",
-    # Phase 2 milestone 3 cutover tool: one-shot legacy-database
-    # importer. Top-level rather than `crates/` because it's a
-    # binary, not a library.
-    "katpool-import-legacy",
-    # Phase 3 M4: production-log replay determinism harness.
-    "katpool-replay",
-    # Phase 4 M4.8: KAS payout dry-run rehearsal tool (one-shot
-    # binary; top-level rather than `crates/` like the importer).
-    "katpool-payout-rehearsal",
-    # Phase 5 M5.6: KRC-20 NACHO payout dry-run rehearsal tool.
-    "katpool-krc20-rehearsal",
 ]
 # The cargo-fuzz harness under bridge/fuzz/ is intentionally a
 # separate, non-workspace crate. cargo-fuzz requires its own

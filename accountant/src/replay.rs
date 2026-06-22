@@ -1,7 +1,7 @@
 //! Replay harness primitives for the accountant event consumer.
 //!
-//! Used by integration tests (`tests/replay_determinism.rs`), the
-//! `katpool-replay` operator binary, and CI scale fixtures. The
+//! Used by integration tests (`tests/replay_determinism.rs`) and CI scale
+//! fixtures. The
 //! contract under test is: **given the same `PoolEvent` stream,
 //! two independent replays into empty Postgres databases produce
 //! byte-equal consumer-written rows** (PKs and wallclock columns
