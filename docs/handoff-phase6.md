@@ -88,8 +88,6 @@ output. No flaky tests, no network in unit tests. See
   types incl. `PoolEvent`), `katpool-secrets` (sops/age treasury custody),
   `katpool-storagemass` (mass/fee planner, `FeeRate`), `katpool-idempotency`
   (Postgres advisory locks), `katpool-metrics`, `katpool-telemetry`.
-- `katpool-krc20-rehearsal/` — dry-run NACHO cycle tool (Runbook 19).
-
 ## 3. Status: what is DONE
 
 - **Phases 1–5 complete.** Acceptance evidence: `docs/phase-1-acceptance.md`

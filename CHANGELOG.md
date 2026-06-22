@@ -10,6 +10,15 @@ backward-incompatible ways at every minor bump.
 
 ## [Unreleased]
 
+### Removed
+
+- **Payout rehearsal one-shot tools** (`katpool-payout-rehearsal`,
+  `katpool-krc20-rehearsal`, `scripts/kas-payout-rehearsal.sh`,
+  `scripts/krc20-payout-rehearsal.sh`, Runbooks 18–19). Phase 4/5
+  dry-run sign-off is complete and evidence lives under `payout-evidence/`;
+  production dry-run remains via `KATPOOL_PAYOUT_DRY_RUN` /
+  `KATPOOL_KRC20_PAYOUT_DRY_RUN`.
+
 ### Changed
 
 - **Observability mainnet scaling guidance** (`SLO.md`). Documents the ingest

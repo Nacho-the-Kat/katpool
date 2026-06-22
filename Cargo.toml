@@ -26,11 +26,6 @@ members = [
     "katpool-import-legacy",
     # Phase 3 M4: production-log replay determinism harness.
     "katpool-replay",
-    # Phase 4 M4.8: KAS payout dry-run rehearsal tool (one-shot
-    # binary; top-level rather than `crates/` like the importer).
-    "katpool-payout-rehearsal",
-    # Phase 5 M5.6: KRC-20 NACHO payout dry-run rehearsal tool.
-    "katpool-krc20-rehearsal",
 ]
 # The cargo-fuzz harness under bridge/fuzz/ is intentionally a
 # separate, non-workspace crate. cargo-fuzz requires its own

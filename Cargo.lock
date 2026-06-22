@@ -3986,47 +3986,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "katpool-krc20-rehearsal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "kaspa-addresses",
- "katpool-db",
- "katpool-secrets",
- "payout-kas",
- "payout-krc20",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "katpool-metrics"
 version = "0.1.0"
 dependencies = [
  "prometheus",
  "tracing",
-]
-
-[[package]]
-name = "katpool-payout-rehearsal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "kaspa-addresses",
- "katpool-db",
- "katpool-secrets",
- "payout-kas",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
