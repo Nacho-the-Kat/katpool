@@ -18,17 +18,12 @@
 set -euo pipefail
 
 # ---------- Pinned upstream release ----------------------------------
-# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v2.0.0
-# The final Mainnet Toccata release (commit 90dbf07). Unlike the earlier
-# `v1.3.0-toc.5` pre-release, v2.0.0 is NOT network-gated: it runs as a
-# testnet-10 node via `--testnet --netsuffix=10` (verified: boots, pulls
-# the tn10 DNS seeders, connects to live tn10 peers on P2P protocol v10,
-# completes IBD of the same chain the prior tn10-toc3 node ran). This is
-# the same Toccata that activated on tn10 at DAA 476,232,000 (2026-05-28),
-# now carried by the final mainnet binary. Bumping these two constants is
-# the only change required to track a future release.
-TN10_RELEASE_TAG=v2.0.0
-TN10_LINUX_SHA256=99dc1f7e7e5c4dd7c3a79b9bce20d63c4c4ac6d2a3bd48ab1734b3d567c1b47c
+# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v2.0.1
+# Maintenance release on top of v2.0.0 (Toccata). Drop-in for v2.0.0 nodes;
+# runs as testnet-10 via `--testnet --netsuffix=10`. Bumping these two
+# constants is the only change required to track a future release.
+TN10_RELEASE_TAG=v2.0.1
+TN10_LINUX_SHA256=9d0ad0aedbe29670e3e2dde664462c526d30a2d2ff7274d18b1a310a127d1c13
 TN10_LINUX_ZIP=rusty-kaspa-${TN10_RELEASE_TAG}-linux-amd64.zip
 TN10_DOWNLOAD_URL=https://github.com/kaspanet/rusty-kaspa/releases/download/${TN10_RELEASE_TAG}/${TN10_LINUX_ZIP}
 

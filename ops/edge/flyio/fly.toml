@@ -119,3 +119,13 @@ primary_region = "fra"
     port = 8888
     handlers = ["proxy_proto"]
     proxy_proto_options = { version = "v2" }
+
+# --- 8080 (legacy MiningPoolStats HTTP; plain TCP to origin nginx) ---
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  [[services.ports]]
+    port = 8080
