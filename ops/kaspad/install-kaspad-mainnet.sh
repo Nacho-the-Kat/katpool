@@ -19,11 +19,11 @@
 set -euo pipefail
 
 # ---------- Pinned upstream release ----------------------------------
-# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v2.0.0
-# The final Mainnet Toccata release (commit 90dbf07). Same binary as
-# kaspad-tn10; run without --testnet it is a mainnet node.
-MAINNET_RELEASE_TAG=v2.0.0
-MAINNET_LINUX_SHA256=99dc1f7e7e5c4dd7c3a79b9bce20d63c4c4ac6d2a3bd48ab1734b3d567c1b47c
+# Source: https://github.com/kaspanet/rusty-kaspa/releases/tag/v2.0.1
+# Maintenance release on top of v2.0.0 (Toccata). Drop-in for v2.0.0 nodes;
+# same binary as kaspad-tn10 — run without --testnet it is a mainnet node.
+MAINNET_RELEASE_TAG=v2.0.1
+MAINNET_LINUX_SHA256=9d0ad0aedbe29670e3e2dde664462c526d30a2d2ff7274d18b1a310a127d1c13
 MAINNET_LINUX_ZIP=rusty-kaspa-${MAINNET_RELEASE_TAG}-linux-amd64.zip
 MAINNET_DOWNLOAD_URL=https://github.com/kaspanet/rusty-kaspa/releases/download/${MAINNET_RELEASE_TAG}/${MAINNET_LINUX_ZIP}
 
@@ -61,13 +61,13 @@ install -d -o "${SVC_USER}" -g "${SVC_USER}" -m 0750 "${SVC_HOME}"
 install -d -o root -g root -m 0755 "${DOWNLOAD_DIR}"
 
 # ---------- Obtain the binary ----------------------------------------
-# Fast path: if a v2.0.0 kaspad is already installed (kaspad-tn10), reuse it
+# Fast path: if a v2.0.1 kaspad is already installed (kaspad-tn10), reuse it
 # verbatim instead of re-downloading — same upstream binary.
 reuse=0
 if [[ -x "${EXISTING_BIN}" ]]; then
     ver=$("${EXISTING_BIN}" --version 2>/dev/null | head -1 | awk '{print $NF}' || true)
-    if [[ "${ver}" == "2.0.0" ]]; then
-        echo "reusing existing verified v2.0.0 binary from ${EXISTING_BIN}"
+    if [[ "${ver}" == "2.0.1" ]]; then
+        echo "reusing existing verified v2.0.1 binary from ${EXISTING_BIN}"
         install -m 0755 -o root -g root "${EXISTING_BIN}" "${SVC_BIN}"
         reuse=1
     fi
