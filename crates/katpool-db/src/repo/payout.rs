@@ -701,6 +701,8 @@ pub struct WalletPayout {
     pub confirmed_at: Option<DateTime<Utc>>,
     /// Failure reason if `status = failed`.
     pub failure_reason: Option<String>,
+    /// NACHO base units for KRC-20 rebate payouts (`None` for KAS cycles).
+    pub nacho_amount: Option<i64>,
 }
 
 /// A wallet's payout history (both kinds), newest-first, keyset-paginated.
@@ -713,9 +715,11 @@ pub async fn list_for_wallet_detailed<'e, E: PgExecutor<'e>>(
     sqlx::query_as::<_, WalletPayout>(
         "SELECT po.id, po.cycle_id, pc.kind, po.amount_sompi, po.status,
                 po.tx_hash, po.krc20_commit_hash, po.krc20_reveal_hash,
-                po.planned_at, po.submitted_at, po.confirmed_at, po.failure_reason
+                po.planned_at, po.submitted_at, po.confirmed_at, po.failure_reason,
+                k.nacho_amount
            FROM payout po
            INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+           LEFT JOIN krc20_pending_transfer k ON k.payout_id = po.id
           WHERE po.wallet_id = $1
             AND ($3::bigint IS NULL OR po.id < $3)
           ORDER BY po.id DESC
@@ -741,6 +745,49 @@ pub async fn list_for_cycle<'e, E: PgExecutor<'e>>(
            FROM payout
           WHERE cycle_id = $1
           ORDER BY amount_sompi DESC, id ASC",
+    )
+    .bind(cycle_id)
+    .fetch_all(executor)
+    .await
+    .map_err(DbError::from)
+}
+
+/// One recipient row for a payout cycle detail view.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CycleRecipient {
+    /// `payout.id`.
+    pub payout_id: i64,
+    /// Recipient wallet address.
+    pub address: String,
+    /// Rebate amount in KAS-sompi (the accrued balance paid out).
+    pub amount_sompi: i64,
+    /// Per-recipient payout status.
+    pub status: PayoutStatus,
+    /// KAS tx hash (KAS cycles).
+    pub tx_hash: Option<Vec<u8>>,
+    /// KRC-20 commit tx hash (NACHO cycles).
+    pub krc20_commit_hash: Option<Vec<u8>>,
+    /// KRC-20 reveal tx hash (NACHO cycles).
+    pub krc20_reveal_hash: Option<Vec<u8>>,
+    /// NACHO base units transferred (NACHO cycles only).
+    pub nacho_amount: Option<i64>,
+}
+
+/// Every recipient under a cycle, with wallet address and optional NACHO
+/// token amount, ordered largest rebate first.
+pub async fn list_cycle_recipients<'e, E: PgExecutor<'e>>(
+    executor: E,
+    cycle_id: i64,
+) -> Result<Vec<CycleRecipient>, DbError> {
+    sqlx::query_as::<_, CycleRecipient>(
+        "SELECT po.id AS payout_id, w.address, po.amount_sompi, po.status,
+                po.tx_hash, po.krc20_commit_hash, po.krc20_reveal_hash,
+                k.nacho_amount
+           FROM payout po
+           INNER JOIN wallet w ON w.id = po.wallet_id
+           LEFT JOIN krc20_pending_transfer k ON k.payout_id = po.id
+          WHERE po.cycle_id = $1
+          ORDER BY po.amount_sompi DESC, po.id ASC",
     )
     .bind(cycle_id)
     .fetch_all(executor)

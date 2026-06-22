@@ -106,7 +106,7 @@
 //!   ISO-3166 country for the aggregate `/api/v1/pool/geo` view; unset or
 //!   unreadable ⇒ geo disabled (NULL country), non-fatal.
 //! - `KATPOOL_EVENT_RECORD_PATH`     optional NDJSON `PoolEvent` capture
-//!   for M4 replay-determinism rehearsal
+//!   for offline replay via `accountant::replay`
 //! - `KATPOOL_TIER_CLASSIFIER`       `static` (default) or `kasplex`. `static`
 //!   marks every wallet `Standard` (the NACHO Elite rebate is inert);
 //!   `kasplex` resolves on-chain NACHO holdings via the (mainnet-only) kasplex

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use serde_json::Value;
 
 use katpool_db::repo::{block, connection_session, payout, share_reject, share_stats, treasury};
@@ -12,10 +12,10 @@ use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
     ActiveMinersHistory, ActiveMinersPointView, ActiveSessionsView, BlockCounts, BlockView,
-    BlocksPage, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown,
-    GeoEntryView, HashrateHistory, HashratePointView, HashrateSnapshot, LeaderboardEntryView,
-    LeaderboardResponse, MiningPoolStats, MpsBlock, PayoutTotals, PoolRejectsResponse, PoolStats,
-    RejectReasonCount, TreasuryView,
+    BlocksPage, CycleDetailPage, CycleRecipientView, CycleView, CyclesPage, FirmwareBreakdown,
+    FirmwareEntryView, GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView,
+    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, MiningPoolStats, MpsBlock,
+    PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount, TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};
@@ -252,6 +252,25 @@ pub async fn payouts(
         to_value(&CyclesPage {
             cycles,
             next_before,
+        })
+    })
+    .await
+}
+
+/// `GET /api/v1/pool/payouts/:cycle_id` — one cycle with every recipient.
+pub async fn payout_cycle(
+    State(state): State<AppState>,
+    Path(cycle_id): Path<i64>,
+) -> Result<Json<Arc<Value>>, ApiError> {
+    let key = format!("pool/payouts/{cycle_id}");
+    let cache = state.pool_cache.clone();
+    cached_json(&cache, key, async move {
+        let cycle = payout::get_cycle(&state.pool, cycle_id).await?;
+        let rows = payout::list_cycle_recipients(&state.pool, cycle_id).await?;
+        let recipients = rows.iter().map(CycleRecipientView::from).collect();
+        to_value(&CycleDetailPage {
+            cycle: CycleView::from(&cycle),
+            recipients,
         })
     })
     .await

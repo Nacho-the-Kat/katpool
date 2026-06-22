@@ -173,6 +173,7 @@ fn miner_payouts_page_wire() {
             submitted_at: Some(ts("2026-01-02T00:01:00Z")),
             confirmed_at: Some(ts("2026-01-02T00:10:00Z")),
             failure_reason: None,
+            nacho_amount: Some("500000000".to_owned()),
         }],
         next_before: None,
     };

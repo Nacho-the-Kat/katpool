@@ -45,6 +45,30 @@ export function formatKas(kas: string, maxDigits = 4): string {
   return `${n.toLocaleString("en-US", { maximumFractionDigits: maxDigits })} KAS`;
 }
 
+/** Format NACHO base units (8 decimals) as a human token amount. */
+export function formatNacho(baseUnits: string | number, maxDigits = 4): string {
+  let raw: bigint;
+  try {
+    raw = typeof baseUnits === "string" ? BigInt(baseUnits) : BigInt(baseUnits);
+  } catch {
+    return "—";
+  }
+  const negative = raw < 0n;
+  if (negative) raw = -raw;
+  const whole = raw / 100_000_000n;
+  const frac = raw % 100_000_000n;
+  const fracStr = frac.toString().padStart(8, "0").replace(/0+$/, "");
+  const display =
+    fracStr.length > 0
+      ? `${whole.toString()}.${fracStr.slice(0, maxDigits)}`
+      : whole.toString();
+  const n = Number(display);
+  if (Number.isFinite(n) && whole < 1_000_000n) {
+    return `${negative ? "-" : ""}${n.toLocaleString("en-US", { maximumFractionDigits: maxDigits })} NACHO`;
+  }
+  return `${negative ? "-" : ""}${display} NACHO`;
+}
+
 /** Format a USD price; picks precision by magnitude (handles sub-cent tokens). */
 export function formatUsd(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";

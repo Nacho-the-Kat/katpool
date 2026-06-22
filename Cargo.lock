@@ -3965,86 +3965,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "katpool-import-legacy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "katpool-db",
- "katpool-domain",
- "num-traits",
- "serde",
- "serde_json",
- "sqlx",
- "testcontainers",
- "testcontainers-modules",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "katpool-krc20-rehearsal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "kaspa-addresses",
- "katpool-db",
- "katpool-secrets",
- "payout-kas",
- "payout-krc20",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "katpool-metrics"
 version = "0.1.0"
 dependencies = [
  "prometheus",
  "tracing",
-]
-
-[[package]]
-name = "katpool-payout-rehearsal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "kaspa-addresses",
- "katpool-db",
- "katpool-secrets",
- "payout-kas",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "katpool-replay"
-version = "0.1.0"
-dependencies = [
- "accountant",
- "anyhow",
- "chrono",
- "clap",
- "katpool-db",
- "katpool-domain",
- "regex",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

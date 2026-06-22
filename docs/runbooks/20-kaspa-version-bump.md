@@ -135,8 +135,9 @@ Confirm node ↔ crates agree on-chain:
 - `share_allocation` rows accrue,
 - `nacho_rebate_accrual` increments.
 
-(See Runbooks [18](18-kas-payout-rehearsal.md) /
-[19](19-krc20-payout-rehearsal.md) for the payout-side checks.)
+After a version bump, run one dry-run payout cycle on testnet-10
+(`KATPOOL_PAYOUT_DRY_RUN` / `KATPOOL_KRC20_PAYOUT_DRY_RUN`) and confirm
+reconcile output matches expectations.
 
 ## Rollback
 

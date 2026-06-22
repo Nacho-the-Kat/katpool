@@ -1,5 +1,10 @@
 # Cutover Plan
 
+> **Executed (2026-06).** Mainnet cutover is complete; reconcile green;
+> legacy pool shut down. The importer and replay operator binaries were
+> retired from the repo post-sign-off (evidence under `cutover-evidence/`
+> and `replay-evidence/`). This document is kept as the historical record.
+
 The procedure for switching production from the legacy
 `Nacho-the-Kat/katpool-app` stack to this rebuild. Detailed, exact,
 revisable. Anything ambiguous here is a finding to fix before T-24h.
@@ -82,14 +87,9 @@ connecting to the new pool.
   katpool-monitor katpool-backup` on the legacy VPS. **Do not
   remove containers** — keep the legacy stack intact for
   rollback.
-- **Importer hot-run.** Follow
-  [runbook 14](runbooks/14-legacy-importer.md): set
-  `LEGACY_DATABASE_URL` and `KATPOOL_DATABASE_URL`, then
-  `./scripts/legacy-importer-rehearsal.sh --no-dry-run`. The
-  script writes a timestamped artefact directory under
-  `cutover-evidence/` containing the reconcile JSON, tracing
-  log, audit-log snapshot, and a manifest with the git rev and
-  binary sha256.
+- **Importer hot-run.** The operator ran `katpool-import-legacy` with
+  reconcile green; artefacts archived under `cutover-evidence/` (the
+  one-shot tool was retired from the repo post-cutover).
 - **Gate:** `manifest.reconcile_all_passed == "true"` and
   importer exit code 0. Anything else aborts cutover; revert to
   rollback procedure below.

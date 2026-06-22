@@ -88,8 +88,6 @@ output. No flaky tests, no network in unit tests. See
   types incl. `PoolEvent`), `katpool-secrets` (sops/age treasury custody),
   `katpool-storagemass` (mass/fee planner, `FeeRate`), `katpool-idempotency`
   (Postgres advisory locks), `katpool-metrics`, `katpool-telemetry`.
-- `katpool-krc20-rehearsal/` — dry-run NACHO cycle tool (Runbook 19).
-
 ## 3. Status: what is DONE
 
 - **Phases 1–5 complete.** Acceptance evidence: `docs/phase-1-acceptance.md`
@@ -123,9 +121,8 @@ ADR references):
 - **Phase 9 — Resilience:** chaos drills, load test, custody `EPERM` suite
   (ADR-0008), 4 consecutive weekly DR-validator passes (ADR-0009/Runbook 10),
   all runbooks signed off, on-call paging dry-run.
-- **Phase 10 — Cutover:** 72h shadow run at 0-sompi balance reconciliation,
-  legacy-importer hot-run reconcile (Runbook 14), rehearsed rollback, then the
-  `docs/cutover-plan.md` timeline.
+- **Phase 10 — Cutover:** executed 2026-06; reconcile green; evidence under
+  `cutover-evidence/` and `replay-evidence/` (see `docs/cutover-plan.md`).
 
 ## 5. YOUR IMMEDIATE TASK — Phase 6: Public read-only HTTP API
 
