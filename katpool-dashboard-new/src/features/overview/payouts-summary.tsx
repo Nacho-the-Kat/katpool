@@ -5,7 +5,7 @@ import { Panel } from "@/components/dashboard/panel";
 import { Separator } from "@/components/ui/separator";
 import { ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { usePoolStats, useNetworkContext } from "@/lib/api/hooks";
-import { formatKas, formatNumber, formatUsd, sompiToUsd } from "@/lib/format";
+import { formatKas, formatUsd, sompiToUsd } from "@/lib/format";
 
 function Row({
   icon,
@@ -51,6 +51,12 @@ export function PayoutsSummary() {
             label="KAS paid (confirmed)"
             value={formatKas(data.payouts.kas_confirmed.kas)}
             sub={kasUsd != null ? formatUsd(sompiToUsd(data.payouts.kas_confirmed.sompi, kasUsd)) : undefined}
+          />
+          <Row
+            icon={<Sparkles className="size-4" />}
+            label="NACHO rebates (confirmed)"
+            value={formatKas(data.payouts.nacho_confirmed.kas)}
+            sub="KAS value at payout time"
           />
           {data.treasury ? (
             <>

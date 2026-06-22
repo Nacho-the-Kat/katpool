@@ -20,7 +20,8 @@ expression: resp
       "planned_at": "2026-01-02T00:00:00Z",
       "submitted_at": "2026-01-02T00:01:00Z",
       "confirmed_at": "2026-01-02T00:10:00Z",
-      "failure_reason": null
+      "failure_reason": null,
+      "nacho_amount": "500000000"
     }
   ],
   "next_before": null

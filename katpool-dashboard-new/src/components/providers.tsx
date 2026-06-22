@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider, keepPreviousData } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { SearchFocusProvider } from "@/components/shell/search-focus";
+import { LiveQuerySync } from "@/components/live-query-sync";
 import { DashboardApiError } from "@/lib/api/client";
 
 /** App-wide client providers: theming + a single React Query client. */
@@ -13,7 +14,7 @@ export function Providers({ children }: { children: ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 10_000,
+            staleTime: 0,
             gcTime: 5 * 60_000,
             // Tolerate transient *server* blips (Railway/BFF cold start, a
             // dropped poll, a 5xx) so a single miss never flashes a hard error
@@ -47,6 +48,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
       <QueryClientProvider client={client}>
+        <LiveQuerySync />
         <SearchFocusProvider>{children}</SearchFocusProvider>
       </QueryClientProvider>
     </ThemeProvider>

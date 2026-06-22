@@ -9,7 +9,7 @@ import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/stat
 import { LiveBadge } from "@/components/dashboard/live-badge";
 import { useMinerPayouts, useNetworkContext } from "@/lib/api/hooks";
 import { useHighlightNew } from "@/lib/use-highlight-new";
-import { formatDateTime, formatKas, formatRelative, formatUsd, sompiToUsd } from "@/lib/format";
+import { formatDateTime, formatKas, formatNacho, formatRelative, formatUsd, sompiToUsd } from "@/lib/format";
 import { explorerTx } from "@/lib/explorer";
 import { cn } from "@/lib/utils";
 import { PayoutStatusBadge } from "./payout-status-badge";
@@ -104,10 +104,23 @@ export function MinerPayouts({ address }: { address: string }) {
                       </span>
                     </td>
                     <td className="px-3 py-3 sm:px-5 text-right">
-                      <span className="block font-medium tnum">{formatKas(p.amount.kas)}</span>
-                      {usd != null ? (
-                        <span className="block text-xs text-muted-foreground tnum">{formatUsd(usd)}</span>
-                      ) : null}
+                      {p.kind === "nacho" && p.nacho_amount ? (
+                        <>
+                          <span className="block font-medium tnum text-secondary">
+                            {formatNacho(p.nacho_amount)}
+                          </span>
+                          <span className="block text-xs text-muted-foreground tnum">
+                            {formatKas(p.amount.kas)} rebate value
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="block font-medium tnum">{formatKas(p.amount.kas)}</span>
+                          {usd != null ? (
+                            <span className="block text-xs text-muted-foreground tnum">{formatUsd(usd)}</span>
+                          ) : null}
+                        </>
+                      )}
                     </td>
                     <td className="px-3 py-3 sm:px-5">
                       <PayoutStatusBadge status={p.status} reason={p.failure_reason} />

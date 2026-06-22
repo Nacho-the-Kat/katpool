@@ -9,6 +9,7 @@ import type {
   BlocksPage,
   BucketToken,
   CyclesPage,
+  CycleDetailPage,
   FirmwareBreakdown,
   GeoBreakdown,
   PoolRejectsResponse,
@@ -48,6 +49,7 @@ function useBff<T>(
     queryKey: key,
     queryFn: ({ signal }) => fetchBff<T>(url, signal),
     refetchInterval,
+    refetchOnMount: "always",
     enabled,
   });
 }
@@ -129,6 +131,15 @@ export function usePayoutCycles(limit?: number, before?: number) {
     ["pool", "payouts", limit ?? null, before ?? null],
     bffUrl("/api/v1/pool/payouts", { limit, before }),
     LIVE_MS,
+  );
+}
+
+export function usePayoutCycle(cycleId: number | null) {
+  return useBff<CycleDetailPage>(
+    ["pool", "payouts", "detail", cycleId],
+    bffUrl(`/api/v1/pool/payouts/${cycleId}`),
+    LIVE_MS,
+    cycleId != null,
   );
 }
 

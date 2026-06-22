@@ -9,7 +9,7 @@
 use chrono::{DateTime, Utc};
 use katpool_db::repo::block::{Block, BlockStatus};
 use katpool_db::repo::payout::{
-    PayoutCycle, PayoutCycleStatus, PayoutKind, PayoutStatus, WalletPayout,
+    CycleRecipient, PayoutCycle, PayoutCycleStatus, PayoutKind, PayoutStatus, WalletPayout,
 };
 use katpool_db::repo::share_reject::DbShareRejectReason;
 use serde::Serialize;
@@ -377,6 +377,51 @@ pub struct CyclesPage {
     pub next_before: Option<i64>,
 }
 
+/// One recipient in a payout cycle detail response.
+#[derive(Debug, Serialize)]
+pub struct CycleRecipientView {
+    /// `payout.id`.
+    pub payout_id: i64,
+    /// Recipient wallet address.
+    pub address: String,
+    /// Rebate amount in KAS-sompi.
+    pub amount: KasAmount,
+    /// Per-recipient status.
+    pub status: &'static str,
+    /// KAS tx hash (hex), if submitted.
+    pub tx_hash: Option<String>,
+    /// KRC-20 commit tx hash (hex), if submitted.
+    pub krc20_commit_hash: Option<String>,
+    /// KRC-20 reveal tx hash (hex), if submitted.
+    pub krc20_reveal_hash: Option<String>,
+    /// NACHO base units transferred (`null` for KAS cycles).
+    pub nacho_amount: Option<String>,
+}
+
+impl From<&CycleRecipient> for CycleRecipientView {
+    fn from(r: &CycleRecipient) -> Self {
+        Self {
+            payout_id: r.payout_id,
+            address: r.address.clone(),
+            amount: KasAmount::from_sompi(r.amount_sompi),
+            status: payout_status_str(r.status),
+            tx_hash: r.tx_hash.as_deref().map(hex_encode),
+            krc20_commit_hash: r.krc20_commit_hash.as_deref().map(hex_encode),
+            krc20_reveal_hash: r.krc20_reveal_hash.as_deref().map(hex_encode),
+            nacho_amount: r.nacho_amount.map(|n| n.to_string()),
+        }
+    }
+}
+
+/// `GET /api/v1/pool/payouts/:cycle_id` body.
+#[derive(Debug, Serialize)]
+pub struct CycleDetailPage {
+    /// The cycle header.
+    pub cycle: CycleView,
+    /// Every recipient in this cycle, largest first.
+    pub recipients: Vec<CycleRecipientView>,
+}
+
 /// One entry of the pool leaderboard.
 #[derive(Debug, Serialize)]
 pub struct LeaderboardEntryView {
@@ -612,6 +657,8 @@ pub struct MinerPayoutView {
     pub confirmed_at: Option<DateTime<Utc>>,
     /// Failure reason, if failed.
     pub failure_reason: Option<String>,
+    /// NACHO base units for KRC-20 rebate payouts (`null` for KAS cycles).
+    pub nacho_amount: Option<String>,
 }
 
 impl From<&WalletPayout> for MinerPayoutView {
@@ -629,6 +676,7 @@ impl From<&WalletPayout> for MinerPayoutView {
             submitted_at: p.submitted_at,
             confirmed_at: p.confirmed_at,
             failure_reason: p.failure_reason.clone(),
+            nacho_amount: p.nacho_amount.map(|n| n.to_string()),
         }
     }
 }
