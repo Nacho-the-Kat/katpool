@@ -12,10 +12,10 @@ use crate::error::ApiError;
 use crate::handlers::{cached_json, resolve_window, to_value};
 use crate::models::{
     ActiveMinersHistory, ActiveMinersPointView, ActiveSessionsView, BlockCounts, BlockView,
-    BlocksPage, CycleDetailPage, CycleRecipientView, CycleView, CyclesPage, FirmwareBreakdown, FirmwareEntryView, GeoBreakdown,
-    GeoEntryView, HashrateHistory, HashratePointView, HashrateSnapshot, LeaderboardEntryView,
-    LeaderboardResponse, MiningPoolStats, MpsBlock, PayoutTotals, PoolRejectsResponse, PoolStats,
-    RejectReasonCount, TreasuryView,
+    BlocksPage, CycleDetailPage, CycleRecipientView, CycleView, CyclesPage, FirmwareBreakdown,
+    FirmwareEntryView, GeoBreakdown, GeoEntryView, HashrateHistory, HashratePointView,
+    HashrateSnapshot, LeaderboardEntryView, LeaderboardResponse, MiningPoolStats, MpsBlock,
+    PayoutTotals, PoolRejectsResponse, PoolStats, RejectReasonCount, TreasuryView,
 };
 use crate::money::KasAmount;
 use crate::params::{self, LeaderboardParams, PageParams, RangeParams, WindowParams};

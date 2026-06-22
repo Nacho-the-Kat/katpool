@@ -79,7 +79,10 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/pool/blocks", get(handlers::pool::blocks))
         .route("/pool/payouts", get(handlers::pool::payouts))
-        .route("/pool/payouts/{cycle_id}", get(handlers::pool::payout_cycle))
+        .route(
+            "/pool/payouts/{cycle_id}",
+            get(handlers::pool::payout_cycle),
+        )
         .route("/pool/leaderboard", get(handlers::pool::leaderboard))
         .route(
             "/pool/miners/history",
