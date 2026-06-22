@@ -4,34 +4,38 @@ import { useEffect, useRef } from "react";
 import createGlobe from "cobe";
 import { EDGE_REGIONS, MINT, POOL_ORIGIN, TEAL } from "@/lib/edge-regions";
 
-export function EdgeGlobe() {
+export function EdgeGlobe({ className }: { className?: string }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointerInteracting = useRef<number | null>(null);
   const movementRef = useRef(0);
   const phiRef = useRef(2.35);
+  const widthRef = useRef(0);
 
   useEffect(() => {
+    const root = rootRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!root || !canvas) return;
 
-    let width = 0;
     const measure = () => {
-      width = canvas.offsetWidth;
+      widthRef.current = root.offsetWidth;
     };
     measure();
-    window.addEventListener("resize", measure);
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
 
     const origin = POOL_ORIGIN.location;
 
     const globe = createGlobe(canvas, {
-      devicePixelRatio: 2,
-      width: width * 2,
-      height: width * 2,
+      devicePixelRatio: Math.min(window.devicePixelRatio, 2),
+      width: widthRef.current * 2,
+      height: widthRef.current * 2,
       phi: phiRef.current,
       theta: 0.24,
       dark: 1,
       diffuse: 1.7,
-      mapSamples: 28000,
+      mapSamples: widthRef.current < 240 ? 12000 : 28000,
       mapBrightness: 4.8,
       mapBaseBrightness: 0.035,
       baseColor: [0.1, 0.16, 0.18],
@@ -63,10 +67,12 @@ export function EdgeGlobe() {
       if (pointerInteracting.current === null) {
         phiRef.current += 0.002;
       }
+      const w = widthRef.current;
       globe.update({
         phi: phiRef.current + movementRef.current,
-        width: width * 2,
-        height: width * 2,
+        width: w * 2,
+        height: w * 2,
+        mapSamples: w < 240 ? 12000 : 28000,
       });
       frame = requestAnimationFrame(tick);
     };
@@ -77,7 +83,7 @@ export function EdgeGlobe() {
     return () => {
       cancelAnimationFrame(frame);
       globe.destroy();
-      window.removeEventListener("resize", measure);
+      observer.disconnect();
     };
   }, []);
 
@@ -99,7 +105,10 @@ export function EdgeGlobe() {
   }
 
   return (
-    <div className="relative mx-auto aspect-square w-full max-w-[min(100%,540px)]">
+    <div
+      ref={rootRef}
+      className={`relative mx-auto aspect-square w-full ${className ?? ""}`}
+    >
       <div
         className="pointer-events-none absolute inset-[6%] rounded-full"
         style={{
@@ -117,7 +126,7 @@ export function EdgeGlobe() {
 
       <canvas
         ref={canvasRef}
-        className="relative z-10 size-full cursor-grab opacity-0 transition-opacity duration-1000 active:cursor-grabbing [&.is-ready]:opacity-100"
+        className="relative z-10 size-full cursor-grab touch-none opacity-0 transition-opacity duration-1000 active:cursor-grabbing [&.is-ready]:opacity-100"
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
         onPointerOut={onPointerUp}
