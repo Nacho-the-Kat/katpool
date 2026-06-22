@@ -1,5 +1,9 @@
 # Runbook 22 — Mainnet cutover execution
 
+> **Executed (2026-06).** Cutover complete; reconcile green; legacy pool
+> shut down. Kept as a historical record. Importer/replay tools retired
+> from the repo; evidence under `cutover-evidence/` and `replay-evidence/`.
+
 The "hands on keyboard" sequence to move miners from the legacy pool to the new
 Rust pool. Simple and **foolproof**: every step protects one invariant —
 no miner loses an unpaid balance, the treasury is never spent by two pools at
@@ -40,10 +44,9 @@ legacy stops, sessions drop and reconnect to the new edge.
       controls `kaspa:qz4j8mu…jxnp`.
 - [x] fly anycast edge live + reachable (`kas.katpool.com:5555` TCP OK), origin
       nftables allowlist applied, `KATPOOL_STRATUM_PROXY_PROTOCOL=true`.
-- [ ] **Pre-import done + reconcile green** — full importer run into the clean
-      production DB (canary-free, Invariant 6) exits 0 with
-      `reconcile_all_passed == true`. This is the slow part; doing it now means
-      T-0 only re-runs the importer to pick up the small delta.
+- [x] **Pre-import done + reconcile green** — full importer run into the clean
+      production DB (canary-free, Invariant 6) exited 0 with
+      `reconcile_all_passed == true`.
 - [ ] **Spend caps set** in `ops/env/mainnet.env`:
       `KATPOOL_PAYOUT_MAX_SOMPI_PER_CYCLE`, `KATPOOL_KRC20_MAX_NACHO_PER_CYCLE`.
 - [ ] **Rollback dry-checked**: legacy containers intact; confirm the legacy
@@ -53,12 +56,12 @@ legacy stops, sessions drop and reconnect to the new edge.
 
 ## Pre-import (ahead of the window, legacy still serving)
 
-Run the importer once into the **production DB** (the one the promoted pool will
-use — *not* the canary soak DB) so the bulk is already loaded and proven:
+Run the importer once into the **production DB** (executed pre-cutover;
+evidence archived):
 
 ```
-LEGACY_DATABASE_URL=…  KATPOOL_DATABASE_URL=<prod-db>  \
-  ./scripts/legacy-importer-rehearsal.sh --no-dry-run
+# (retired) LEGACY_DATABASE_URL=…  KATPOOL_DATABASE_URL=<prod-db>  \
+#   ./scripts/legacy-importer-rehearsal.sh --no-dry-run
 ```
 
 The importer re-scans every legacy row (it is **idempotent**, not incremental),

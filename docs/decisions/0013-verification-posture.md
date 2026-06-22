@@ -160,9 +160,8 @@ These are deliberate omissions, not oversights:
   it in.
 - **End-to-end production replay.** The legacy importer's scale
   test runs at 1:50 of production scale on CI; the full-scale
-  rehearsal happens at T-24h per
-  [runbook 14](../runbooks/14-legacy-importer.md), not on every
-  PR.
+  rehearsal happens at T-24h per the cutover importer (evidence under
+  `cutover-evidence/`), not on every PR.
 - **Compile-time-checked sqlx queries** (`query!` macro). Requires
   a live `DATABASE_URL` or a committed `.sqlx/` offline cache;
   the testcontainer integration tests already give us

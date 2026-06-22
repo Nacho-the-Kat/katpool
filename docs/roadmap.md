@@ -15,13 +15,10 @@ Two planning axes run in parallel:
 
 Status legend: ✅ done · ◑ in progress / code-landed-not-live · ❌ not started.
 
-> **Current state (2026-06-13):** the money path and public API (Phases 1–6)
-> are complete and **live on testnet-10** — KAS + KRC-20 payouts broadcasting,
-> consolidation engine running, read-only API serving the dashboard. The
-> self-hosted LGTM observability stack is **provisioned and live** (11 Railway
-> services; metrics + logs + traces flowing from the origin through `vmauth`).
-> What remains for mainnet is overwhelmingly **operational execution and live
-> validation**, not feature code.
+> **Current state (2026-06-22):** mainnet cutover is **complete** — the Rust
+> pool serves production stratum, KAS + NACHO payouts, and the public API.
+> Remaining work is operational hardening (edge, observability SLIs, resilience
+> drills), not core money-path features.
 
 ## Phases
 
@@ -30,13 +27,13 @@ Status legend: ✅ done · ◑ in progress / code-landed-not-live · ❌ not sta
 | 1 | Stratum bridge / shares | ✅ | `docs/phase-1-acceptance.md` (Goldshell soak) |
 | 2 | Legacy import | ✅ | `docs/phase-2-acceptance.md` |
 | 3 | Accountant / maturity / allocation | ✅ | `docs/phase-3-acceptance.md`; ADR-0014 |
-| 4 | KAS payouts | ✅ live on tn10 | `docs/phase-4-acceptance.md` |
-| 5 | KRC-20 / NACHO payouts | ✅ live on tn10 (Kasplex credit is mainnet-only) | `docs/phase-5-acceptance.md` |
-| 6 | Public read-only HTTP API | ✅ live on tn10 | `docs/phase-6-acceptance.md` |
+| 4 | KAS payouts | ✅ live on mainnet | `docs/phase-4-acceptance.md` |
+| 5 | KRC-20 / NACHO payouts | ✅ live on mainnet | `docs/phase-5-acceptance.md` |
+| 6 | Public read-only HTTP API | ✅ live on mainnet | `docs/phase-6-acceptance.md` |
 | 7 | Production edge + hardening | ◑ code landed; live bring-up pending | §"Open gaps" |
 | 8 | Multi-region edge + key-rotation auditor | ◑ edge → fly.io (ADR-0022); auditor pending | ADR-0022; Runbook 11 |
 | 9 | Resilience (chaos / load / DR / on-call) | ❌ | `docs/cutover-plan.md` gates |
-| 10 | Cutover (72h shadow + importer + rollback) | ❌ | `docs/cutover-plan.md` |
+| 10 | Cutover (72h shadow + importer + rollback) | ✅ | `docs/cutover-plan.md`; evidence under `cutover-evidence/` |
 
 ## Workstreams A–H
 

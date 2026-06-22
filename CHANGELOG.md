@@ -12,6 +12,13 @@ backward-incompatible ways at every minor bump.
 
 ### Removed
 
+- **Cutover one-shot tools** (`katpool-import-legacy`, `katpool-replay`,
+  `scripts/legacy-importer-rehearsal.sh`,
+  `scripts/replay-determinism-rehearsal.sh`, Runbooks 14 and 17).
+  Mainnet cutover reconcile is green; evidence lives under
+  `cutover-evidence/` and `replay-evidence/`. Replay determinism
+  remains covered by `accountant::replay` and
+  `cargo test -p accountant --test replay_harness_scale`.
 - **Payout rehearsal one-shot tools** (`katpool-payout-rehearsal`,
   `katpool-krc20-rehearsal`, `scripts/kas-payout-rehearsal.sh`,
   `scripts/krc20-payout-rehearsal.sh`, Runbooks 18–19). Phase 4/5

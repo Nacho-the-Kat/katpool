@@ -19,10 +19,8 @@ stop when the corresponding alert fires.
 | [11](11-key-rotation.md) | Treasury key rotation | — (scheduled drill or compromise response) |
 | [12](12-testnet10-smoke.md) | testnet-10 bridge smoke | — (release-candidate acceptance) |
 | [13](13-kaspad-tn10-bootstrap.md) | kaspad-tn10 install / upgrade / recover | — (ops procedure) |
-| [14](14-legacy-importer.md) | Legacy-database importer (cutover) | — (one-shot cutover procedure) |
 | [15](15-testnet10-tracker-live.md) | Phase 3 M3c — maturity-tracker live exercise on testnet-10 | — (acceptance procedure) |
 | [16](16-testnet10-full-pipeline-live.md) | Phase 3 M3d — full mine-and-allocate pipeline live exercise on testnet-10 | — (acceptance procedure with ASIC) |
-| [17](17-replay-determinism.md) | Phase 3 M4 — replay-determinism harness | — (acceptance procedure) |
 | [20](20-kaspa-version-bump.md) | Kaspa/kaspad version bump (kaspad + kaspa-* crates + toolchain) | — (ops procedure) |
 | [22](22-cutover-execution.md) | Mainnet cutover execution (shadow run, importer hot-run, DNS flip, rollback) | — (one-shot cutover procedure) |
 | [21](21-resilience-drills.md) | Phase 9 resilience drills (DR validation, chaos, custody, on-call, load) | `DRValidatorMissed`, `DRValidatorFailed` |

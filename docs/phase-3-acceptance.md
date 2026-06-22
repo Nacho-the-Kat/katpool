@@ -18,7 +18,7 @@ cannot start until this page is complete.
 | 8 | Unified runtime binary: bridge + accountant event consumer + maturity tracker compose into one process with shared `tokio::sync::broadcast<PoolEvent>` channel; SIGINT/SIGTERM shutdown is clean. | `katpool` binary boots, all three subsystems start, kaspad gRPC works, SIGTERM exits cleanly within milliseconds. | GREEN — landed in PR #22 (M3d); dry-run evidence below |
 | 9 | Full mine-and-allocate end-to-end with an ASIC pointed at the bridge against testnet-10. | Operator-driven test via [runbook 16](runbooks/16-testnet10-full-pipeline-live.md); evidence in §M3f cut-2 below. | GREEN — post-merge Goldshell re-run 2026-05-27 (`pipeline-evidence/2026-05-27T07-48-27Z-m3f-cut2-goldshell-validation/`, git `e854abe` / merged `92c2a59`) |
 | 10 | M3f production-grade defect closeout: per-network `wallet::ensure`, real-vs-phantom `SubmitBlockResponse` discrimination, and lifecycle ordering invariant. | Targeted unit + property tests in PR #25; live verification in row 9 cut-2. | GREEN — landed in PR #25 (M3f) |
-| 11 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | `accountant/tests/replay_harness_scale.rs` + `katpool-replay` + [runbook 17](runbooks/17-replay-determinism.md); operator ≥24h capture via `KATPOOL_EVENT_RECORD_PATH` or legacy monitoring log. | GREEN — landed in this PR (M4) |
+| 11 | 24h-production-log replay-determinism harness: feed real production logs through the accountant, prove byte-equal state. | `accountant/tests/replay_harness_scale.rs` + `accountant::replay`; operator ≥24h capture via `KATPOOL_EVENT_RECORD_PATH`. Evidence archived under `replay-evidence/`. | GREEN — landed in this PR (M4) |
 | 12 | `cargo deny check` clean on the locked Cargo.lock. | CI step; locally verifiable. | GREEN — every Phase 3 PR |
 
 ## Phase 3 M3c live evidence (this PR)
@@ -331,20 +331,16 @@ blocker.
 | Component | Role |
 |---|---|
 | `accountant::replay` | NDJSON load, DB snapshot, `verify_dual_replay` |
-| `katpool-replay` | Operator CLI (`--events`, `--legacy-log`, `--subsample-nth`) |
 | `KATPOOL_EVENT_RECORD_PATH` | Runtime NDJSON capture on the unified `katpool` bus |
-| `scripts/replay-determinism-rehearsal.sh` | Evidence wrapper (dual-verify via CI test) |
-| [Runbook 17](runbooks/17-replay-determinism.md) | Operator procedure |
 
 **CI gate:** `cargo test -p accountant --test replay_harness_scale`
 (~700 synthetic events, dual independent Postgres, byte-equal
 snapshots).
 
 **Operator ≥24h gate (cutover ticket):** capture via
-`KATPOOL_EVENT_RECORD_PATH` on a production-fed instance **or**
-legacy monitoring log export; replay with `katpool-replay` and
-archive manifest under `replay-evidence/`. Legacy log adapter
-documents the block-lifecycle gap (shares/rejects only).
+`KATPOOL_EVENT_RECORD_PATH` on a production-fed instance; replay via
+`accountant::replay` and archive manifest under `replay-evidence/`
+(executed at cutover; one-shot CLI retired post-sign-off).
 
 ## Sign-off
 
@@ -355,5 +351,5 @@ Phase 3 closes when:
    captured in the Run history table.
 3. The M3d/M3f live exercise has demonstrated share + block rows
    with zero `orphan_block_accepted` (see §M3f cut-2 above).
-4. The operator has archived ≥24h production event capture and
-   run `katpool-replay` / rehearsal script evidence (runbook 17).
+4. The operator archived ≥24h production event capture and replay
+   evidence under `replay-evidence/` (runbook 17 retired post-cutover).

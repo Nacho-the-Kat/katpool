@@ -39,8 +39,7 @@
 //!   `KasplexTierClassifier` + schema migration adding
 //!   `applied_topline_bps`, `applied_rebate_bps`, `applied_tier`
 //!   to `share_allocation`.
-//! - **M4**: 24h-production-log replay determinism harness
-//!   (`accountant::replay`, `katpool-replay` binary).
+//! - **M4**: 24h-production-log replay determinism harness (`accountant::replay`).
 //!
 //! See [`docs/decisions/0012-fee-model-and-tier-classification.md`](../../docs/decisions/0012-fee-model-and-tier-classification.md)
 //! for the architectural decision record.

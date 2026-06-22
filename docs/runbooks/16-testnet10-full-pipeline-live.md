@@ -176,7 +176,7 @@ Paste into the Phase 3 acceptance issue (or this PR's comments):
 
 ## What this still doesn't prove
 
-- Full Phase 3 close-out also requires **24h replay-determinism harness**
-  (Phase 3 M4), which runs the accountant against captured legacy
-  production logs and proves byte-equal state across runs.
+- Full Phase 3 close-out also requires the **24h replay-determinism harness**
+  (Phase 3 M4): `cargo test -p accountant --test replay_harness_scale` plus
+  operator-captured NDJSON under `replay-evidence/` (executed at cutover).
 - **Payouts** are Phase 4 (KAS) + Phase 5 (NACHO) — separate ticket.
