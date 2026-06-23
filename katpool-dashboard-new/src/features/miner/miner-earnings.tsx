@@ -3,6 +3,8 @@
 import { Panel } from "@/components/dashboard/panel";
 import { ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatKas, formatUsd, sompiToUsd } from "@/lib/format";
 import type { KasAmount } from "@/lib/api/types";
 
@@ -47,7 +49,7 @@ export function MinerEarnings({ address }: { address: string }) {
         <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
           <div>
             <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-              KAS
+              <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>
             </p>
             <div className="divide-y divide-border/50">
               <Line label="Allocated" amount={data.kas.allocated} kasUsd={kasUsd} />
@@ -57,7 +59,8 @@ export function MinerEarnings({ address }: { address: string }) {
           </div>
           <div>
             <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-              NACHO rebate (KAS value)
+              <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate (
+              <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> value)
             </p>
             <div className="divide-y divide-border/50">
               <Line label="Accrued" amount={data.nacho_rebate.accrued} kasUsd={kasUsd} />

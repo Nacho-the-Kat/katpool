@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import { ArrowRight, ExternalLink, Github, Pickaxe } from "lucide-react";
 import { APP_URL, GITHUB_URL } from "@/lib/mining";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "../ext-link";
 
 export function StartScene() {
   return (
@@ -67,7 +69,7 @@ export function StartScene() {
         transition={{ delay: 0.28 }}
         className="mt-12 text-xs text-muted-foreground"
       >
-        Kat Pool · Kaspa mainnet · Open source since day one
+        Kat Pool · <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> mainnet · Open source since day one
       </motion.p>
     </div>
   );

@@ -1,3 +1,6 @@
+> **Archived.** Findings were merged into the dashboard; see
+> [`archives/README.md`](README.md).
+
 # Dashboard end-to-end audit — 2026-06-03
 
 A fine-toothed audit of the deployed dashboard

@@ -6,6 +6,8 @@ import type { MiningPoolStats } from "@/lib/pool-stats";
 import { formatBlockCount, formatRelativeTime } from "@/lib/pool-stats";
 import { useNow } from "@/hooks/use-now";
 import { APP_URL } from "@/lib/mining";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "../ext-link";
 import { AnimatedHashrate, AnimatedNumber } from "../animated-stat";
 
 interface HeroSceneProps {
@@ -81,7 +83,7 @@ export function HeroScene({ stats, syncing, onNext }: HeroSceneProps) {
           transition={{ delay: 0.08, duration: 0.55 }}
           className="max-w-xl text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl"
         >
-          Mine Kaspa at the{" "}
+          Mine <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> at the{" "}
           <span className="text-grad">edge</span>
         </motion.h1>
 
@@ -91,8 +93,9 @@ export function HeroScene({ stats, syncing, onNext }: HeroSceneProps) {
           transition={{ delay: 0.16, duration: 0.5 }}
           className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg"
         >
-          Open-source stratum with global anycast, transparent PROP rewards, and NACHO fee rebates.
-          Built for serious Kaspa hashrate.
+          Open-source stratum with global anycast, transparent PROP rewards, and{" "}
+          <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> fee rebates. Built for serious{" "}
+          <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> hashrate.
         </motion.p>
 
         <motion.div
@@ -140,7 +143,16 @@ export function HeroScene({ stats, syncing, onNext }: HeroSceneProps) {
           )}
         </StatCard>
 
-        <StatCard icon={Percent} label="Effective fee" delay={0.36} sub="PROP · min 10 KAS payout">
+        <StatCard
+          icon={Percent}
+          label="Effective fee"
+          delay={0.36}
+          sub={
+            <>
+              PROP · min 10 <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> payout
+            </>
+          }
+        >
           <p className="metric text-2xl font-semibold sm:text-3xl">
             {stats ? `${stats.poolFee}%` : "0.5%"}
           </p>

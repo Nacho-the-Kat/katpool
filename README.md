@@ -33,7 +33,7 @@ Railway TCP edges, and observed by a self-hosted Grafana LGTM stack.
 **Frontends** (deploy separately on Railway): `katpool-dashboard-new/`,
 `katpool-landing-new/`.
 
-## Architecture (target)
+## Architecture
 
 See [`docs/architecture.md`](docs/architecture.md) for the full diagram and
 rationale. In short:
@@ -94,6 +94,8 @@ PostgreSQL setup) are in [`docs/onboarding.md`](docs/onboarding.md).
 
 ## Documentation
 
+Start at [`docs/README.md`](docs/README.md) for the full index. Highlights:
+
 | Path | Topic |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Component layout, data flow, deployment topology |
@@ -105,9 +107,10 @@ PostgreSQL setup) are in [`docs/onboarding.md`](docs/onboarding.md).
 | [`docs/onboarding.md`](docs/onboarding.md) | Developer onboarding |
 | [`docs/dev-workflow.md`](docs/dev-workflow.md) | Local-gate ritual, stacked-PR rules, label conventions |
 | [`docs/db-schema.md`](docs/db-schema.md) | Database schema reference (operator-facing) |
-| [`docs/phase-1-acceptance.md`](docs/phase-1-acceptance.md) | Phase 1 acceptance matrix and run history |
+| [`docs/roadmap.md`](docs/roadmap.md) | Phase status and remaining hardening |
 | [`docs/decisions/`](docs/decisions/) | Architectural Decision Records (MADR 4.0) |
 | [`docs/runbooks/`](docs/runbooks/) | One runbook per incident class |
+| [`archives/`](archives/) | Retired handoffs and one-shot audits (not live docs) |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability disclosure policy |
 | [`CHANGELOG.md`](CHANGELOG.md) | Release history (Keep a Changelog format) |
 

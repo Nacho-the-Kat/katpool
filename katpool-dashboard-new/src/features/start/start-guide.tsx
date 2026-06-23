@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/dashboard/panel";
 import { CopyButton } from "@/components/dashboard/copy-button";
 import { miningConfig } from "@/lib/mining";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatNumber } from "@/lib/format";
 
 /** Brand families surfaced as quick badges on the connect card. */
@@ -149,12 +151,14 @@ export function StartGuide() {
               Point your rig at <span className="text-grad">katpool</span> in under two minutes
             </h2>
             <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              Low {cfg.feePercent}% fee with a NACHO rebate, variable difficulty on every port, and a
-              global anycast edge that routes you to the nearest server automatically.
+              Low {cfg.feePercent}% fee with a <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate,
+              variable difficulty on every port, and a global anycast edge that routes you to the
+              nearest server automatically.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Badge variant="outline">
-                <Gauge className="size-3.5" /> {cfg.feePercent}% fee + NACHO rebate
+                <Gauge className="size-3.5" /> {cfg.feePercent}% fee +{" "}
+                <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate
               </Badge>
               <Badge variant="outline">
                 <Cpu className="size-3.5" /> Variable difficulty
@@ -163,7 +167,8 @@ export function StartGuide() {
                 <Globe2 className="size-3.5" /> {cfg.regions.length > 1 ? "7-region edge" : "Anycast edge"}
               </Badge>
               <Badge variant="outline">
-                <Wallet className="size-3.5" /> {cfg.minPayoutKas} KAS min payout
+                <Wallet className="size-3.5" /> {cfg.minPayoutKas}{" "}
+                <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> min payout
               </Badge>
             </div>
           </div>
@@ -194,10 +199,8 @@ export function StartGuide() {
           ) : (
             <>
               wallet (e.g.{" "}
-              <a href="https://kaspium.io" target="_blank" rel="noreferrer">
-                Kaspium
-              </a>{" "}
-              or the Kaspa desktop wallet)
+              <ExtLink href={ECOSYSTEM.kaspium}>Kaspium</ExtLink> or the{" "}
+              <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> desktop wallet)
             </>
           )}
           , then copy your <span className="font-mono text-foreground">{cfg.addressPrefix}:</span>{" "}
@@ -384,15 +387,20 @@ export function StartGuide() {
             <li className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
               <span>
-                <span className="font-medium text-foreground">NACHO rebate</span> — Standard miners get
-                33% of the fee back as NACHO; Elite miners get 100%, paid automatically.
+                <span className="font-medium text-foreground">
+                  <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate
+                </span>{" "}
+                — Standard miners get 33% of the fee back as NACHO; Elite miners get 100%, paid
+                automatically.
               </span>
             </li>
             <li className="flex items-start gap-3">
               <Wallet className="mt-0.5 size-4 shrink-0 text-primary" />
               <span>
-                <span className="font-medium text-foreground">{cfg.minPayoutKas} KAS minimum</span> —
-                automatic payouts run on a ~6-hour cycle straight to your wallet.
+                <span className="font-medium text-foreground">
+                  {cfg.minPayoutKas} <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> minimum
+                </span>{" "}
+                — automatic payouts run on a ~6-hour cycle straight to your wallet.
               </span>
             </li>
             <li className="flex items-start gap-3">
@@ -420,7 +428,8 @@ export function StartGuide() {
             <dt className="text-sm font-medium text-foreground">Which miners are supported?</dt>
             <dd className="mt-1 text-sm text-muted-foreground">
               Every kHeavyHash ASIC — IceRiver KS-series, Bitmain Antminer KS-series, and Goldshell
-              KA-series. Kaspa is ASIC-only; CPU and GPU mining is no longer competitive.
+              KA-series. <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> is ASIC-only; CPU and GPU
+              mining is no longer competitive.
             </dd>
           </div>
           <div>

@@ -4,12 +4,8 @@ import { motion } from "framer-motion";
 import { Coins, Crown, Sparkles } from "lucide-react";
 import type { MiningPoolStats } from "@/lib/pool-stats";
 import { miningConfig } from "@/lib/mining";
-
-const ELITE_PATHS = [
-  "NACHO KRC-721 collection holder",
-  "KATCLAIM KRC-721 collection holder",
-  "100,000,000+ NACHO tokens (KRC-20)",
-];
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "../ext-link";
 
 export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
   const { toplineFeePercent, minPayoutKas } = miningConfig();
@@ -33,8 +29,9 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
         </h2>
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
           {stats?.feeType ?? "PROP"} scheme with a {toplineFeePercent}% topline allocation. A portion
-          returns as NACHO at each KRC-20 payout cycle - lowering your effective cost without hidden
-          spreads.
+          returns as <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> at each{" "}
+          <ExtLink href={ECOSYSTEM.krc20}>KRC-20</ExtLink> payout cycle - lowering your effective cost
+          without hidden spreads.
         </p>
         <dl className="mt-6 space-y-3 border-t border-border/60 pt-5 text-sm">
           <div className="flex justify-between">
@@ -47,7 +44,9 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
           </div>
           <div className="flex justify-between">
             <dt className="text-muted-foreground">Minimum payout</dt>
-            <dd className="metric font-semibold">{minPayoutKas} KAS</dd>
+            <dd className="metric font-semibold">
+              {minPayoutKas} <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>
+            </dd>
           </div>
         </dl>
       </motion.div>
@@ -63,11 +62,15 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
           Standard miners
         </div>
         <p className="text-3xl font-semibold tracking-tight">
-          33% <span className="text-base font-normal text-muted-foreground">fee back in NACHO</span>
+          33%{" "}
+          <span className="text-base font-normal text-muted-foreground">
+            fee back in <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink>
+          </span>
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Every matured block accrues a NACHO rebate equal to one-third of your fee share. Converted
-          at market rate on the KRC-20 payout cycle.
+          Every matured block accrues a <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate equal to
+          one-third of your fee share. Converted at market rate on the{" "}
+          <ExtLink href={ECOSYSTEM.krc20}>KRC-20</ExtLink> payout cycle.
         </p>
         <div className="mt-5 rounded-2xl border border-border/50 bg-background/40 p-4 font-mono text-xs text-muted-foreground">
           net_kas ≈ gross × (1 − {toplineFeePercent / 100})
@@ -87,18 +90,28 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
           Elite tier
         </div>
         <p className="text-3xl font-semibold tracking-tight">
-          100% <span className="text-base font-normal text-muted-foreground">fee back in NACHO</span>
+          100%{" "}
+          <span className="text-base font-normal text-muted-foreground">
+            fee back in <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink>
+          </span>
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
           Qualify with any one path - evaluated once per matured block:
         </p>
         <ul className="mt-4 space-y-2">
-          {ELITE_PATHS.map((path) => (
-            <li key={path} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-secondary" />
-              {path}
-            </li>
-          ))}
+          <li className="flex items-start gap-2 text-sm text-muted-foreground">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-secondary" />
+            <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> KRC-721 collection holder
+          </li>
+          <li className="flex items-start gap-2 text-sm text-muted-foreground">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-secondary" />
+            KATCLAIM KRC-721 collection holder
+          </li>
+          <li className="flex items-start gap-2 text-sm text-muted-foreground">
+            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-secondary" />
+            100,000,000+ <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> tokens (
+            <ExtLink href={ECOSYSTEM.krc20}>KRC-20</ExtLink>)
+          </li>
         </ul>
       </motion.div>
     </div>

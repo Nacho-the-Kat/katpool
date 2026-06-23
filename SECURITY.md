@@ -2,14 +2,10 @@
 
 ## Supported versions
 
-This repository is the rebuild of the production Kaspa mining pool at
-`kas.katpool.com`. Until Phase 10 cutover, the previous-generation pool
-(at the legacy `Nacho-the-Kat/katpool-app` repository) is the production
-deployment and receives security fixes there. After cutover, this
-repository becomes the sole supported version and the legacy pool is
-retired.
-
-Once production:
+This repository is the **production** Kaspa mining pool at `kas.katpool.com`.
+The Rust runtime, public API, KAS payouts, and NACHO rebates on mainnet are
+supported from the `main` branch. The legacy `Nacho-the-Kat/katpool-app`
+stack is retired.
 
 | Version | Supported          |
 |---------|--------------------|
@@ -65,12 +61,13 @@ In scope:
 - The runtime deployment configuration under `ops/`.
 - The on-disk database schema and migrations.
 - Operational runbooks (incorrect step ordering that risks fund loss).
+- Production frontends `katpool-dashboard-new/` and `katpool-landing-new/`.
 
 Out of scope (but please still report, just informationally):
 
 - Vulnerabilities in upstream dependencies that we cannot patch
   ourselves; we will coordinate with upstream.
-- Issues in the legacy `katpool-app` repository (report there).
+- Issues in the retired `katpool-app` repository.
 - Social-engineering attacks that don't involve a code or
   configuration defect.
 - DoS amplification via miner abuse — these are tracked as anti-abuse

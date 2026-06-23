@@ -10,6 +10,8 @@ import { LiveBadge } from "@/components/dashboard/live-badge";
 import { CycleStatusBadge } from "./cycle-status-badge";
 import { CycleRecipients } from "./cycle-recipients";
 import { usePayoutCycles } from "@/lib/api/hooks";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { useHighlightNew } from "@/lib/use-highlight-new";
 import { formatDateTime, formatKas, formatNumber, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -30,7 +32,13 @@ export function CyclesTable() {
   return (
     <Panel
       title="Payout cycles"
-      description="KAS and NACHO distribution cycles — expand a row to see every recipient"
+      description={
+        <>
+          <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> and{" "}
+          <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> distribution cycles — expand a row to see every
+          recipient
+        </>
+      }
       actions={
         <div className="flex items-center gap-2">
           <LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="mr-1 hidden sm:inline-flex" />

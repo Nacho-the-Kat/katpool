@@ -1,3 +1,6 @@
+> **Archived.** This file is kept for history only. For current docs see
+> [`docs/README.md`](../docs/README.md).
+
 # Katpool Mining Pool — Engineering Handoff (Phase 6 onward)
 
 You are taking over an in-flight, enterprise-grade rebuild of the **katpool**
