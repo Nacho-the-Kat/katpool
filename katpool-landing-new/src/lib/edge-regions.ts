@@ -1,4 +1,4 @@
-/** Edge edge regions - coords match `docs/cutover-stratum-compatibility.md`. */
+/** Fly.io edge regions - coords match `docs/cutover-stratum-compatibility.md`. */
 export const POOL_ORIGIN = {
   label: "Pool origin",
   fly: "NetCup DE",
@@ -14,7 +14,6 @@ export interface EdgeRegion {
 }
 
 export const EDGE_REGIONS: EdgeRegion[] = [
-  { prefix: "anycast", label: "Anycast", fly: "any", host: "kas.katpool.com", location: [50.03, 8.57] },
   { prefix: "na-west", label: "San Francisco", fly: "sjc", host: "na-west.katpool.com", location: [37.36, -121.93] },
   { prefix: "na-east", label: "Virginia", fly: "iad", host: "na-east.katpool.com", location: [38.95, -77.46] },
   { prefix: "eu", label: "Frankfurt", fly: "fra", host: "eu.katpool.com", location: [50.03, 8.57] },

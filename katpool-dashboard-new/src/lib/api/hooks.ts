@@ -25,7 +25,7 @@ import type {
 } from "./types";
 
 /** Default live-refresh cadence for pool-wide widgets (ms). */
-const LIVE_MS = 10_000;
+const LIVE_MS = 15_000;
 const NETWORK_MS = 60_000;
 
 interface RangeArgs {
@@ -49,7 +49,6 @@ function useBff<T>(
     queryKey: key,
     queryFn: ({ signal }) => fetchBff<T>(url, signal),
     refetchInterval,
-    refetchIntervalInBackground: true,
     refetchOnMount: "always",
     enabled,
   });

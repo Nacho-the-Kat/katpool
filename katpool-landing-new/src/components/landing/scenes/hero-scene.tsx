@@ -3,10 +3,10 @@
 import { motion } from "framer-motion";
 import { ArrowDown, Blocks, Gauge, Percent, Timer } from "lucide-react";
 import type { MiningPoolStats } from "@/lib/pool-stats";
-import { formatBlockCount, formatRelativeTime } from "@/lib/pool-stats";
-import { useNow } from "@/hooks/use-now";
+import { formatBlockCount } from "@/lib/pool-stats";
 import { APP_URL } from "@/lib/mining";
 import { AnimatedHashrate, AnimatedNumber } from "../animated-stat";
+import { BlockAgeClock } from "../block-age-clock";
 
 interface HeroSceneProps {
   stats: MiningPoolStats | null;
@@ -51,13 +51,6 @@ function StatCard({
       <div className="min-h-[2.25rem] sm:min-h-[2.75rem]">{children}</div>
       {sub && <div className="mt-1 text-xs text-muted-foreground">{sub}</div>}
     </motion.div>
-  );
-}
-
-function LastBlockAge({ iso }: { iso: string }) {
-  const now = useNow(1000);
-  return (
-    <p className="metric text-2xl font-semibold sm:text-3xl">{formatRelativeTime(iso, now)}</p>
   );
 }
 
@@ -148,7 +141,7 @@ export function HeroScene({ stats, syncing, onNext }: HeroSceneProps) {
 
         <StatCard icon={Timer} label="Last block" live delay={0.44} sub={stats?.feeType ?? "PROP"}>
           {stats?.lastblocktime ? (
-            <LastBlockAge iso={stats.lastblocktime} />
+            <BlockAgeClock lastBlockTime={stats.lastblocktime} />
           ) : (
             <p className="metric text-2xl font-semibold text-muted-foreground sm:text-3xl">—</p>
           )}

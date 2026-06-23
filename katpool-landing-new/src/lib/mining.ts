@@ -21,7 +21,6 @@ const DEFAULT_PORTS: StratumPort[] = [
 ];
 
 const REGION_PREFIXES: { label: string; prefix: string }[] = [
-  { label: "Anycast", prefix: "anycast" },
   { label: "San Francisco", prefix: "na-west" },
   { label: "New York", prefix: "na-east" },
   { label: "Europe", prefix: "eu" },

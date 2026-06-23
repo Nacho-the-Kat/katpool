@@ -144,10 +144,10 @@ export function sompiToUsd(sompi: string, kasUsd: number | null): number | null 
 const RTF = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 /** Relative time like "3 minutes ago" / "in 2 days". */
-export function formatRelative(iso: string | number | Date, nowMs = Date.now()): string {
+export function formatRelative(iso: string | number | Date): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "—";
-  const deltaSec = Math.round((then - nowMs) / 1000);
+  const deltaSec = Math.round((then - Date.now()) / 1000);
   const abs = Math.abs(deltaSec);
   const table: [number, Intl.RelativeTimeFormatUnit][] = [
     [60, "second"],
