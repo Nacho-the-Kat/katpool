@@ -15,9 +15,10 @@ pub const MAX_BODY_BYTES: usize = 16 * 1024;
 /// Default sliding window for `?window=` endpoints (hashrate, rejects).
 pub const DEFAULT_WINDOW: Duration = Duration::from_secs(600);
 
-/// Recommended sliding window for live headline hashrate (dashboard, status
-/// boards). Shorter than [`DEFAULT_WINDOW`] so the figure reacts within a few
-/// minutes without the bucket-quantization lag of a time-series tail point.
+/// Sliding window for live headline hashrate.
+///
+/// Shorter than [`DEFAULT_WINDOW`] so the figure reacts within a few minutes
+/// without the bucket-quantization lag of a time-series tail point.
 pub const LIVE_WINDOW: Duration = Duration::from_secs(300);
 
 /// Maximum accepted `?window=` value.
