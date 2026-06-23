@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Github } from "lucide-react";
 import type { MiningPoolStats } from "@/lib/pool-stats";
-import { poolApiBase } from "@/lib/pool-stats";
+import { usePoolStats } from "@/hooks/use-pool-stats";
 import { APP_URL, GITHUB_URL } from "@/lib/mining";
 import { SceneNav } from "./scene-nav";
 import { HeroScene } from "./scenes/hero-scene";
@@ -49,7 +49,7 @@ const sceneVariants = {
 export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | null }) {
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(0);
-  const [stats, setStats] = useState<MiningPoolStats | null>(initialStats);
+  const { stats, syncing } = usePoolStats(initialStats);
   const [wheelLock, setWheelLock] = useState(false);
 
   const goTo = useCallback((next: number) => {
@@ -57,19 +57,6 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
     setDirection(next > index ? 1 : -1);
     setIndex(next);
   }, [index]);
-
-  useEffect(() => {
-    const tick = async () => {
-      try {
-        const res = await fetch(`${poolApiBase()}/api/pool/miningPoolStats`);
-        if (res.ok) setStats((await res.json()) as MiningPoolStats);
-      } catch {
-        /* keep last good snapshot */
-      }
-    };
-    const id = setInterval(tick, 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -189,7 +176,9 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
             data-scene-panel
             className="absolute inset-0 flex w-full items-start justify-center overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pb-[5.5rem] pt-[4.25rem] [-webkit-overflow-scrolling:touch] sm:px-8 sm:pb-28 sm:pt-24 lg:items-center lg:overflow-hidden"
           >
-            {sceneId === "hero" && <HeroScene stats={stats} onNext={() => goTo(index + 1)} />}
+            {sceneId === "hero" && (
+              <HeroScene stats={stats} syncing={syncing} onNext={() => goTo(index + 1)} />
+            )}
             {sceneId === "edge" && <EdgeScene />}
             {sceneId === "connect" && <ConnectScene />}
             {sceneId === "fees" && <FeesScene stats={stats} />}
