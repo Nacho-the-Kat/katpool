@@ -5,6 +5,8 @@ import { ArrowDown, TrendingDown } from "lucide-react";
 import { Panel } from "@/components/dashboard/panel";
 import { ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { useNetworkContext } from "@/lib/api/hooks";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatCompact, formatHashrate } from "@/lib/format";
 
 interface Remaining {
@@ -112,7 +114,9 @@ export function HalvingModule() {
                   <span>{data.block_reward_kas.toFixed(2)}</span>
                   <ArrowDown className="size-3.5 text-warning" />
                   <span className="text-primary">{data.next_halving.reward_kas.toFixed(2)}</span>
-                  <span className="text-xs font-normal text-muted-foreground">KAS</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>
+                  </span>
                 </div>
               </div>
               {rewardDrop != null ? (
@@ -138,8 +142,13 @@ export function HalvingModule() {
                 />
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[0.6875rem] text-muted-foreground tnum">
-                <span>{formatCompact(data.circulating_supply_kas)} KAS</span>
-                <span>{formatCompact(data.max_supply_kas)} KAS max</span>
+                <span>
+                  {formatCompact(data.circulating_supply_kas)}{" "}
+                  <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>
+                </span>
+                <span>
+                  {formatCompact(data.max_supply_kas)} <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> max
+                </span>
               </div>
             </div>
           ) : null}

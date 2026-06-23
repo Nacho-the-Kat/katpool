@@ -15,6 +15,8 @@ import { totalBlocksFound } from "@/lib/api/types";
 import { useLiveRelative } from "@/hooks/use-live-relative";
 import { formatCompact, formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd, truncateMiddle } from "@/lib/format";
 import { streamAddress } from "@/lib/explorer";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { miningConfig } from "@/lib/mining";
 import { cn } from "@/lib/utils";
 import { PoolRejectsPanel } from "./pool-rejects-panel";
@@ -165,7 +167,7 @@ export function StatusBoard() {
             <div className="flex flex-col gap-3 bg-card p-5">
               <div>
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Coins className="size-3.5" /> KAS balance
+                  <Coins className="size-3.5" /> <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> balance
                 </p>
                 <p className="mt-1 text-2xl font-semibold metric">{formatKas(treasury.kas_balance.kas)}</p>
                 {kasUsd != null ? (
@@ -175,7 +177,7 @@ export function StatusBoard() {
                 ) : null}
               </div>
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Sparkles className="size-3.5" /> NACHO
+                <Sparkles className="size-3.5" /> <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink>
                 <span className="font-medium text-foreground tnum">{formatNumber(Number(treasury.nacho_balance))}</span>
               </p>
             </div>
@@ -236,10 +238,13 @@ export function StatusBoard() {
             </li>
             <li>
               <span className="text-foreground">Network context</span> (hashrate, difficulty, supply,
-              halving) is sourced from the Kaspa public API.
+              halving) is sourced from the{" "}
+              <ExtLink href={ECOSYSTEM.kaspaApi}>Kaspa</ExtLink> public API.
             </li>
             <li>
-              <span className="text-foreground">Prices</span> (KAS, NACHO) come from CoinGecko. All
+              <span className="text-foreground">Prices</span> (
+              <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>,{" "}
+              <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink>) come from CoinGecko. All
               on-chain amounts are computed with exact integer math — never floating point.
             </li>
             <li>

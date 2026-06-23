@@ -9,6 +9,8 @@ import { DeltaChip } from "@/components/dashboard/delta-chip";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { usePoolHashrateHistory, usePoolStats, useNetworkContext } from "@/lib/api/hooks";
 import { totalBlocksFound } from "@/lib/api/types";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatCompact, formatHashrate, formatNumber, formatUsd } from "@/lib/format";
 import { resolveRange } from "@/lib/range";
 
@@ -27,7 +29,7 @@ function HeroStat({
   loading,
   extra,
 }: {
-  label: string;
+  label: ReactNode;
   value: string | null;
   loading?: boolean;
   extra?: ReactNode;
@@ -119,8 +121,8 @@ export function OverviewHero() {
             <p className="mt-3 text-sm text-muted-foreground">
               {shareLabel ? (
                 <>
-                  <span className="font-semibold text-foreground">{shareLabel}</span> of the total Kaspa
-                  network hashrate
+                  <span className="font-semibold text-foreground">{shareLabel}</span> of the total{" "}
+                  <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> network hashrate
                 </>
               ) : (
                 "Estimated from accepted share difficulty over the last 24 hours"
@@ -163,7 +165,11 @@ export function OverviewHero() {
                 loading={netLoading}
               />
               <HeroStat
-                label="KAS price"
+                label={
+                  <>
+                    <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> price
+                  </>
+                }
                 value={network.data ? formatUsd(network.data.prices.kas_usd) : null}
                 loading={netLoading}
                 extra={network.data ? <DeltaChip value={network.data.prices.kas_change_24h} /> : null}

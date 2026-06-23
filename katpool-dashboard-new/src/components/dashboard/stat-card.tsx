@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 interface StatCardProps {
-  label: string;
+  label: ReactNode;
   /** Numeric value to count up, or null while loading. */
   value: number | null;
   format: (v: number) => string;

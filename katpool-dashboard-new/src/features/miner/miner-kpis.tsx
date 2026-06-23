@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import { Coins, Cpu, Gauge, ThumbsDown, ThumbsUp, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { useMinerHashrateHistory, useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd } from "@/lib/format";
 import { resolveRange } from "@/lib/range";
 
@@ -44,7 +46,11 @@ export function MinerKpis({ address }: { address: string }) {
         hint="Distinct worker rigs ever seen for this wallet."
       />
       <StatCard
-        label="Payable KAS"
+        label={
+          <>
+            Payable <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink>
+          </>
+        }
         icon={<Wallet className="size-4" />}
         value={data ? Number(data.kas.payable.kas) : null}
         format={(v) => formatKas(String(v))}
@@ -70,7 +76,11 @@ export function MinerKpis({ address }: { address: string }) {
         hint="Share of submitted shares that were rejected in the window."
       />
       <StatCard
-        label="NACHO pending"
+        label={
+          <>
+            <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> pending
+          </>
+        }
         icon={<Coins className="size-4" />}
         value={data ? Number(data.nacho_rebate.pending.kas) : null}
         format={(v) => formatKas(String(v))}

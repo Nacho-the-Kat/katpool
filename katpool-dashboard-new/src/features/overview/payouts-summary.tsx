@@ -5,6 +5,8 @@ import { Panel } from "@/components/dashboard/panel";
 import { Separator } from "@/components/ui/separator";
 import { ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { usePoolStats, useNetworkContext } from "@/lib/api/hooks";
+import { ECOSYSTEM } from "@/lib/ecosystem";
+import { ExtLink } from "@/components/ext-link";
 import { formatKas, formatUsd, sompiToUsd } from "@/lib/format";
 
 function Row({
@@ -14,7 +16,7 @@ function Row({
   sub,
 }: {
   icon: React.ReactNode;
-  label: string;
+  label: React.ReactNode;
   value: string;
   sub?: string;
 }) {
@@ -48,13 +50,21 @@ export function PayoutsSummary() {
         <div className="divide-y divide-border/60">
           <Row
             icon={<Coins className="size-4" />}
-            label="KAS paid (confirmed)"
+            label={
+              <>
+                <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> paid (confirmed)
+              </>
+            }
             value={formatKas(data.payouts.kas_confirmed.kas)}
             sub={kasUsd != null ? formatUsd(sompiToUsd(data.payouts.kas_confirmed.sompi, kasUsd)) : undefined}
           />
           <Row
             icon={<Sparkles className="size-4" />}
-            label="NACHO rebates (confirmed)"
+            label={
+              <>
+                <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebates (confirmed)
+              </>
+            }
             value={formatKas(data.payouts.nacho_confirmed.kas)}
             sub="KAS value at payout time"
           />
@@ -63,7 +73,11 @@ export function PayoutsSummary() {
               <Separator className="my-1" />
               <Row
                 icon={<Landmark className="size-4" />}
-                label="Treasury KAS balance"
+                label={
+                  <>
+                    Treasury <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> balance
+                  </>
+                }
                 value={formatKas(data.treasury.kas_balance.kas)}
                 sub={kasUsd != null ? formatUsd(sompiToUsd(data.treasury.kas_balance.sompi, kasUsd)) : undefined}
               />

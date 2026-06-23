@@ -72,18 +72,16 @@ backed by emitted signals:
 - **Share-accept latency histogram** (the API/bridge latency SLI).
 - **Canary miner** binary — the `CanaryMinerNotPaid` SLO depends on it.
 
-## Mainnet cutover gates
+## Mainnet cutover (complete)
 
-From [`docs/cutover-plan.md`](cutover-plan.md); all ❌ until executed:
+Phase 10 cutover to this rebuild is **done** (see
+[`docs/cutover-plan.md`](cutover-plan.md) and evidence under `cutover-evidence/`).
+Remaining gates below are **post-cutover hardening**, not blockers for production
+stratum or payouts:
 
 - Phase 9 acceptance: load test, chaos drills, custody `EPERM` suite, on-call
   paging dry-run, **all runbooks signed off**.
 - DR validator: **4 consecutive weekly passes** (ADR-0009; Runbook 10).
-- 72h shadow run reconciling balances to **0 sompi** vs production.
-- Rollback rehearsed end-to-end on a non-prod VPS.
-- At T-0: legacy importer hot-run gate (`reconcile_all_passed`, Runbook 14),
-  treasury key handover via scp, DNS flip to the fly.io anycast edge, payouts
-  dry-run → live.
 
 ## Known deferrals (mainnet-only or future work)
 
@@ -97,7 +95,7 @@ From [`docs/cutover-plan.md`](cutover-plan.md); all ❌ until executed:
   (Phase 7/8 edge hardening).
 - Key-rotation auditor (Phase 8) referenced by Runbook 11.
 
-## Open gaps to close for mainnet (punch list)
+## Open gaps (post-cutover hardening)
 
 1. **B7**: emit payout/treasury metrics + share-accept latency histogram; build
    the canary miner.
@@ -107,7 +105,6 @@ From [`docs/cutover-plan.md`](cutover-plan.md); all ❌ until executed:
    nftables, load/latency test with a real ASIC.
 5. **Phase 9**: DR validator 4× weekly, chaos/load/soak, on-call dry-run,
    runbook sign-off.
-6. **Phase 10**: 72h shadow run, importer hot-run, rehearsed rollback, cutover.
-7. **Observability durability/scale** (operability): persist the origin Alloy
+6. **Observability durability/scale** (operability): persist the origin Alloy
    WAL, add trace sampling before mainnet API volume, right-size
    Loki/Tempo/VM retention.
