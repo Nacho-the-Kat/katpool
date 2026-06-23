@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { ArrowRight, ExternalLink, Github, Pickaxe } from "lucide-react";
 import { APP_URL, GITHUB_URL, TWITTER_URL } from "@/lib/mining";
 import { ECOSYSTEM } from "@/lib/ecosystem";
@@ -76,6 +77,22 @@ export function StartScene() {
         <XIcon className="size-3.5" />
         Follow @Katpool_Mining for pool news
       </motion.a>
+
+      <motion.nav
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.32 }}
+        className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground"
+        aria-label="Learn more"
+      >
+        <Link href="/kaspa-mining-pool" className="underline-offset-2 transition hover:text-primary hover:underline">
+          Kaspa mining guide
+        </Link>
+        <span aria-hidden className="opacity-40">·</span>
+        <Link href="/vs/humpool" className="underline-offset-2 transition hover:text-primary hover:underline">
+          KatPool vs HumPool
+        </Link>
+      </motion.nav>
 
       <motion.p
         initial={{ opacity: 0 }}
