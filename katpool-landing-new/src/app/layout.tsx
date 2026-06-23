@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com"),
-  title: "Kat Pool — Kaspa Mining Pool",
+  title: "Kat Pool - Kaspa Mining Pool",
   description:
     "Open-source Kaspa mining pool with global anycast stratum, PROP payouts, and NACHO fee rebates. Start mining at the edge.",
   keywords: [
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     apple: "/icon-192.png",
   },
   openGraph: {
-    title: "Kat Pool — Kaspa Mining Pool",
+    title: "Kat Pool - Kaspa Mining Pool",
     description: "Mine Kaspa at the edge. Global stratum, transparent PROP payouts, NACHO rebates.",
     siteName: "Kat Pool",
     type: "website",
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Kat Pool — Kaspa Mining Pool",
+    title: "Kat Pool - Kaspa Mining Pool",
     description: "Mine Kaspa at the edge. Global stratum, PROP payouts, NACHO rebates.",
     creator: "@katpool",
   },

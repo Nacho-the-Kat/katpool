@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Github } from "lucide-react";
 import type { MiningPoolStats } from "@/lib/pool-stats";
-import { poolApiBase } from "@/lib/pool-stats";
+import { usePoolStats } from "@/hooks/use-pool-stats";
 import { APP_URL, GITHUB_URL } from "@/lib/mining";
 import { SceneNav } from "./scene-nav";
 import { HeroScene } from "./scenes/hero-scene";
@@ -49,7 +49,7 @@ const sceneVariants = {
 export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | null }) {
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(0);
-  const [stats, setStats] = useState<MiningPoolStats | null>(initialStats);
+  const { stats, syncing } = usePoolStats(initialStats);
   const [wheelLock, setWheelLock] = useState(false);
 
   const goTo = useCallback((next: number) => {
@@ -57,19 +57,6 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
     setDirection(next > index ? 1 : -1);
     setIndex(next);
   }, [index]);
-
-  useEffect(() => {
-    const tick = async () => {
-      try {
-        const res = await fetch(`${poolApiBase()}/api/pool/miningPoolStats`);
-        if (res.ok) setStats((await res.json()) as MiningPoolStats);
-      } catch {
-        /* keep last good snapshot */
-      }
-    };
-    const id = setInterval(tick, 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -93,6 +80,15 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
     const onTouchEnd = (e: TouchEvent) => {
       const dy = (e.changedTouches[0]?.clientY ?? 0) - touchY;
       if (Math.abs(dy) < 48) return;
+
+      const panel = document.querySelector("[data-scene-panel]");
+      if (panel instanceof HTMLElement && panel.scrollHeight > panel.clientHeight + 8) {
+        const atTop = panel.scrollTop <= 8;
+        const atBottom = panel.scrollTop >= panel.scrollHeight - panel.clientHeight - 8;
+        if (dy < 0 && !atBottom) return;
+        if (dy > 0 && !atTop) return;
+      }
+
       goTo(dy < 0 ? index + 1 : index - 1);
     };
     window.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -118,6 +114,11 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
 
   const sceneId: SceneId = SCENES[index].id;
 
+  useEffect(() => {
+    const panel = document.querySelector("[data-scene-panel]");
+    if (panel instanceof HTMLElement) panel.scrollTop = 0;
+  }, [sceneId]);
+
   return (
     <div className="landing-aurora relative h-[100dvh] w-full overflow-hidden bg-brand-bg text-foreground">
       {/* Ambient grid */}
@@ -127,7 +128,7 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
         />
       </div>
 
-      {/* Header — brand-bg matches the wordmark PNG plate (#060e11) */}
+      {/* Header - brand-bg matches the wordmark PNG plate (#060e11) */}
       <header className="absolute inset-x-0 top-0 z-40 border-b border-white/[0.06] bg-brand-bg">
         <div className="flex h-16 items-center justify-between px-5 sm:h-[4.5rem] sm:px-8">
           <Link href="/" className="flex items-center" aria-label="Kat Pool home">
@@ -172,9 +173,12 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
             animate="center"
             exit="exit"
             transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 flex items-center justify-center px-5 pb-24 pt-20 sm:px-8 sm:pb-28 sm:pt-24"
+            data-scene-panel
+            className="absolute inset-0 flex w-full items-start justify-center overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pb-[5.5rem] pt-[4.25rem] [-webkit-overflow-scrolling:touch] sm:px-8 sm:pb-28 sm:pt-24 lg:items-center lg:overflow-hidden"
           >
-            {sceneId === "hero" && <HeroScene stats={stats} onNext={() => goTo(index + 1)} />}
+            {sceneId === "hero" && (
+              <HeroScene stats={stats} syncing={syncing} onNext={() => goTo(index + 1)} />
+            )}
             {sceneId === "edge" && <EdgeScene />}
             {sceneId === "connect" && <ConnectScene />}
             {sceneId === "fees" && <FeesScene stats={stats} />}

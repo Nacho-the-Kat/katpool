@@ -33,7 +33,7 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
         </h2>
         <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
           {stats?.feeType ?? "PROP"} scheme with a {toplineFeePercent}% topline allocation. A portion
-          returns as NACHO at each KRC-20 payout cycle — lowering your effective cost without hidden
+          returns as NACHO at each KRC-20 payout cycle - lowering your effective cost without hidden
           spreads.
         </p>
         <dl className="mt-6 space-y-3 border-t border-border/60 pt-5 text-sm">
@@ -90,7 +90,7 @@ export function FeesScene({ stats }: { stats: MiningPoolStats | null }) {
           100% <span className="text-base font-normal text-muted-foreground">fee back in NACHO</span>
         </p>
         <p className="mt-3 text-sm text-muted-foreground">
-          Qualify with any one path — evaluated once per matured block:
+          Qualify with any one path - evaluated once per matured block:
         </p>
         <ul className="mt-4 space-y-2">
           {ELITE_PATHS.map((path) => (

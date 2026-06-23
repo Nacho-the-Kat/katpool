@@ -44,5 +44,29 @@ export function formatRelativeTime(iso: string): string {
 }
 
 export function formatBlockCount(n: number): string {
-  return new Intl.NumberFormat("en-US").format(n);
+  return new Intl.NumberFormat("en-US").format(Math.round(n));
+}
+
+export function secondsSinceBlock(iso: string, nowMs = Date.now()): number {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 0;
+  return Math.max(0, Math.floor((nowMs - then) / 1000));
+}
+
+export function blockAgeParts(totalSec: number): {
+  showHours: boolean;
+  hours: string;
+  minutes: string;
+  seconds: string;
+} {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return {
+    showHours: h > 0,
+    hours: pad(h),
+    minutes: pad(m),
+    seconds: pad(s),
+  };
 }

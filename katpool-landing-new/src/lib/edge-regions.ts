@@ -1,4 +1,4 @@
-/** Fly.io edge regions — coords match `docs/cutover-stratum-compatibility.md`. */
+/** Fly.io edge regions - coords match `docs/cutover-stratum-compatibility.md`. */
 export const POOL_ORIGIN = {
   label: "Pool origin",
   fly: "NetCup DE",
