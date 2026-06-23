@@ -60,12 +60,12 @@ export function serviceLd() {
   };
 }
 
-interface FaqItem {
+export interface FaqItem {
   question: string;
   answer: string;
 }
 
-const FAQ_ITEMS: FaqItem[] = [
+export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What is Kat Pool?",
     answer:
