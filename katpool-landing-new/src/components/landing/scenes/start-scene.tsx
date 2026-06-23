@@ -33,7 +33,7 @@ export function StartScene() {
         className="mt-4 max-w-lg text-muted-foreground"
       >
         Open the dashboard for wallet stats, worker monitoring, and the full mining guide. The pool
-        stack is open source — audit the code, run your own node, or just plug in and mine.
+        stack is open source - audit the code, run your own node, or just plug in and mine.
       </motion.p>
 
       <motion.div

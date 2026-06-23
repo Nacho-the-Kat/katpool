@@ -10,7 +10,7 @@ export function EdgeScene() {
 
   return (
     <div className="mx-auto w-full max-w-6xl lg:grid lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-10">
-      {/* Globe — compact on phones, full size on desktop */}
+      {/* Globe - compact on phones, full size on desktop */}
       <motion.div
         initial={{ opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}

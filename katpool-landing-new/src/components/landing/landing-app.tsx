@@ -141,7 +141,7 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
         />
       </div>
 
-      {/* Header — brand-bg matches the wordmark PNG plate (#060e11) */}
+      {/* Header - brand-bg matches the wordmark PNG plate (#060e11) */}
       <header className="absolute inset-x-0 top-0 z-40 border-b border-white/[0.06] bg-brand-bg">
         <div className="flex h-16 items-center justify-between px-5 sm:h-[4.5rem] sm:px-8">
           <Link href="/" className="flex items-center" aria-label="Kat Pool home">
