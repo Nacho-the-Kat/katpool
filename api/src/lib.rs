@@ -36,7 +36,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::http::{HeaderValue, Method, Request, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::routing::get;
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
@@ -131,7 +132,8 @@ pub fn app(state: AppState) -> Router {
             TraceLayer::new_for_http().make_span_with(|request: &axum::extract::Request| {
                 tracing::info_span!("http.request", method = %request.method())
             }),
-        );
+        )
+        .layer(middleware::from_fn(api_no_store));
 
     if let Some(cors) = cors_layer(config.cors_allow_origin.as_deref()) {
         router.layer(cors)
@@ -155,6 +157,19 @@ pub fn health_router(state: AppState) -> Router {
         .route("/started", get(handlers::health::started))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
+}
+
+/// Prevent shared caches (CDN, reverse proxy) from storing dynamic API JSON.
+async fn api_no_store(request: Request<axum::body::Body>, next: Next) -> axum::response::Response {
+    let no_store = request.uri().path().starts_with("/api/");
+    let mut response = next.run(request).await;
+    if no_store {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-store, no-cache, must-revalidate"),
+        );
+    }
+    response
 }
 
 /// Build a read-only CORS layer for an explicit origin, or `None` to install

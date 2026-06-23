@@ -3,9 +3,9 @@ import "server-only";
 /** A fetch that times out, so a slow upstream can't pin a BFF request open. */
 export async function fetchJson<T>(
   url: string,
-  init: RequestInit & { revalidate?: number; timeoutMs?: number } = {},
+  init: RequestInit & { revalidate?: number; noStore?: boolean; timeoutMs?: number } = {},
 ): Promise<T> {
-  const { revalidate, timeoutMs = 8000, ...rest } = init;
+  const { revalidate, noStore, timeoutMs = 8000, ...rest } = init;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -13,7 +13,11 @@ export async function fetchJson<T>(
       ...rest,
       signal: controller.signal,
       headers: { accept: "application/json", ...(rest.headers ?? {}) },
-      next: revalidate != null ? { revalidate } : undefined,
+      ...(noStore
+        ? { cache: "no-store" as const }
+        : revalidate != null
+          ? { next: { revalidate } }
+          : {}),
     });
     if (!res.ok) {
       throw new UpstreamError(
