@@ -95,3 +95,6 @@ export function miningConfig(): MiningConfig {
 
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.katpool.com";
 export const GITHUB_URL = process.env.NEXT_PUBLIC_GITHUB_URL ?? "https://github.com/Nacho-the-Kat/katpool";
+export const TWITTER_URL = process.env.NEXT_PUBLIC_TWITTER_URL ?? "https://x.com/Katpool_Mining";
+/** X / Twitter handle (with leading @) derived from the profile URL. */
+export const TWITTER_HANDLE = `@${TWITTER_URL.replace(/\/+$/, "").split("/").pop()}`;

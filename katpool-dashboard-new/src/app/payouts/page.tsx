@@ -6,7 +6,12 @@ import { PayoutsSummary } from "@/features/overview/payouts-summary";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { ExtLink } from "@/components/ext-link";
 
-export const metadata: Metadata = { title: "Payouts" };
+export const metadata: Metadata = {
+  title: "Payouts",
+  description:
+    "Kaspa (KAS) and NACHO payout cycles for katpool — distribution history, amounts and treasury position, paid automatically from a 10 KAS minimum.",
+  alternates: { canonical: "/payouts" },
+};
 
 export default function PayoutsPage() {
   return (

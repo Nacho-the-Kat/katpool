@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { JsonLd } from "@/components/json-ld";
+import { organizationLd, websiteLd } from "@/lib/structured-data";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,30 +14,50 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const TITLE = "Kat Pool — Open-Source Kaspa (KAS) Mining Pool · Lowest Fees";
+const DESCRIPTION =
+  "Mine Kaspa (KAS) on Kat Pool — the open-source pool with global anycast stratum across 7 regions, transparent PROP (proportional) payouts, and NACHO fee rebates that cut the effective fee to as low as 0%. The transparent HumPool alternative.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com"),
-  title: "Kat Pool - Kaspa Mining Pool",
-  description:
-    "Open-source Kaspa mining pool with global anycast stratum, PROP payouts, and NACHO fee rebates. Start mining at the edge.",
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: "Kat Pool",
+  category: "technology",
   keywords: [
+    "Kaspa mining pool",
+    "best Kaspa mining pool",
+    "open source Kaspa pool",
+    "lowest fee Kaspa pool",
     "Kaspa",
     "KAS",
-    "mining pool",
+    "KAS mining",
+    "mine Kaspa",
     "katpool",
+    "Kat Pool",
     "NACHO",
+    "NACHO rebate",
+    "PROP payouts",
+    "proportional rewards",
     "stratum",
-    "PROP",
-    "crypto mining",
+    "kHeavyHash",
+    "IceRiver KS5",
+    "Bitmain KS5",
+    "HumPool alternative",
+    "ASIC mining",
+    "crypto mining pool",
   ],
-  authors: [{ name: "Kat Pool" }],
+  authors: [{ name: "Kat Pool", url: "https://katpool.com" }],
   creator: "Kat Pool",
+  publisher: "Kat Pool",
   icons: {
     icon: "/katpool-icon.png",
     apple: "/icon-192.png",
   },
   openGraph: {
-    title: "Kat Pool - Kaspa Mining Pool",
-    description: "Mine Kaspa at the edge. Global stratum, transparent PROP payouts, NACHO rebates.",
+    title: TITLE,
+    description:
+      "Open-source Kaspa mining pool. Global anycast stratum, transparent PROP payouts, NACHO rebates — effective fees as low as 0%.",
     siteName: "Kat Pool",
     type: "website",
     locale: "en_US",
@@ -43,11 +65,17 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Kat Pool - Kaspa Mining Pool",
-    description: "Mine Kaspa at the edge. Global stratum, PROP payouts, NACHO rebates.",
-    creator: "@katpool",
+    title: TITLE,
+    description:
+      "Open-source Kaspa mining pool. Global stratum, transparent PROP payouts, NACHO rebates — effective fees as low as 0%.",
+    site: "@Katpool_Mining",
+    creator: "@Katpool_Mining",
   },
-  robots: { index: true, follow: true },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 },
+  },
   alternates: { canonical: "/" },
 };
 
@@ -60,6 +88,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}>
+        <JsonLd data={[organizationLd(), websiteLd()]} />
         {children}
       </body>
     </html>

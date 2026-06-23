@@ -7,7 +7,8 @@ import Link from "next/link";
 import { ArrowRight, Github } from "lucide-react";
 import type { MiningPoolStats } from "@/lib/pool-stats";
 import { usePoolStats } from "@/hooks/use-pool-stats";
-import { APP_URL, GITHUB_URL } from "@/lib/mining";
+import { APP_URL, GITHUB_URL, TWITTER_URL } from "@/lib/mining";
+import { XIcon } from "@/components/x-icon";
 import { SceneNav } from "./scene-nav";
 import { HeroScene } from "./scenes/hero-scene";
 import { EdgeScene } from "./scenes/edge-scene";
@@ -142,6 +143,15 @@ export function LandingApp({ initialStats }: { initialStats: MiningPoolStats | n
             />
           </Link>
           <div className="flex items-center gap-2 sm:gap-3">
+            <a
+              href={TWITTER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Kat Pool on X"
+              className="inline-flex size-9 items-center justify-center rounded-full border border-border text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+            >
+              <XIcon className="size-3.5" />
+            </a>
             <a
               href={GITHUB_URL}
               target="_blank"
