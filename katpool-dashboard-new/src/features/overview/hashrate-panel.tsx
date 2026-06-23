@@ -5,7 +5,8 @@ import { Panel } from "@/components/dashboard/panel";
 import { RangeToggle } from "@/components/dashboard/range-toggle";
 import { TimeSeriesChart } from "@/components/charts/time-series-chart";
 import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/states";
-import { usePoolHashrateHistory } from "@/lib/api/hooks";
+import { usePoolHashrateHistory, usePoolLiveStats } from "@/lib/api/hooks";
+import { chartPointsWithLive } from "@/lib/hashrate-live";
 import { formatHashrate } from "@/lib/format";
 import { resolveRange, type RangeKey } from "@/lib/range";
 
@@ -13,22 +14,30 @@ import { resolveRange, type RangeKey } from "@/lib/range";
 export function HashratePanel() {
   const [range, setRange] = useState<RangeKey>("24h");
   const resolved = useMemo(() => resolveRange(range), [range]);
+  const live = usePoolLiveStats();
   const { data, isLoading, isError, refetch } = usePoolHashrateHistory({
     from: resolved.from,
     to: resolved.to,
     bucket: resolved.bucket,
   });
 
-  const series = useMemo(
-    () => [
+  const series = useMemo(() => {
+    const history = data?.points ?? [];
+    const base = history.map((p) => ({ t: p.bucket_start, v: p.hashrate_hs }));
+    const points = chartPointsWithLive(
+      base,
+      history,
+      live.data?.hashrate_hs ?? null,
+      live.data?.as_of ?? null,
+    );
+    return [
       {
         name: "Pool hashrate",
         colorIndex: 0,
-        points: (data?.points ?? []).map((p) => ({ t: p.bucket_start, v: p.hashrate_hs })),
+        points,
       },
-    ],
-    [data],
-  );
+    ];
+  }, [data, live.data]);
 
   return (
     <Panel

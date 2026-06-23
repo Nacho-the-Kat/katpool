@@ -33,6 +33,7 @@ const ADDR: &str = "kaspa:qz4j8mu269z8llgcczmfukm9fan2fq822kzxu4cfukd5fqrhxpsv2z
 #[test]
 fn pool_stats_wire() {
     let resp = PoolStats {
+        as_of: ts("2026-01-02T03:04:05Z"),
         window_secs: 600,
         miners_active: 3,
         workers_active: 5,
@@ -229,10 +230,12 @@ fn hashrate_history_wire() {
             HashratePointView {
                 bucket_start: ts("2026-01-02T00:00:00Z"),
                 hashrate_hs: 1.0e9,
+                partial: false,
             },
             HashratePointView {
                 bucket_start: ts("2026-01-02T01:00:00Z"),
                 hashrate_hs: 2.0e9,
+                partial: false,
             },
         ],
     };

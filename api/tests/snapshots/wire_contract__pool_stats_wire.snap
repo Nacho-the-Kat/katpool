@@ -3,6 +3,7 @@ source: api/tests/wire_contract.rs
 expression: resp
 ---
 {
+  "as_of": "2026-01-02T03:04:05Z",
   "window_secs": 600,
   "miners_active": 3,
   "workers_active": 5,

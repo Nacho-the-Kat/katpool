@@ -23,6 +23,7 @@ import type {
   RejectsResponse,
   WorkersResponse,
 } from "./types";
+import { LIVE_HASHRATE_POLL_MS, LIVE_HASHRATE_WINDOW_SECS } from "../hashrate-live";
 
 /** Default live-refresh cadence for pool-wide widgets (ms). */
 const LIVE_MS = 10_000;
@@ -56,11 +57,18 @@ function useBff<T>(
 }
 
 export function usePoolStats(windowSecs?: number) {
+  const interval =
+    windowSecs === LIVE_HASHRATE_WINDOW_SECS ? LIVE_HASHRATE_POLL_MS : LIVE_MS;
   return useBff<PoolStats>(
     ["pool", "stats", windowSecs ?? null],
     bffUrl("/api/v1/pool/stats", { window: windowSecs }),
-    LIVE_MS,
+    interval,
   );
+}
+
+/** Live headline hashrate: 5-minute sliding window, 5-second poll. */
+export function usePoolLiveStats() {
+  return usePoolStats(LIVE_HASHRATE_WINDOW_SECS);
 }
 
 export function usePoolHashrateHistory(args: RangeArgs) {

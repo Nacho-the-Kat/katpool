@@ -141,7 +141,7 @@
 //!   connection), and `/started` latches once the first sweep observes it.
 //! - `KATPOOL_API_RATE_PER_SECOND`   default 5  (per-IP sustained refill)
 //! - `KATPOOL_API_RATE_BURST`        default 20 (per-IP burst capacity)
-//! - `KATPOOL_API_REQUEST_TIMEOUT_SECS`  default 5
+//! - `KATPOOL_API_REQUEST_TIMEOUT_SECS`  default 10
 //! - `KATPOOL_API_POOL_CACHE_TTL_SECS`   default 10
 //! - `KATPOOL_API_WALLET_CACHE_TTL_SECS` default 5
 //! - `KATPOOL_API_CORS_ALLOW_ORIGIN` default empty (no CORS layer installed)

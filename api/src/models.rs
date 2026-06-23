@@ -163,6 +163,8 @@ pub struct TreasuryView {
 /// `GET /api/v1/pool/stats` body.
 #[derive(Debug, Serialize)]
 pub struct PoolStats {
+    /// UTC instant the figures were computed (exclusive `until` of the window).
+    pub as_of: DateTime<Utc>,
     /// Sliding window the share/hashrate figures cover, in seconds.
     pub window_secs: u64,
     /// Distinct wallets active in the window.
@@ -197,6 +199,10 @@ pub struct HashratePointView {
     pub bucket_start: DateTime<Utc>,
     /// Estimated hashrate over the bucket (H/s).
     pub hashrate_hs: f64,
+    /// `true` when the bucket was still in progress at the series' `to` bound
+    /// and the rate was prorated by elapsed seconds.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 /// A hashrate time-series response (pool-wide or per-miner).

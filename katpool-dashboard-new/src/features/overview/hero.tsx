@@ -7,20 +7,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { CountUp } from "@/components/dashboard/count-up";
 import { DeltaChip } from "@/components/dashboard/delta-chip";
 import { Sparkline } from "@/components/dashboard/sparkline";
-import { usePoolHashrateHistory, usePoolStats, useNetworkContext } from "@/lib/api/hooks";
+import { usePoolHashrateHistory, usePoolLiveStats, useNetworkContext } from "@/lib/api/hooks";
 import { totalBlocksFound } from "@/lib/api/types";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { ExtLink } from "@/components/ext-link";
 import { formatCompact, formatHashrate, formatNumber, formatUsd } from "@/lib/format";
+import {
+  hashrateDeltaPercent,
+  LIVE_HASHRATE_WINDOW_SECS,
+  referenceBucketIndex,
+  sparklineWithLive,
+} from "@/lib/hashrate-live";
 import { resolveRange } from "@/lib/range";
 
-function trendDelta(values: number[]): number | null {
-  if (values.length < 2) return null;
-  const first = values[0];
-  const last = values[values.length - 1];
-  if (first == null || last == null || first === 0) return null;
-  return ((last - first) / first) * 100;
-}
+const BUCKET_SECONDS = { "1m": 60, "5m": 300, "1h": 3600, "1d": 86_400 } as const;
+const DELTA_LOOKBACK_SECS = 3_600;
 
 /** A compact metric cell within the hero's hairline-separated grid. */
 function HeroStat({
@@ -54,32 +55,29 @@ function HeroStat({
  * network-share context, a living sparkline, and a dense supporting grid.
  */
 export function OverviewHero() {
-  const stats = usePoolStats();
+  const stats = usePoolLiveStats();
   const network = useNetworkContext();
   const day = useMemo(() => resolveRange("24h"), []);
   const history = usePoolHashrateHistory({ from: day.from, to: day.to, bucket: day.bucket });
 
-  const hashSpark = useMemo(
-    () => (history.data?.points ?? []).map((p) => p.hashrate_hs),
-    [history.data],
-  );
-  const hashDelta = useMemo(() => trendDelta(hashSpark), [hashSpark]);
+  const historyPoints = useMemo(() => history.data?.points ?? [], [history.data?.points]);
+  const poolHs = stats.data?.hashrate_hs ?? null;
 
-  // Headline matches the sparkline: use the latest point of the same 24h
-  // history series (a bucket-averaged value) rather than the noisy
-  // short-window stats estimate, so the big number and the chart agree and it
-  // stops jumping. Falls back to the stats estimate before history loads.
-  const poolHs =
-    hashSpark.length > 0
-      ? (hashSpark[hashSpark.length - 1] ?? null)
-      : (stats.data?.hashrate_hs ?? null);
+  const hashSpark = useMemo(
+    () => sparklineWithLive(historyPoints, poolHs),
+    [historyPoints, poolHs],
+  );
+
+  const hashDelta = useMemo(() => {
+    if (poolHs == null) return null;
+    const bucketSecs = BUCKET_SECONDS[day.bucket];
+    const refIdx = referenceBucketIndex(historyPoints.length, bucketSecs, DELTA_LOOKBACK_SECS);
+    if (refIdx == null) return null;
+    return hashrateDeltaPercent(poolHs, historyPoints[refIdx]?.hashrate_hs);
+  }, [poolHs, historyPoints, day.bucket]);
+
   const netHs = network.data?.network_hashrate_hs ?? 0;
   const netShare = poolHs != null && netHs > 0 ? (poolHs / netHs) * 100 : null;
-  // Only surface a network share when it's physically plausible. A pool cannot
-  // exceed the network it mines; an implausible (>100%) ratio means the network
-  // context and pool estimate are momentarily out of step (e.g. a lagging
-  // testnet difficulty), so we fall back to the descriptive line rather than
-  // print an alarming ">100%".
   const shareLabel =
     netShare == null || netShare > 100
       ? null
@@ -93,12 +91,10 @@ export function OverviewHero() {
   return (
     <Reveal>
       <Card className="relative overflow-hidden">
-        {/* Ambient brand wash */}
         <div className="pointer-events-none absolute inset-0 app-aurora opacity-70" />
         <div className="pointer-events-none absolute -right-28 -top-28 size-80 rounded-full bg-primary/10 blur-3xl" />
 
         <div className="relative grid gap-x-8 gap-y-6 p-6 sm:p-8 lg:grid-cols-12">
-          {/* Headline */}
           <div className="flex flex-col justify-center lg:col-span-5">
             <div className="flex items-center gap-2 text-[0.6875rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               <span className="size-2 rounded-full bg-success live-dot" />
@@ -122,10 +118,11 @@ export function OverviewHero() {
               {shareLabel ? (
                 <>
                   <span className="font-semibold text-foreground">{shareLabel}</span> of the total{" "}
-                  <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> network hashrate
+                  <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> network hashrate ·{" "}
+                  {LIVE_HASHRATE_WINDOW_SECS / 60}m window
                 </>
               ) : (
-                "Estimated from accepted share difficulty over the last 24 hours"
+                `Estimated from accepted share difficulty over the last ${LIVE_HASHRATE_WINDOW_SECS / 60} minutes`
               )}
             </p>
 
@@ -136,7 +133,6 @@ export function OverviewHero() {
             ) : null}
           </div>
 
-          {/* Supporting metrics — hairline-separated data grid */}
           <div className="lg:col-span-7">
             <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
               <HeroStat
