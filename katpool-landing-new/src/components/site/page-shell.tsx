@@ -62,6 +62,9 @@ export function PageShell({ children }: { children: ReactNode }) {
             <Link href="/vs/humpool" className="transition hover:text-foreground">
               Kat Pool vs HumPool
             </Link>
+            <Link href="/about" className="transition hover:text-foreground">
+              About
+            </Link>
             <a href={APP_URL} className="transition hover:text-foreground">
               Dashboard
             </a>

@@ -14,6 +14,7 @@
 - Home: https://katpool.com
 - Kaspa mining guide: https://katpool.com/kaspa-mining-pool
 - Kat Pool vs HumPool: https://katpool.com/vs/humpool
+- About: https://katpool.com/about
 - Dashboard (live stats): https://app.katpool.com
 - Start mining: https://app.katpool.com/start
 - Source code: https://github.com/Nacho-the-Kat/katpool
