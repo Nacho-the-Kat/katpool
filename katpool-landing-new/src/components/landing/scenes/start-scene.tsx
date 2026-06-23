@@ -2,9 +2,10 @@
 
 import { motion } from "framer-motion";
 import { ArrowRight, ExternalLink, Github, Pickaxe } from "lucide-react";
-import { APP_URL, GITHUB_URL } from "@/lib/mining";
+import { APP_URL, GITHUB_URL, TWITTER_URL } from "@/lib/mining";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { ExtLink } from "../ext-link";
+import { XIcon } from "@/components/x-icon";
 
 export function StartScene() {
   return (
@@ -62,6 +63,19 @@ export function StartScene() {
           <ExternalLink className="size-3 opacity-60" />
         </a>
       </motion.div>
+
+      <motion.a
+        href={TWITTER_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.24 }}
+        className="mt-5 inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+      >
+        <XIcon className="size-3.5" />
+        Follow @Katpool_Mining for pool news
+      </motion.a>
 
       <motion.p
         initial={{ opacity: 0 }}

@@ -4,7 +4,9 @@ import { StartGuide } from "@/features/start/start-guide";
 
 export const metadata: Metadata = {
   title: "Start Mining",
-  description: "Connect your rig to katpool in under two minutes — settings, ports, and payouts.",
+  description:
+    "Connect your rig to the katpool Kaspa pool in under two minutes — stratum host, ports, difficulty and payout settings for every ASIC.",
+  alternates: { canonical: "/start" },
 };
 
 export default function StartPage() {

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { OverviewHero } from "@/features/overview/hero";
 import { HashratePanel } from "@/features/overview/hashrate-panel";
@@ -10,6 +11,12 @@ import { PayoutsSummary } from "@/features/overview/payouts-summary";
 import { LeaderboardTable } from "@/features/leaders/leaderboard-table";
 import { LiveBlockFeed } from "@/features/blocks/live-block-feed";
 import { HalvingModule } from "@/features/network/halving-module";
+
+export const metadata: Metadata = {
+  description:
+    "Live Kaspa mining pool overview: real-time pool and network hashrate, active miners, blocks found, payouts and the miner leaderboard for katpool.",
+  alternates: { canonical: "/" },
+};
 
 export default function OverviewPage() {
   return (

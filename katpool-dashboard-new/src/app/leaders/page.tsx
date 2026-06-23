@@ -6,7 +6,12 @@ import { LeaderboardTable } from "@/features/leaders/leaderboard-table";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-export const metadata: Metadata = { title: "Leaderboard" };
+export const metadata: Metadata = {
+  title: "Leaderboard",
+  description:
+    "The top miners on katpool ranked by estimated Kaspa hashrate and pool share over your selected window.",
+  alternates: { canonical: "/leaders" },
+};
 
 export default function LeadersPage() {
   return (

@@ -3,7 +3,12 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { BlocksTable } from "@/features/blocks/blocks-table";
 import { BlocksSummary } from "@/features/overview/blocks-summary";
 
-export const metadata: Metadata = { title: "Blocks" };
+export const metadata: Metadata = {
+  title: "Blocks",
+  description:
+    "Every Kaspa block katpool has found, with live confirmation and maturity status, reward and timestamp.",
+  alternates: { canonical: "/blocks" },
+};
 
 export default function BlocksPage() {
   return (

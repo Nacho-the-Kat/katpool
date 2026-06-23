@@ -1,7 +1,10 @@
+import { Github } from "lucide-react";
 import { Brand } from "./brand";
 import { SidebarNav } from "./sidebar-nav";
 import { PoolPulse } from "./pool-pulse";
 import { MinerPulse } from "./miner-pulse";
+import { XIcon } from "@/components/x-icon";
+import { GITHUB_URL, TWITTER_URL } from "@/lib/brand";
 
 /** Fixed desktop sidebar (lg+). */
 export function Sidebar() {
@@ -16,6 +19,26 @@ export function Sidebar() {
       </div>
       <PoolPulse />
       <MinerPulse />
+      <div className="mt-4 flex items-center gap-2 px-1.5">
+        <a
+          href={TWITTER_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Kat Pool on X"
+          className="inline-flex size-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+        >
+          <XIcon className="size-3.5" />
+        </a>
+        <a
+          href={GITHUB_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Kat Pool on GitHub — open source"
+          className="inline-flex size-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+        >
+          <Github className="size-3.5" />
+        </a>
+      </div>
     </aside>
   );
 }
