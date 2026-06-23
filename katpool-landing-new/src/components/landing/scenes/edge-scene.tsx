@@ -65,7 +65,7 @@ export function EdgeScene() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.18 }}
-          className="mt-4 grid grid-cols-2 gap-1.5 sm:mt-6 sm:grid-cols-1 sm:gap-0 sm:space-y-1.5"
+          className="mt-4 grid grid-cols-2 gap-1.5 sm:mt-6 sm:grid-cols-1 sm:gap-0 sm:space-y-1.5 lg:grid-cols-2 lg:gap-2 lg:space-y-0"
         >
           {EDGE_REGIONS.map((r, i) => (
             <motion.div
