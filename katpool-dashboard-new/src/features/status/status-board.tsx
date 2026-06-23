@@ -12,7 +12,8 @@ import {
   useActiveSessions,
 } from "@/lib/api/hooks";
 import { totalBlocksFound } from "@/lib/api/types";
-import { formatCompact, formatHashrate, formatKas, formatNumber, formatRelative, formatUsd, sompiToUsd, truncateMiddle } from "@/lib/format";
+import { useLiveRelative } from "@/hooks/use-live-relative";
+import { formatCompact, formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd, truncateMiddle } from "@/lib/format";
 import { streamAddress } from "@/lib/explorer";
 import { miningConfig } from "@/lib/mining";
 import { cn } from "@/lib/utils";
@@ -59,9 +60,9 @@ export function StatusBoard() {
   const active = useActiveSessions();
 
   const topBlock = latest.data?.blocks[0];
-  const lastBlockAge = topBlock ? formatRelative(topBlock.found_at) : "—";
+  const lastBlockAge = useLiveRelative(topBlock?.found_at);
   const treasury = stats.data?.treasury ?? null;
-  const treasuryAge = treasury ? formatRelative(treasury.captured_at) : "—";
+  const treasuryAge = useLiveRelative(treasury?.captured_at);
   const kasUsd = network.data?.prices.kas_usd ?? null;
   const treasuryAddress = miningConfig().treasuryAddress;
 

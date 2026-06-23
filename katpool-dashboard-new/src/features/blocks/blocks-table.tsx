@@ -10,7 +10,8 @@ import { LiveBadge } from "@/components/dashboard/live-badge";
 import { BlockStatusBadge } from "./block-status-badge";
 import { useBlocks } from "@/lib/api/hooks";
 import { useHighlightNew } from "@/lib/use-highlight-new";
-import { formatDateTime, formatKas, formatNumber, formatRelative, truncateMiddle } from "@/lib/format";
+import { LiveRelative } from "@/components/live-relative";
+import { formatDateTime, formatKas, formatNumber, truncateMiddle } from "@/lib/format";
 import { explorerBlock } from "@/lib/explorer";
 import { cn } from "@/lib/utils";
 
@@ -117,8 +118,8 @@ export function BlocksTable() {
                       {b.reward ? formatKas(b.reward.kas) : <span className="text-muted-foreground">—</span>}
                     </td>
                   )}
-                  <td className="px-3 py-3 text-right text-muted-foreground sm:px-5" title={formatDateTime(b.found_at)}>
-                    {formatRelative(b.found_at)}
+                  <td className="px-3 py-3 text-right text-muted-foreground sm:px-5">
+                    <LiveRelative at={b.found_at} title={formatDateTime(b.found_at)} />
                   </td>
                 </tr>
               ))}

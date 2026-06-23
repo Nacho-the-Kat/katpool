@@ -4,30 +4,25 @@ import { fetchJson, UpstreamError, safeUrl } from "@/lib/server/upstream";
 
 export const runtime = "nodejs";
 
-// NB: deliberately NOT `dynamic = "force-dynamic"`. In Next 15 that is
-// equivalent to `fetchCache = "force-no-store"`, which would override the
-// per-fetch `next: { revalidate }` below and send every browser poll straight
-// through to the upstream API. The handler is already dynamic (it reads
-// `req.nextUrl`), so leaving the default `fetchCache: "auto"` lets the upstream
-// fetch hit the Next Data Cache — collapsing N concurrent viewers (and each
-// tab's 15s polls) into ~1 upstream request per endpoint per revalidate window.
-// That coalescing is what keeps the upstream's per-IP rate budget intact.
-
 /**
  * Same-origin read-only proxy to the katpool v1 API.
  *
  * The browser never talks to the public API directly: this keeps the data
- * surface same-origin (no CORS, no client-side base-URL leakage) and lets us
- * apply short edge revalidation in front of the API's own TTL cache. Only the
- * read-only `/pool`, `/miners`, `/balance`, `/full_rebate` trees are
- * forwarded; anything else 404s.
+ * surface same-origin (no CORS, no client-side base-URL leakage). Responses
+ * are marked no-store so Cloudflare and other shared caches never serve stale
+ * JSON to live polls.
  */
 const ALLOWED_PREFIXES = ["pool", "miners", "balance", "full_rebate"] as const;
 
-/** Per-tree revalidation (seconds), tuned to the upstream cache TTLs. */
+/** Per-tree upstream coalesce window (seconds), tuned to the API TTL caches. */
 function revalidateFor(first: string): number {
   return first === "balance" || first === "miners" ? 5 : 10;
 }
+
+const LIVE_HEADERS = {
+  "Cache-Control": "private, no-store, no-cache, must-revalidate",
+  "CDN-Cache-Control": "no-store",
+} as const;
 
 export async function GET(
   req: NextRequest,
@@ -47,11 +42,7 @@ export async function GET(
 
   try {
     const data = await fetchJson<unknown>(target, { revalidate: revalidateFor(first) });
-    return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": `public, s-maxage=${revalidateFor(first)}, stale-while-revalidate=30`,
-      },
-    });
+    return NextResponse.json(data, { headers: LIVE_HEADERS });
   } catch (err) {
     const status = err instanceof UpstreamError ? err.status : 502;
 

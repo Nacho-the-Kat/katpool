@@ -56,7 +56,7 @@ export function EdgeScene() {
           transition={{ delay: 0.12 }}
           className="mx-auto mt-3 max-w-md text-center text-sm leading-relaxed text-muted-foreground sm:mt-4 sm:text-base lg:mx-0 lg:text-left"
         >
-          Fly.io anycast routes hashrate to the nearest healthy edge. Use{" "}
+          Edge anycast routes hashrate to the nearest healthy edge. Use{" "}
           <span className="font-mono text-foreground">{host}</span> for automatic routing, or
           pin a regional host below.
         </motion.p>

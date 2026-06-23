@@ -7,7 +7,8 @@ import { Panel } from "@/components/dashboard/panel";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { BlockStatusBadge } from "./block-status-badge";
 import { useBlocks } from "@/lib/api/hooks";
-import { formatDateTime, formatNumber, formatRelative, truncateMiddle } from "@/lib/format";
+import { LiveRelative } from "@/components/live-relative";
+import { formatDateTime, formatNumber, truncateMiddle } from "@/lib/format";
 import { explorerBlock } from "@/lib/explorer";
 
 const FEED_SIZE = 7;
@@ -167,9 +168,11 @@ export function LiveBlockFeed() {
                     <span className="hidden text-muted-foreground tabular-nums sm:inline">
                       DAA {formatNumber(b.daa_score)}
                     </span>
-                    <span className="text-muted-foreground" title={formatDateTime(b.found_at)}>
-                      {formatRelative(b.found_at)}
-                    </span>
+                    <LiveRelative
+                      at={b.found_at}
+                      className="text-muted-foreground"
+                      title={formatDateTime(b.found_at)}
+                    />
                   </div>
                 </div>
               </motion.li>
