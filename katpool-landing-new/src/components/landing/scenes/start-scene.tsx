@@ -67,7 +67,7 @@ export function StartScene() {
         transition={{ delay: 0.28 }}
         className="mt-12 text-xs text-muted-foreground"
       >
-        Kat Pool · Kaspa mainnet · PROP · Open source since day one
+        Kat Pool · Kaspa mainnet · Open source since day one
       </motion.p>
     </div>
   );

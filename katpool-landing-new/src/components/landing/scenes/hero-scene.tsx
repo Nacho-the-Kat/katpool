@@ -74,7 +74,7 @@ export function HeroScene({ stats, onNext }: HeroSceneProps) {
           className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg"
         >
           Open-source stratum with global anycast, transparent PROP rewards, and NACHO fee rebates.
-          Built for serious Kaspa hashrate — not another bloated dashboard.
+          Built for serious Kaspa hashrate.
         </motion.p>
 
         <motion.div
@@ -118,7 +118,7 @@ export function HeroScene({ stats, onNext }: HeroSceneProps) {
         />
         <StatCard
           icon={Percent}
-          label="Listed fee"
+          label="Effective fee"
           value={stats ? `${stats.poolFee}%` : "0.5%"}
           sub="PROP · min 10 KAS payout"
           delay={0.36}

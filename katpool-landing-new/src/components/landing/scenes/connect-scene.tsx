@@ -36,7 +36,7 @@ export function ConnectScene() {
           className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl"
         >
           Point your miner.{" "}
-          <span className="text-grad">Get blocks.</span>
+          <span className="text-grad">Find blocks.</span>
         </motion.h2>
       </div>
 
