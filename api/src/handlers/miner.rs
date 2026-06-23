@@ -197,6 +197,7 @@ pub async fn hashrate_history(
                 .map(|p| HashratePointView {
                     bucket_start: p.bucket_start,
                     hashrate_hs: p.hashrate,
+                    partial: p.is_partial,
                 })
                 .collect(),
         })

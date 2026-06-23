@@ -359,6 +359,9 @@ pub struct HashratePoint {
     pub bucket_start: DateTime<Utc>,
     /// Estimated hashrate over the bucket in H/s.
     pub hashrate: f64,
+    /// `true` when the query's `until` bound falls inside this bucket, so the
+    /// rate was divided by elapsed seconds rather than the full bucket width.
+    pub is_partial: bool,
 }
 
 /// Validate the shared arguments of the series queries.
@@ -381,14 +384,35 @@ fn validate_series_args(
     Ok(bucket_secs as f64)
 }
 
+/// Wall-clock seconds to attribute to one bucket when a series ends at `until`
+/// (the query's exclusive upper bound). Completed buckets use the full width;
+/// the trailing in-progress bucket uses elapsed time since its start, clamped
+/// to at least one second so a just-opened bucket does not divide by zero.
+#[must_use]
+fn bucket_effective_secs(
+    bucket_start: DateTime<Utc>,
+    until: DateTime<Utc>,
+    bucket_secs: i64,
+) -> f64 {
+    let elapsed = (until - bucket_start).num_seconds();
+    if elapsed >= bucket_secs {
+        bucket_secs as f64
+    } else {
+        elapsed.max(1) as f64
+    }
+}
+
 /// Build [`HashratePoint`]s from raw `(bucket_epoch, weight)` rows.
 ///
 /// `bucket_epoch` is the integer bucket-grid second; the weight is the
 /// summed share difficulty in that bucket. Hashrate is
-/// `weight × 2^32 / bucket_secs`.
+/// `weight × 2^32 / effective_secs`, where `effective_secs` is the full
+/// bucket width for completed buckets and the elapsed span for the trailing
+/// partial bucket ending at `until`.
 fn points_from_rows(
     rows: Vec<(f64, Option<f64>)>,
-    bucket_secs_f: f64,
+    bucket_secs: i64,
+    until: DateTime<Utc>,
 ) -> Result<Vec<HashratePoint>, DbError> {
     rows.into_iter()
         .map(|(epoch, weight)| {
@@ -399,9 +423,12 @@ fn points_from_rows(
                 DateTime::<Utc>::from_timestamp(secs as i64, 0).ok_or_else(|| DbError::Config {
                     message: format!("hashrate series: bucket epoch {secs} out of range"),
                 })?;
+            let effective = bucket_effective_secs(bucket_start, until, bucket_secs);
+            let is_partial = effective < bucket_secs as f64;
             Ok(HashratePoint {
                 bucket_start,
-                hashrate: hashrate_hs(weight.unwrap_or(0.0), bucket_secs_f),
+                hashrate: hashrate_hs(weight.unwrap_or(0.0), effective),
+                is_partial,
             })
         })
         .collect()
@@ -423,8 +450,7 @@ pub async fn hashrate_series_pool_wide<'e, E>(
 where
     E: PgExecutor<'e>,
 {
-    let bucket_secs_f =
-        validate_series_args(from, until, bucket_secs, "hashrate_series_pool_wide")?;
+    validate_series_args(from, until, bucket_secs, "hashrate_series_pool_wide")?;
     let rows: Vec<(f64, Option<f64>)> = sqlx::query_as(
         "SELECT floor(extract(epoch FROM credited_at) / $3::double precision)
                     * $3::double precision AS bucket_epoch,
@@ -440,7 +466,7 @@ where
     .bind(bucket_secs)
     .fetch_all(executor)
     .await?;
-    points_from_rows(rows, bucket_secs_f)
+    points_from_rows(rows, bucket_secs, until)
 }
 
 /// One entry of the pool leaderboard: a wallet ranked by its summed
@@ -594,8 +620,7 @@ pub async fn hashrate_series_for_wallet<'e, E>(
 where
     E: PgExecutor<'e>,
 {
-    let bucket_secs_f =
-        validate_series_args(from, until, bucket_secs, "hashrate_series_for_wallet")?;
+    validate_series_args(from, until, bucket_secs, "hashrate_series_for_wallet")?;
     let rows: Vec<(f64, Option<f64>)> = sqlx::query_as(
         "SELECT floor(extract(epoch FROM credited_at) / $4::double precision)
                     * $4::double precision AS bucket_epoch,
@@ -613,7 +638,7 @@ where
     .bind(bucket_secs)
     .fetch_all(executor)
     .await?;
-    points_from_rows(rows, bucket_secs_f)
+    points_from_rows(rows, bucket_secs, until)
 }
 
 #[cfg(test)]
@@ -622,9 +647,12 @@ mod tests {
     // the conversion constants, not lossy measurements.
     #![allow(clippy::float_cmp)]
 
-    use chrono::{Duration, Utc};
+    use chrono::{DateTime, Duration, Utc};
 
-    use super::{HASHES_PER_DIFFICULTY, effective_window_secs, hashrate_hs};
+    use super::{
+        HASHES_PER_DIFFICULTY, bucket_effective_secs, effective_window_secs, hashrate_hs,
+        points_from_rows,
+    };
 
     #[test]
     fn effective_secs_uses_full_window_for_a_mature_pool() {
@@ -686,5 +714,46 @@ mod tests {
         // estimator against an order-of-magnitude regression.
         let hs = hashrate_hs(394_442.79, 300.0);
         assert!((hs - 5.6e12).abs() < 0.3e12, "expected ≈5.6 TH/s, got {hs}");
+    }
+
+    #[test]
+    fn bucket_effective_secs_full_or_partial() {
+        let start = DateTime::parse_from_rfc3339("2026-06-23T04:40:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mid = DateTime::parse_from_rfc3339("2026-06-23T04:42:30Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let end = DateTime::parse_from_rfc3339("2026-06-23T04:45:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(bucket_effective_secs(start, end, 300), 300.0);
+        assert_eq!(bucket_effective_secs(start, mid, 300), 150.0);
+    }
+
+    #[test]
+    fn points_from_rows_prorates_trailing_bucket() {
+        let from = DateTime::parse_from_rfc3339("2026-06-23T04:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let until = DateTime::parse_from_rfc3339("2026-06-23T04:42:30Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let epoch = (from.timestamp() as f64 / 300.0).floor() * 300.0;
+        let full_weight = 300.0;
+        let partial_epoch = (until.timestamp() as f64 / 300.0).floor() * 300.0;
+        let rows = vec![
+            (epoch, Some(full_weight)),
+            (partial_epoch, Some(full_weight / 2.0)),
+        ];
+        let points = points_from_rows(rows, 300, until).unwrap();
+        assert_eq!(points.len(), 2);
+        assert!(!points[0].is_partial);
+        assert!(points[1].is_partial);
+        // Half the weight over 150 s ⇒ same rate as full weight over 300 s.
+        assert!(
+            (points[0].hashrate - points[1].hashrate).abs() < 1.0,
+            "partial bucket should match completed rate"
+        );
     }
 }

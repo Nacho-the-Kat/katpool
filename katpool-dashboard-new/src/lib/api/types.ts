@@ -53,6 +53,7 @@ export interface TreasuryView {
 }
 
 export interface PoolStats {
+  as_of: string;
   window_secs: number;
   miners_active: number;
   workers_active: number;
@@ -71,6 +72,8 @@ export interface HashrateSnapshot {
 export interface HashratePointView {
   bucket_start: string;
   hashrate_hs: number;
+  /** Present when the bucket was still open at the series `to` bound. */
+  partial?: boolean;
 }
 
 export type BucketToken = "1m" | "5m" | "1h" | "1d";

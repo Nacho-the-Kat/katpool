@@ -44,6 +44,7 @@ async fn build_stats(state: AppState, window: std::time::Duration) -> Result<Val
     let treasury_snapshot = treasury::latest(&state.pool).await?;
 
     let resp = PoolStats {
+        as_of: w.until,
         window_secs: w.secs,
         miners_active: counts.wallets,
         workers_active: counts.workers,
@@ -92,10 +93,13 @@ pub async fn hashrate_history(
     Query(range_params): Query<RangeParams>,
 ) -> Result<Json<Arc<Value>>, ApiError> {
     let range = params::range(&range_params)?;
+    // Align the cache key to 10-second ticks so rapid dashboard polls hit the
+    // same entry while the underlying series still uses the caller's `until`.
+    let cache_until = range.until.timestamp().div_euclid(10) * 10;
     let key = format!(
         "pool/hashrate/history?from={}&to={}&b={}",
         range.from.timestamp(),
-        range.until.timestamp(),
+        cache_until,
         range.bucket.seconds()
     );
     let cache = state.pool_cache.clone();
@@ -116,6 +120,7 @@ pub async fn hashrate_history(
                 .map(|p| HashratePointView {
                     bucket_start: p.bucket_start,
                     hashrate_hs: p.hashrate,
+                    partial: p.is_partial,
                 })
                 .collect(),
         })

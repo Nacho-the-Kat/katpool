@@ -15,6 +15,11 @@ pub const MAX_BODY_BYTES: usize = 16 * 1024;
 /// Default sliding window for `?window=` endpoints (hashrate, rejects).
 pub const DEFAULT_WINDOW: Duration = Duration::from_secs(600);
 
+/// Recommended sliding window for live headline hashrate (dashboard, status
+/// boards). Shorter than [`DEFAULT_WINDOW`] so the figure reacts within a few
+/// minutes without the bucket-quantization lag of a time-series tail point.
+pub const LIVE_WINDOW: Duration = Duration::from_secs(300);
+
 /// Maximum accepted `?window=` value.
 pub const MAX_WINDOW: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -76,7 +81,7 @@ impl Default for ApiConfig {
         Self {
             rate_per_second: 5,
             rate_burst: 20,
-            request_timeout: Duration::from_secs(5),
+            request_timeout: Duration::from_secs(10),
             pool_cache_ttl: Duration::from_secs(10),
             wallet_cache_ttl: Duration::from_secs(5),
             cors_allow_origin: None,
