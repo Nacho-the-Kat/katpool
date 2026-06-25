@@ -8,7 +8,7 @@ import {
 
 type Unit = "GH" | "TH" | "PH";
 
-const UNIT_TO_THS: Record<Unit, number> = { GH: 1 / 1000, TH: 1, PH: 1000 };
+const UNIT_TO_TERAHASHES: Record<Unit, number> = { GH: 1 / 1000, TH: 1, PH: 1000 };
 
 const kas = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
@@ -34,9 +34,9 @@ export function MiningCalculator({
 
   const result = useMemo(() => {
     if (!net) return null;
-    const userThs = num(hashrate) * UNIT_TO_THS[unit];
+    const userTerahashes = num(hashrate) * UNIT_TO_TERAHASHES[unit];
     const { kasPerDay, usdPerDay } = estimateMinerDaily({
-      userHashrateThs: userThs,
+      userHashrateTerahashes: userTerahashes,
       net,
       poolFeePercent,
     });

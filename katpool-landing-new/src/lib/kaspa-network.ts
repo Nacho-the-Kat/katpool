@@ -18,7 +18,7 @@ const KASPA_API = (process.env.NEXT_PUBLIC_KASPA_API_URL ?? "https://api.kaspa.o
 
 export interface KaspaNetwork {
   priceUsd: number;
-  networkHashrateThs: number;
+  networkHashrateTerahashes: number;
   blockRewardKas: number;
 }
 
@@ -36,7 +36,7 @@ export async function fetchKaspaNetwork(): Promise<KaspaNetwork> {
   ]);
   return {
     priceUsd: price.price,
-    networkHashrateThs: hashrate.hashrate,
+    networkHashrateTerahashes: hashrate.hashrate,
     blockRewardKas: reward.blockreward,
   };
 }
@@ -51,15 +51,15 @@ export function dailyNetworkEmissionKas(net: KaspaNetwork): number {
  * Returns gross KAS/day and USD/day — power costs are applied by the caller.
  */
 export function estimateMinerDaily(params: {
-  userHashrateThs: number;
+  userHashrateTerahashes: number;
   net: KaspaNetwork;
   poolFeePercent: number;
 }): { kasPerDay: number; usdPerDay: number } {
-  const { userHashrateThs, net, poolFeePercent } = params;
-  if (userHashrateThs <= 0 || net.networkHashrateThs <= 0) {
+  const { userHashrateTerahashes, net, poolFeePercent } = params;
+  if (userHashrateTerahashes <= 0 || net.networkHashrateTerahashes <= 0) {
     return { kasPerDay: 0, usdPerDay: 0 };
   }
-  const share = userHashrateThs / net.networkHashrateThs;
+  const share = userHashrateTerahashes / net.networkHashrateTerahashes;
   const grossKas = share * dailyNetworkEmissionKas(net);
   const kasPerDay = grossKas * (1 - poolFeePercent / 100);
   return { kasPerDay, usdPerDay: kasPerDay * net.priceUsd };
