@@ -4,7 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
 import { MiningCalculator } from "@/components/calculator/mining-calculator";
-import { articleByline, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
+import { articleByline, breadcrumbLd, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
 import { miningConfig, APP_URL } from "@/lib/mining";
 import { fetchKaspaNetwork, type KaspaNetwork } from "@/lib/kaspa-network";
 
@@ -84,7 +84,13 @@ export default async function CalculatorPage() {
 
   return (
     <PageShell>
-      <JsonLd data={[appLd(), faqLd()]} />
+      <JsonLd
+        data={[
+          appLd(),
+          faqLd(),
+          breadcrumbLd([{ name: "Kaspa mining calculator", path: "/kaspa-mining-calculator" }]),
+        ]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">

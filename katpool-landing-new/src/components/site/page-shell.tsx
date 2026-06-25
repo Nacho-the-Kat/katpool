@@ -74,6 +74,9 @@ export function PageShell({ children }: { children: ReactNode }) {
             <Link href="/stats" className="transition hover:text-foreground">
               Live stats
             </Link>
+            <Link href="/blog" className="transition hover:text-foreground">
+              Blog
+            </Link>
             <Link href="/about" className="transition hover:text-foreground">
               About
             </Link>

@@ -8,6 +8,7 @@ import {
   faqPageLd,
   howToLd,
   articleByline,
+  breadcrumbLd,
   CONTENT_UPDATED,
   MAINTAINER,
 } from "@/lib/structured-data";
@@ -55,6 +56,7 @@ export default function KaspaMiningPoolGuide() {
           articleLd(),
           howToLd({ host: cfg.host, ports, recommendedPort: cfg.recommended.port }),
           faqPageLd(),
+          breadcrumbLd([{ name: "Kaspa mining pool guide", path: "/kaspa-mining-pool" }]),
         ]}
       />
 

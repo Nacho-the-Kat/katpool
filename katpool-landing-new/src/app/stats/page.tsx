@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { articleByline } from "@/lib/structured-data";
+import { articleByline, breadcrumbLd } from "@/lib/structured-data";
 import { APP_URL } from "@/lib/mining";
 import {
   fetchPoolStats,
@@ -88,7 +88,13 @@ export default async function StatsPage() {
 
   return (
     <PageShell>
-      <JsonLd data={[articleLd(), datasetLd(stats, updated.toISOString())]} />
+      <JsonLd
+        data={[
+          articleLd(),
+          datasetLd(stats, updated.toISOString()),
+          breadcrumbLd([{ name: "Live stats", path: "/stats" }]),
+        ]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">

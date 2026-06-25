@@ -20,6 +20,24 @@ export const CONTENT_PUBLISHED = "2026-06-24";
 export const CONTENT_UPDATED = "2026-06-25";
 export const MAINTAINER = "the Kat Pool team";
 
+/**
+ * BreadcrumbList structured data. Pass the trail as `[label, path]` pairs
+ * (paths relative to the site root); the home crumb is prepended automatically.
+ */
+export function breadcrumbLd(trail: { name: string; path: string }[]) {
+  const items = [{ name: "Home", path: "/" }, ...trail];
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((item, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: item.name,
+      item: `${SITE_URL}${item.path === "/" ? "" : item.path}`,
+    })),
+  };
+}
+
 /** Shared author/publisher node for article-type structured data. */
 export function articleByline() {
   return {
