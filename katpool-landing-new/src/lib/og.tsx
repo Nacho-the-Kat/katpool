@@ -36,7 +36,7 @@ export function ogImage(title: string, subtitle: string) {
           />
           <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em" }}>Kat Pool</div>
         </div>
-        <div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           <div
             style={{
               fontSize: 64,
