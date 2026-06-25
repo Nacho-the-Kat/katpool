@@ -1,7 +1,6 @@
 import { ogImage, ogSize, ogContentType } from "@/lib/og";
 import { getPost } from "@/lib/blog";
 
-export const runtime = "edge";
 export const size = ogSize;
 export const contentType = ogContentType;
 export const alt = "Kat Pool blog post";

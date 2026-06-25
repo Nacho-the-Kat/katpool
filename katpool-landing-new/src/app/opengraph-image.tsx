@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
 export const alt = "Kat Pool - Kaspa Mining Pool";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -32,7 +31,7 @@ export default function OgImage() {
           />
           <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: "-0.02em" }}>Kat Pool</div>
         </div>
-        <div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           <div
             style={{
               fontSize: 68,
