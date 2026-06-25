@@ -3,7 +3,13 @@ import Link from "next/link";
 import { ArrowRight, Github, ShieldCheck, Globe2, Coins } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { organizationLd, CONTENT_PUBLISHED, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
+import {
+  organizationLd,
+  breadcrumbLd,
+  CONTENT_PUBLISHED,
+  CONTENT_UPDATED,
+  MAINTAINER,
+} from "@/lib/structured-data";
 import { miningConfig, APP_URL, GITHUB_URL, TWITTER_URL } from "@/lib/mining";
 import { XIcon } from "@/components/x-icon";
 
@@ -39,7 +45,9 @@ export default function AboutPage() {
 
   return (
     <PageShell>
-      <JsonLd data={[organizationLd(), aboutPageLd()]} />
+      <JsonLd
+        data={[organizationLd(), aboutPageLd(), breadcrumbLd([{ name: "About", path: "/about" }])]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Check, X } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { articleByline, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
+import { articleByline, breadcrumbLd, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
 import { APP_URL } from "@/lib/mining";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
@@ -100,7 +100,13 @@ function Cell({ on }: { on: boolean }) {
 export default function ComparePage() {
   return (
     <PageShell>
-      <JsonLd data={[articleLd(), faqLd()]} />
+      <JsonLd
+        data={[
+          articleLd(),
+          faqLd(),
+          breadcrumbLd([{ name: "Best Kaspa mining pools compared", path: "/compare" }]),
+        ]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">

@@ -10,6 +10,7 @@
     "build": "next build && npm run copy-standalone",
     "copy-standalone": "cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/",
     "start": "HOSTNAME=0.0.0.0 node .next/standalone/server.js",
+    "indexnow": "node scripts/indexnow.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
