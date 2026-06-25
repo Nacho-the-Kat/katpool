@@ -57,10 +57,22 @@ export function PageShell({ children }: { children: ReactNode }) {
               Home
             </Link>
             <Link href="/kaspa-mining-pool" className="transition hover:text-foreground">
-              Kaspa mining guide
+              Mining guide
+            </Link>
+            <Link href="/compare" className="transition hover:text-foreground">
+              Compare pools
+            </Link>
+            <Link href="/kaspa-mining-calculator" className="transition hover:text-foreground">
+              Calculator
+            </Link>
+            <Link href="/kaspa-asic-miners" className="transition hover:text-foreground">
+              ASIC miners
             </Link>
             <Link href="/vs/humpool" className="transition hover:text-foreground">
-              Kat Pool vs HumPool
+              vs HumPool
+            </Link>
+            <Link href="/stats" className="transition hover:text-foreground">
+              Live stats
             </Link>
             <Link href="/about" className="transition hover:text-foreground">
               About

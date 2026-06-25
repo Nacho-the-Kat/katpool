@@ -3,7 +3,14 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { FAQ_ITEMS, faqPageLd } from "@/lib/structured-data";
+import {
+  FAQ_ITEMS,
+  faqPageLd,
+  howToLd,
+  articleByline,
+  CONTENT_UPDATED,
+  MAINTAINER,
+} from "@/lib/structured-data";
 import { miningConfig, APP_URL, GITHUB_URL } from "@/lib/mining";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
@@ -33,8 +40,7 @@ function articleLd() {
     about: "Kaspa cryptocurrency mining",
     inLanguage: "en",
     mainEntityOfPage: `${SITE_URL}/kaspa-mining-pool`,
-    author: { "@type": "Organization", name: "Kat Pool", url: SITE_URL },
-    publisher: { "@type": "Organization", name: "Kat Pool", url: SITE_URL },
+    ...articleByline(),
   };
 }
 
@@ -44,7 +50,13 @@ export default function KaspaMiningPoolGuide() {
 
   return (
     <PageShell>
-      <JsonLd data={[articleLd(), faqPageLd()]} />
+      <JsonLd
+        data={[
+          articleLd(),
+          howToLd({ host: cfg.host, ports, recommendedPort: cfg.recommended.port }),
+          faqPageLd(),
+        ]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">
@@ -66,10 +78,26 @@ export default function KaspaMiningPoolGuide() {
             down to as low as 0%. This guide covers fees, rewards, hardware, and exactly how to point
             a rig at the pool.
           </p>
+          <p className="text-xs text-muted-foreground">
+            By {MAINTAINER} · Updated{" "}
+            <time dateTime={CONTENT_UPDATED}>
+              {new Date(CONTENT_UPDATED).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
+          </p>
         </header>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold tracking-tight">Why mine Kaspa on Kat Pool</h2>
+          <h2 className="text-xl font-semibold tracking-tight">Why mine Kaspa on Kat Pool?</h2>
+          <p className="text-muted-foreground">
+            Mine on Kat Pool because it is the open-source, lowest-effective-fee way to mine Kaspa:
+            a 0.75% topline fee drops to about 0.5% after NACHO rebates and to 0% for NACHO and NFT
+            holders, payouts use a transparent PROP scheme, and a single anycast host routes every rig
+            to the nearest of seven regions. The four points below summarize what sets it apart.
+          </p>
           <ul className="space-y-2 text-muted-foreground">
             <li className="flex gap-2">
               <span className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" />
@@ -107,7 +135,9 @@ export default function KaspaMiningPoolGuide() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold tracking-tight">Fees and rewards</h2>
+          <h2 className="text-xl font-semibold tracking-tight">
+            What does Kat Pool cost, and how are rewards paid?
+          </h2>
           <p className="text-muted-foreground">
             Kat Pool uses a <strong>PROP (proportional)</strong> reward scheme: each matured block&apos;s
             reward is shared across miners by their contribution over a recent-share window. The topline
@@ -120,7 +150,14 @@ export default function KaspaMiningPoolGuide() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold tracking-tight">How to start mining Kaspa</h2>
+          <h2 className="text-xl font-semibold tracking-tight">
+            How do I start mining Kaspa on Kat Pool?
+          </h2>
+          <p className="text-muted-foreground">
+            To start mining Kaspa on Kat Pool, point your ASIC at the anycast stratum host, set your
+            Kaspa wallet address as the worker username, and start hashing — there is no account or
+            signup. The three steps below take about two minutes.
+          </p>
           <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
             <li>
               Point your ASIC at <code className="rounded bg-background/60 px-1.5 py-0.5 font-mono text-sm text-foreground">stratum+tcp://{cfg.host}</code>{" "}
@@ -145,11 +182,21 @@ export default function KaspaMiningPoolGuide() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold tracking-tight">Supported hardware</h2>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Which mining hardware does Kat Pool support?
+          </h2>
           <p className="text-muted-foreground">
             Kat Pool supports every Kaspa kHeavyHash ASIC, including the IceRiver KS series (KS0, KS1,
             KS2, KS3, KS5/KS5L/KS5M) and Bitmain KS/KA series (KS3, KS5, KA3). Any miner that speaks
-            standard Stratum over the listed ports will connect.
+            standard Stratum over the listed ports will connect. See the{" "}
+            <Link href="/kaspa-asic-miners" className="text-primary underline-offset-2 hover:underline">
+              Kaspa ASIC miner guide
+            </Link>{" "}
+            for per-model port and setup notes, or estimate returns with the{" "}
+            <Link href="/kaspa-mining-calculator" className="text-primary underline-offset-2 hover:underline">
+              Kaspa mining calculator
+            </Link>
+            .
           </p>
         </section>
 

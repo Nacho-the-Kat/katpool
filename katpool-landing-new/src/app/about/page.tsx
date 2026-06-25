@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Github, ShieldCheck, Globe2, Coins } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { organizationLd } from "@/lib/structured-data";
+import { organizationLd, CONTENT_PUBLISHED, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
 import { miningConfig, APP_URL, GITHUB_URL, TWITTER_URL } from "@/lib/mining";
 import { XIcon } from "@/components/x-icon";
 
@@ -28,6 +28,8 @@ function aboutPageLd() {
     description: DESCRIPTION,
     url: `${SITE_URL}/about`,
     inLanguage: "en",
+    datePublished: CONTENT_PUBLISHED,
+    dateModified: CONTENT_UPDATED,
     mainEntity: { "@id": `${SITE_URL}/#organization` },
   };
 }
@@ -60,6 +62,16 @@ export default function AboutPage() {
             (KAS), built within the Nacho the Kat ($NACHO) ecosystem. Our goal is simple: give Kaspa
             miners a transparent, low-fee, censorship-resistant pool whose code anyone can read, run,
             and verify.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            By {MAINTAINER} · Updated{" "}
+            <time dateTime={CONTENT_UPDATED}>
+              {new Date(CONTENT_UPDATED).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
           </p>
         </header>
 

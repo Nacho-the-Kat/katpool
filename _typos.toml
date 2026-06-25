@@ -26,6 +26,10 @@ RTO = "RTO"
 # Product name: HashiCorp.
 Hashi = "Hashi"
 
+# Proper noun: "PasingGrades" (pasinggrades.com), a Kaspa mining-pool
+# listicle referenced by name in the marketing strategy doc.
+Pasing = "Pasing"
+
 # Ordinal-date suffix ("2nd") in the dashboard's date formatter; the bare
 # 'nd' string literal is intentional English, not a typo for "and".
 nd = "nd"

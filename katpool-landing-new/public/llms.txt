@@ -13,7 +13,11 @@
 ## Links
 - Home: https://katpool.com
 - Kaspa mining guide: https://katpool.com/kaspa-mining-pool
+- Best Kaspa mining pools compared: https://katpool.com/compare
+- Kaspa mining calculator: https://katpool.com/kaspa-mining-calculator
+- Kaspa ASIC miner guide: https://katpool.com/kaspa-asic-miners
 - Kat Pool vs HumPool: https://katpool.com/vs/humpool
+- Live pool stats: https://katpool.com/stats
 - About: https://katpool.com/about
 - Dashboard (live stats): https://app.katpool.com
 - Start mining: https://app.katpool.com/start
