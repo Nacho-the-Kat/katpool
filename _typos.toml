@@ -30,6 +30,10 @@ Hashi = "Hashi"
 # listicle referenced by name in the marketing strategy doc.
 Pasing = "Pasing"
 
+# Proper noun: "Groth16", the SNARK proving system by Jens Groth (2016).
+# Referenced in the Toccata blog post per KIP-16's Arkworks Groth16 precompile.
+Groth = "Groth"
+
 # Ordinal-date suffix ("2nd") in the dashboard's date formatter; the bare
 # 'nd' string literal is intentional English, not a typo for "and".
 nd = "nd"
