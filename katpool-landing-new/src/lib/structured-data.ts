@@ -11,6 +11,63 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
 
+/**
+ * Editorial dates surfaced as `datePublished` / `dateModified` in article
+ * structured data and as visible bylines (E-E-A-T + AI-citation freshness
+ * signals). Bump `CONTENT_UPDATED` whenever the content pages change.
+ */
+export const CONTENT_PUBLISHED = "2026-06-24";
+export const CONTENT_UPDATED = "2026-06-25";
+export const MAINTAINER = "the Kat Pool team";
+
+/** Shared author/publisher node for article-type structured data. */
+export function articleByline() {
+  return {
+    author: { "@type": "Organization", name: "Kat Pool", url: SITE_URL },
+    publisher: { "@id": ORG_ID },
+    datePublished: CONTENT_PUBLISHED,
+    dateModified: CONTENT_UPDATED,
+  };
+}
+
+/**
+ * HowTo schema for the "start mining" flow. A 2026 ranking-factors study found
+ * HowTo/Article/FAQ markup materially lifts AI-Overview citation rates, and the
+ * step list is liftable verbatim by answer engines.
+ */
+export function howToLd(params: { host: string; ports: string; recommendedPort: number }) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: "How to start mining Kaspa (KAS) on Kat Pool",
+    description:
+      "Point a Kaspa ASIC at Kat Pool's global anycast stratum, set your wallet address as the username, and start hashing — no account required.",
+    totalTime: "PT2M",
+    tool: [{ "@type": "HowToTool", name: "A Kaspa kHeavyHash ASIC (IceRiver KS or Bitmain KS/KA series)" }],
+    supply: [{ "@type": "HowToSupply", name: "A Kaspa (KAS) wallet address" }],
+    step: [
+      {
+        "@type": "HowToStep",
+        name: "Point your miner at the pool",
+        text: `Set the pool URL to stratum+tcp://${params.host} on a port from ${params.ports} (vardiff on every port; ${params.recommendedPort} is a solid default).`,
+        url: `${SITE_URL}/kaspa-mining-pool`,
+      },
+      {
+        "@type": "HowToStep",
+        name: "Set your wallet as the username",
+        text: "Set the worker username to your Kaspa wallet address (kaspa:…). No account or signup is required.",
+        url: `${SITE_URL}/kaspa-mining-pool`,
+      },
+      {
+        "@type": "HowToStep",
+        name: "Start hashing",
+        text: "Apply the settings and start mining. Anycast routes you to the nearest of seven regions and your address appears on the dashboard within a minute.",
+        url: APP_URL,
+      },
+    ],
+  };
+}
+
 export function organizationLd() {
   return {
     "@context": "https://schema.org",

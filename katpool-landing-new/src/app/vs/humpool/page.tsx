@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Check, Minus } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
+import { articleByline, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
 import { miningConfig, APP_URL } from "@/lib/mining";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
@@ -73,8 +74,7 @@ function articleLd() {
     description: DESCRIPTION,
     inLanguage: "en",
     mainEntityOfPage: `${SITE_URL}/vs/humpool`,
-    author: { "@type": "Organization", name: "Kat Pool", url: SITE_URL },
-    publisher: { "@type": "Organization", name: "Kat Pool", url: SITE_URL },
+    ...articleByline(),
   };
 }
 
@@ -99,9 +99,20 @@ export default function VsHumpool() {
             Kat Pool vs <span className="text-grad">HumPool</span>
           </h1>
           <p className="text-lg leading-relaxed text-muted-foreground">
-            Looking for a HumPool alternative for Kaspa (KAS) mining? Here&apos;s an honest,
-            side-by-side comparison. Kat Pool is the open-source, lower-fee option with NACHO rebates
-            and a global anycast stratum — and switching takes about two minutes.
+            Kat Pool is a strong HumPool alternative for Kaspa (KAS) mining: it is open source,
+            charges a lower effective fee (about 0.5%, or 0% for NACHO/NFT holders versus HumPool&apos;s
+            1%), rebates NACHO on top of KAS, and runs a 7-region anycast stratum. The table below
+            compares both pools point by point, and switching takes about two minutes.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            By {MAINTAINER} · Updated{" "}
+            <time dateTime={CONTENT_UPDATED}>
+              {new Date(CONTENT_UPDATED).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
           </p>
         </header>
 
@@ -144,7 +155,7 @@ export default function VsHumpool() {
         </p>
 
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold tracking-tight">Switching from HumPool</h2>
+          <h2 className="text-xl font-semibold tracking-tight">How do I switch from HumPool to Kat Pool?</h2>
           <p className="text-muted-foreground">
             Repoint your miner to{" "}
             <code className="rounded bg-background/60 px-1.5 py-0.5 font-mono text-sm text-foreground">
