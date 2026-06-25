@@ -78,6 +78,9 @@ export function HomeSeoContent() {
             <Link href="/stats">Live Kat Pool stats</Link>
           </li>
           <li>
+            <Link href="/blog">Kat Pool blog</Link>
+          </li>
+          <li>
             <Link href="/about">About Kat Pool</Link>
           </li>
           <li>

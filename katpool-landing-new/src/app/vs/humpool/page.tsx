@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Check, Minus } from "lucide-react";
 import { PageShell } from "@/components/site/page-shell";
 import { JsonLd } from "@/components/json-ld";
-import { articleByline, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
+import { articleByline, breadcrumbLd, CONTENT_UPDATED, MAINTAINER } from "@/lib/structured-data";
 import { miningConfig, APP_URL } from "@/lib/mining";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://katpool.com";
@@ -83,7 +83,13 @@ export default function VsHumpool() {
 
   return (
     <PageShell>
-      <JsonLd data={[articleLd(), faqLd()]} />
+      <JsonLd
+        data={[
+          articleLd(),
+          faqLd(),
+          breadcrumbLd([{ name: "Kat Pool vs HumPool", path: "/vs/humpool" }]),
+        ]}
+      />
 
       <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
         <Link href="/" className="transition hover:text-foreground">
