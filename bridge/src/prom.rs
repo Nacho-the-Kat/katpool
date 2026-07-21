@@ -5,9 +5,7 @@ use prometheus::{
     CounterVec, Gauge, GaugeVec, HistogramVec, register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "rkstratum_cpu_miner")]
-use std::collections::VecDeque;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -20,9 +18,6 @@ const WORKER_LABELS: &[&str] = &["instance", "worker", "miner", "wallet", "ip"];
 
 /// Invalid share type labels
 const INVALID_LABELS: &[&str] = &["instance", "worker", "miner", "wallet", "ip", "type"];
-
-/// Block labels
-const BLOCK_LABELS: &[&str] = &["instance", "worker", "miner", "wallet", "ip", "nonce", "bluescore", "timestamp", "hash"];
 
 /// Error labels
 const ERROR_LABELS: &[&str] = &["instance", "wallet", "error"];
@@ -46,8 +41,13 @@ static BLOCK_ACCEPTED_COUNTER: OnceLock<CounterVec> = OnceLock::new();
 
 static BLOCK_NOT_CONFIRMED_BLUE_COUNTER: OnceLock<CounterVec> = OnceLock::new();
 
-/// Block gauge - unique instances per block mined
-static BLOCK_GAUGE: OnceLock<GaugeVec> = OnceLock::new();
+/// Pool-wide block-found counter (instance label only — safe for long uptimes).
+static POOL_BLOCKS_FOUND_TOTAL: OnceLock<CounterVec> = OnceLock::new();
+
+/// Recent blocks for the legacy `/api/stats` dashboard (bounded, not Prometheus).
+static RECENT_MINED_BLOCKS: OnceLock<parking_lot::Mutex<VecDeque<RecentMinedBlock>>> = OnceLock::new();
+
+const RECENT_MINED_BLOCKS_LIMIT: usize = 256;
 
 /// Disconnect counter - number of disconnects by worker
 static DISCONNECT_COUNTER: OnceLock<CounterVec> = OnceLock::new();
@@ -160,8 +160,13 @@ pub fn init_metrics() {
         .unwrap()
     });
 
-    BLOCK_GAUGE.get_or_init(|| {
-        register_gauge_vec!("ks_mined_blocks_gauge", "Gauge containing 1 unique instance per block mined", BLOCK_LABELS).unwrap()
+    POOL_BLOCKS_FOUND_TOTAL.get_or_init(|| {
+        register_counter_vec!(
+            "ks_pool_blocks_found_total",
+            "Total blocks found by the pool since process start (low-cardinality; use for dashboard totals)",
+            &["instance"]
+        )
+        .unwrap()
     });
 
     DISCONNECT_COUNTER.get_or_init(|| {
@@ -608,6 +613,16 @@ pub fn prom_worker_id(ctx: &crate::stratum_context::StratumContext) -> String {
     ctx.effective_worker_name()
 }
 
+/// Prometheus `ip` label: the peer's IP only (no ephemeral port).
+///
+/// Stratum reconnects use a new TCP port each time; including the port in
+/// labels created a fresh time series per reconnect and unbounded in-process
+/// memory growth over multi-week uptimes.
+#[must_use]
+pub fn prom_peer_ip(ctx: &crate::stratum_context::StratumContext) -> String {
+    ctx.remote_addr().to_owned()
+}
+
 /// Worker context for metrics
 pub struct WorkerContext {
     pub instance_id: String,
@@ -639,7 +654,7 @@ impl WorkerContext {
             worker_name: worker_name.to_string(),
             miner: miner.to_string(),
             wallet: ctx.wallet_addr.lock().clone(),
-            ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
+            ip: prom_peer_ip(ctx),
         }
     }
 }
@@ -651,7 +666,7 @@ pub fn worker_context(instance_id: &str, ctx: &crate::stratum_context::StratumCo
         worker_name: ctx.effective_worker_name(),
         miner: miner.into(),
         wallet: ctx.wallet_addr.lock().clone(),
-        ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
+        ip: prom_peer_ip(ctx),
     }
 }
 
@@ -735,17 +750,39 @@ pub fn record_block_found(worker: &WorkerContext, nonce: u64, bluescore: u64, ha
     if let Some(counter) = BLOCK_COUNTER.get() {
         counter.with_label_values(&worker.labels()).inc();
     }
-    if let Some(gauge) = BLOCK_GAUGE.get() {
-        let mut labels = worker.labels();
-        let nonce_str = nonce.to_string();
-        let bluescore_str = bluescore.to_string();
-        let timestamp_str =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string();
-        labels.push(&nonce_str);
-        labels.push(&bluescore_str);
-        labels.push(&timestamp_str);
-        labels.push(&hash);
-        gauge.with_label_values(&labels).set(1.0);
+    if let Some(counter) = POOL_BLOCKS_FOUND_TOTAL.get() {
+        counter.with_label_values(&[&worker.instance_id]).inc();
+    }
+
+    let hash = hash.trim().to_string();
+    if hash.is_empty() {
+        return;
+    }
+
+    let timestamp_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let mut q = RECENT_MINED_BLOCKS
+        .get_or_init(|| parking_lot::Mutex::new(VecDeque::with_capacity(RECENT_MINED_BLOCKS_LIMIT)))
+        .lock();
+
+    if q.iter().any(|b| b.hash == hash) {
+        return;
+    }
+
+    q.push_front(RecentMinedBlock {
+        instance: worker.instance_id.clone(),
+        worker: worker.worker_name.clone(),
+        wallet: worker.wallet.clone(),
+        timestamp_unix,
+        hash,
+        nonce,
+        bluescore,
+    });
+    if q.len() > RECENT_MINED_BLOCKS_LIMIT {
+        q.truncate(RECENT_MINED_BLOCKS_LIMIT);
     }
 }
 
@@ -991,6 +1028,44 @@ struct BlockInfo {
     bluescore: String,
 }
 
+#[derive(Clone, Debug)]
+struct RecentMinedBlock {
+    instance: String,
+    worker: String,
+    wallet: String,
+    timestamp_unix: u64,
+    hash: String,
+    nonce: u64,
+    bluescore: u64,
+}
+
+fn append_recent_mined_blocks(stats: &mut StatsResponse, instance_id: Option<&str>, block_set: &mut HashSet<String>) {
+    let Some(q) = RECENT_MINED_BLOCKS.get() else {
+        return;
+    };
+    let guard = q.lock();
+    for b in guard.iter() {
+        if let Some(id) = instance_id {
+            if b.instance != id {
+                continue;
+            }
+        }
+        if block_set.contains(&b.hash) {
+            continue;
+        }
+        block_set.insert(b.hash.clone());
+        stats.blocks.push(BlockInfo {
+            instance: b.instance.clone(),
+            worker: b.worker.clone(),
+            wallet: b.wallet.clone(),
+            timestamp: b.timestamp_unix.to_string(),
+            hash: b.hash.clone(),
+            nonce: b.nonce.to_string(),
+            bluescore: b.bluescore.to_string(),
+        });
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct WorkerInfo {
     instance: String,
@@ -1075,6 +1150,8 @@ async fn get_stats_json_filtered(instance_id: Option<&str>) -> StatsResponse {
     let mut worker_start_times: HashMap<String, f64> = HashMap::new(); // Store start times for hashrate calculation
     let mut worker_difficulties: HashMap<String, f64> = HashMap::new(); // Store current difficulty for each worker
     let mut block_set: HashSet<String> = HashSet::new();
+
+    append_recent_mined_blocks(&mut stats, instance_id, &mut block_set);
 
     // Parse global network gauges from the unfiltered set.
     // Also pick up internal CPU miner metrics (if present).
@@ -1166,46 +1243,20 @@ async fn get_stats_json_filtered(instance_id: Option<&str>) -> StatsResponse {
     for family in families_for_workers_and_blocks {
         let name = family.name();
 
-        // Parse block gauge
-        if name == "ks_mined_blocks_gauge" {
+        if name == "ks_pool_blocks_found_total" {
             for metric in family.get_metric() {
-                if metric.get_gauge().value() > 0.0 {
-                    let labels = metric.get_label();
-                    let mut instance = String::new();
-                    let mut worker = String::new();
-                    let mut wallet = String::new();
-                    let mut timestamp = String::new();
-                    let mut hash = String::new();
-                    let mut nonce = String::new();
-                    let mut bluescore = String::new();
-
-                    for label in labels {
-                        match label.name() {
-                            "instance" => instance = label.value().to_string(),
-                            "worker" => worker = label.value().to_string(),
-                            "wallet" => wallet = label.value().to_string(),
-                            "timestamp" => timestamp = label.value().to_string(),
-                            "hash" => hash = label.value().to_string(),
-                            "nonce" => nonce = label.value().to_string(),
-                            "bluescore" => bluescore = label.value().to_string(),
-                            _ => {}
-                        }
-                    }
-
-                    if !hash.is_empty() && !block_set.contains(&hash) {
-                        block_set.insert(hash.clone());
-                        stats.blocks.push(BlockInfo {
-                            instance,
-                            worker: worker.clone(),
-                            wallet: wallet.clone(),
-                            timestamp,
-                            hash,
-                            nonce,
-                            bluescore,
-                        });
-                        stats.totalBlocks += 1;
+                let instance = metric
+                    .get_label()
+                    .iter()
+                    .find(|l| l.name() == "instance")
+                    .map(|l| l.value())
+                    .unwrap_or("");
+                if let Some(id) = instance_id {
+                    if instance != id {
+                        continue;
                     }
                 }
+                stats.totalBlocks = stats.totalBlocks.saturating_add(metric.get_counter().value().max(0.0) as u64);
             }
         }
 
@@ -1720,5 +1771,77 @@ min_share_diff: 8192
         let saved = std::fs::read_to_string(&config_path).unwrap();
         assert!(!saved.contains("global:"));
         assert!(saved.contains("instances:"));
+    }
+
+    #[tokio::test]
+    async fn prom_peer_ip_omits_ephemeral_port() {
+        use std::sync::Arc;
+        use tokio::sync::mpsc;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accept_handle = tokio::spawn(async move { listener.accept().await });
+        let _client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (stream, _) = accept_handle.await.unwrap().unwrap();
+
+        let state = Arc::new(crate::mining_state::MiningState::new());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let ctx = crate::stratum_context::StratumContext::new(
+            "203.0.113.10".to_string(),
+            54321,
+            25555,
+            stream,
+            state,
+            tx,
+        );
+        assert_eq!(prom_peer_ip(&ctx), "203.0.113.10");
+    }
+
+    #[test]
+    fn block_found_metrics_are_bounded_and_low_cardinality() {
+        use prometheus::gather;
+
+        init_metrics();
+
+        let worker = WorkerContext {
+            instance_id: "prom-test".to_string(),
+            worker_name: "rig-1".to_string(),
+            miner: "test".to_string(),
+            wallet: "kaspa:qr8example123456789012345678901234567890123456789012345678901234567890".to_string(),
+            ip: "203.0.113.10".to_string(),
+        };
+
+        let probe_hash = "cc".repeat(32);
+        record_block_found(&worker, 42, 1_000, probe_hash.clone());
+
+        let families: Vec<_> = gather().into_iter().filter(|f| f.name() == "ks_mined_blocks_gauge").collect();
+        assert!(families.is_empty(), "ks_mined_blocks_gauge must not be registered");
+
+        let pool_total = gather()
+            .into_iter()
+            .find(|f| f.name() == "ks_pool_blocks_found_total")
+            .and_then(|f| {
+                f.get_metric().iter().find_map(|m| {
+                    let instance = m.get_label().iter().find(|l| l.name() == "instance")?.value();
+                    if instance == "prom-test" {
+                        Some(m.get_counter().value())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or(0.0);
+        assert_eq!(pool_total, 1.0);
+
+        let recent = RECENT_MINED_BLOCKS.get().unwrap().lock();
+        assert!(recent.iter().any(|b| b.hash == probe_hash));
+        drop(recent);
+
+        for i in 0..RECENT_MINED_BLOCKS_LIMIT + 10 {
+            record_block_found(&worker, i as u64, i as u64, format!("{:064x}", i));
+        }
+
+        let recent = RECENT_MINED_BLOCKS.get().unwrap().lock();
+        assert_eq!(recent.len(), RECENT_MINED_BLOCKS_LIMIT);
     }
 }
