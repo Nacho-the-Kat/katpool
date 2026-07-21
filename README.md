@@ -1,4 +1,4 @@
-# katpool
+# katpool 
 
 [![CI](https://github.com/Nacho-the-Kat/katpool/actions/workflows/ci.yml/badge.svg)](https://github.com/Nacho-the-Kat/katpool/actions/workflows/ci.yml)
 [![License: MIT or Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
