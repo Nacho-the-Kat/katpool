@@ -139,7 +139,9 @@ impl BlockCounts {
 pub struct PayoutTotals {
     /// Total confirmed KAS paid.
     pub kas_confirmed: KasAmount,
-    /// Total confirmed NACHO payouts, in their KAS-sompi value.
+    /// Total NACHO tokens actually sent (completed KRC-20 transfers). Uses the
+    /// same 8-decimal `KasAmount` wire shape; `sompi`/`kas` are NACHO base
+    /// units / whole tokens, not KAS.
     pub nacho_confirmed: KasAmount,
     /// Count of confirmed payout rows.
     pub confirmed_payouts: i64,

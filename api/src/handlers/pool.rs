@@ -53,7 +53,9 @@ async fn build_stats(state: AppState, window: std::time::Duration) -> Result<Val
         blocks: BlockCounts::from_rows(&block_rows),
         payouts: PayoutTotals {
             kas_confirmed: KasAmount::from_sompi(totals.kas_confirmed_sompi),
-            nacho_confirmed: KasAmount::from_sompi(totals.nacho_confirmed_sompi),
+            // Wire shape reuses KasAmount (8-decimal fixed point); values are
+            // NACHO base units, not KAS sompi — see PayoutTotals docs.
+            nacho_confirmed: KasAmount::from_sompi(totals.nacho_confirmed_base_units),
             confirmed_payouts: totals.confirmed_payouts,
         },
         treasury: treasury_snapshot.map(|t| TreasuryView {
