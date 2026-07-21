@@ -18,10 +18,10 @@ import {
   referenceBucketIndex,
   sparklineWithLive,
 } from "@/lib/hashrate-live";
-import { resolveRange } from "@/lib/range";
+import { bucketFor, bucketSecs } from "@/lib/range";
 
-const BUCKET_SECONDS = { "1m": 60, "5m": 300, "1h": 3600, "1d": 86_400 } as const;
 const DELTA_LOOKBACK_SECS = 3_600;
+const HERO_RANGE = "24h" as const;
 
 /** A compact metric cell within the hero's hairline-separated grid. */
 function HeroStat({
@@ -57,8 +57,7 @@ function HeroStat({
 export function OverviewHero() {
   const stats = usePoolLiveStats();
   const network = useNetworkContext();
-  const day = useMemo(() => resolveRange("24h"), []);
-  const history = usePoolHashrateHistory({ from: day.from, to: day.to, bucket: day.bucket });
+  const history = usePoolHashrateHistory(HERO_RANGE);
 
   const historyPoints = useMemo(() => history.data?.points ?? [], [history.data?.points]);
   const poolHs = stats.data?.hashrate_hs ?? null;
@@ -70,11 +69,11 @@ export function OverviewHero() {
 
   const hashDelta = useMemo(() => {
     if (poolHs == null) return null;
-    const bucketSecs = BUCKET_SECONDS[day.bucket];
-    const refIdx = referenceBucketIndex(historyPoints.length, bucketSecs, DELTA_LOOKBACK_SECS);
+    const secs = bucketSecs(bucketFor(HERO_RANGE));
+    const refIdx = referenceBucketIndex(historyPoints.length, secs, DELTA_LOOKBACK_SECS);
     if (refIdx == null) return null;
     return hashrateDeltaPercent(poolHs, historyPoints[refIdx]?.hashrate_hs);
-  }, [poolHs, historyPoints, day.bucket]);
+  }, [poolHs, historyPoints]);
 
   const netHs = network.data?.network_hashrate_hs ?? 0;
   const netShare = poolHs != null && netHs > 0 ? (poolHs / netHs) * 100 : null;

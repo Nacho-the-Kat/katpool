@@ -912,13 +912,7 @@ impl ShareHandler {
                         // and block hash; no second log here keeps the
                         // share-handler log volume bounded at high
                         // submission rates.
-                        let prom_worker = crate::prom::WorkerContext {
-                            instance_id: self.instance_id.clone(),
-                            worker_name: worker_name.clone(),
-                            miner: String::new(),
-                            wallet: wallet_addr.clone(),
-                            ip: format!("{}:{}", ctx.remote_addr(), ctx.remote_port()),
-                        };
+                        let prom_worker = crate::prom::WorkerContext::from_stratum(&self.instance_id, &ctx, "");
                         record_block_not_confirmed_blue(&prom_worker);
                         invalid_share = false;
                         break;

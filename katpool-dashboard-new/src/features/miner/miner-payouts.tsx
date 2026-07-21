@@ -22,7 +22,7 @@ export function MinerPayouts({ address }: { address: string }) {
   const before = stack[stack.length - 1];
   const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useMinerPayouts(address, PAGE, before);
   const network = useNetworkContext();
-  const kasUsd = network.data?.prices.kas_usd ?? null;
+  const kasUsd = network.data?.prices?.kas_usd ?? null;
   // "Planned" is an internal pre-broadcast bookkeeping state with no on-chain
   // action yet; hide it (matching the pool cycles ledger) and show payouts only
   // once they actually broadcast.

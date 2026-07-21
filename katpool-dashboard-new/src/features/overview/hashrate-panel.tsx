@@ -8,18 +8,13 @@ import { ChartSkeleton, EmptyState, ErrorState } from "@/components/dashboard/st
 import { usePoolHashrateHistory, usePoolLiveStats } from "@/lib/api/hooks";
 import { chartPointsWithLive } from "@/lib/hashrate-live";
 import { formatHashrate } from "@/lib/format";
-import { resolveRange, type RangeKey } from "@/lib/range";
+import { HASHRATE_SERIES_RANGE_KEYS, type RangeKey } from "@/lib/range";
 
 /** Pool hashrate over time, with a range selector. */
 export function HashratePanel() {
   const [range, setRange] = useState<RangeKey>("24h");
-  const resolved = useMemo(() => resolveRange(range), [range]);
   const live = usePoolLiveStats();
-  const { data, isLoading, isError, refetch } = usePoolHashrateHistory({
-    from: resolved.from,
-    to: resolved.to,
-    bucket: resolved.bucket,
-  });
+  const { data, isLoading, isError, refetch } = usePoolHashrateHistory(range);
 
   const series = useMemo(() => {
     const history = data?.points ?? [];
@@ -43,13 +38,13 @@ export function HashratePanel() {
     <Panel
       title="Pool hashrate"
       description="Estimated from accepted share difficulty"
-      actions={<RangeToggle value={range} onChange={setRange} />}
+      actions={<RangeToggle value={range} onChange={setRange} options={HASHRATE_SERIES_RANGE_KEYS} />}
     >
       {isError ? (
         <ErrorState onRetry={() => void refetch()} />
       ) : isLoading ? (
         <ChartSkeleton height={320} />
-      ) : series[0]?.points.length === 0 ? (
+      ) : (series[0]?.points?.length ?? 0) === 0 ? (
         <EmptyState
           title="No data in this range"
           description="Try a wider range, or check back once the pool has more history."

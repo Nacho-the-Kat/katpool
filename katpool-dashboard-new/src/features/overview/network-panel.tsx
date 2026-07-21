@@ -74,7 +74,7 @@ export function NetworkPanel() {
             label="Blue score"
             value={data.blue_score != null ? formatCompact(data.blue_score) : "—"}
           />
-          {data.degraded.length > 0 ? (
+          {data.degraded?.length ? (
             <p className="col-span-2 border-t border-warning/30 bg-warning/5 px-4 py-2.5 text-xs text-warning">
               Some sources are temporarily unavailable ({data.degraded.join(", ")}).
             </p>

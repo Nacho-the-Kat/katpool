@@ -32,7 +32,7 @@ export function GeoPanel() {
     [data],
   );
 
-  const countries = data?.entries.length ?? 0;
+  const countries = data?.entries?.length ?? 0;
   const description = countries
     ? `Miners across ${formatNumber(countries)} ${countries === 1 ? "country" : "countries"} (last 24h)`
     : "Miner countries (last 24h)";

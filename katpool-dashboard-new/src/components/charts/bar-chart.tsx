@@ -34,7 +34,7 @@ export function HBarChart({
 
   const option = useMemo<EChartsCoreOption>(() => {
     const color = tokens.series[colorIndex % tokens.series.length] ?? "#49eacb";
-    const sorted = [...data].sort((a, b) => a.value - b.value);
+    const sorted = [...(data ?? [])].sort((a, b) => a.value - b.value);
     return {
       animationDuration: 600,
       animationEasing: "cubicOut" as const,

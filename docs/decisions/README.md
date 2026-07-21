@@ -34,6 +34,7 @@ ADR pointing back.
 | [0023](0023-new-dashboard-architecture-and-stack.md) | New dashboard architecture and stack | accepted |
 | [0024](0024-dashboard-design-overhaul.md) | Dashboard design overhaul | accepted |
 | [0025](0025-geo-distribution-via-geolite2.md) | Country-level miner geo distribution via GeoLite2 | accepted |
+| [0026](0026-prometheus-cardinality-bounds.md) | Bound Prometheus cardinality in the Stratum bridge | accepted |
 
 ## When to write a new ADR
 

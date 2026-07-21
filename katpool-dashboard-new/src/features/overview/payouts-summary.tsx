@@ -38,7 +38,7 @@ function Row({
 export function PayoutsSummary() {
   const { data, isLoading, isError, refetch } = usePoolStats();
   const network = useNetworkContext();
-  const kasUsd = network.data?.prices.kas_usd ?? null;
+  const kasUsd = network.data?.prices?.kas_usd ?? null;
 
   return (
     <Panel title="Rewards & treasury" description="Confirmed distributions and current balances">

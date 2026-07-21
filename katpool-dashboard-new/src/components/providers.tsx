@@ -22,9 +22,12 @@ export function Providers({ children }: { children: ReactNode }) {
             // (rate limited) or other client error just amplifies load into a
             // retry storm that keeps the upstream's rate budget exhausted; we
             // let `keepPreviousData` hold the panel and wait for the next poll.
+            // Same for gateway timeouts (503/504): re-firing a slow share-scan
+            // history query only piles onto the DB that already timed out.
             retry: (failureCount, error) => {
               const status = error instanceof DashboardApiError ? error.status : 0;
               if (status >= 400 && status < 500) return false;
+              if (status === 503 || status === 504) return false;
               return failureCount < 2;
             },
             retryDelay: (attempt) => Math.min(1_000 * 2 ** attempt, 15_000),
