@@ -38,12 +38,13 @@ export function DonutChart({
   fmtRef.current = valueFormatter;
 
   const option = useMemo<EChartsCoreOption>(() => {
-    const single = data.length === 1;
+    const slices = data ?? [];
+    const single = slices.length === 1;
     // Stack the legend under a centered ring when there's little horizontal
     // room — either very few slices (a right legend leaves dead space) or a
     // narrow screen (a right legend maroons the ring). Otherwise use the
     // space-efficient right-hand vertical legend.
-    const compact = data.length <= 2 || isNarrow;
+    const compact = slices.length <= 2 || isNarrow;
     const ringX = compact ? "50%" : "32%";
     const ringY = compact ? "44%" : "50%";
 
@@ -107,7 +108,7 @@ export function DonutChart({
           },
           label: { show: false },
           emphasis: { scaleSize: 6, itemStyle: { shadowBlur: 16, shadowColor: "rgba(0,0,0,0.25)" } },
-          data: data.map((d) => ({ name: d.name, value: d.value })),
+          data: slices.map((d) => ({ name: d.name, value: d.value })),
         },
       ],
     };

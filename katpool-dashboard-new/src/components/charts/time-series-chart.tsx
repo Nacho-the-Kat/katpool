@@ -52,11 +52,13 @@ export function TimeSeriesChart({
     const single = series.length === 1;
     const multi = series.length > 1;
     const primary = series[0];
-    const last = primary?.points[primary.points.length - 1];
+    const primaryPoints = primary?.points ?? [];
+    const last = primaryPoints.length > 0 ? primaryPoints[primaryPoints.length - 1] : undefined;
     const primaryColor = palette[(primary?.colorIndex ?? 0) % palette.length] ?? "#49eacb";
 
     const lineSeries = series.map((s) => {
       const color = palette[(s.colorIndex ?? 0) % palette.length] ?? "#49eacb";
+      const points = s.points ?? [];
       return {
         name: s.name,
         type: "line" as const,
@@ -83,7 +85,7 @@ export function TimeSeriesChart({
                 fontWeight: 600 as const,
               }
             : undefined,
-        data: s.points.map((p) => [p.t, p.v]),
+        data: points.map((p) => [p.t, p.v]),
       };
     });
 

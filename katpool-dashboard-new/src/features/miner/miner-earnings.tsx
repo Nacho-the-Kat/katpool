@@ -37,7 +37,7 @@ function Line({
 export function MinerEarnings({ address }: { address: string }) {
   const { data, isLoading, isError, refetch } = useMinerProfile(address);
   const network = useNetworkContext();
-  const kasUsd = network.data?.prices.kas_usd ?? null;
+  const kasUsd = network.data?.prices?.kas_usd ?? null;
 
   return (
     <Panel eyebrow="Earnings" title="Balance breakdown">

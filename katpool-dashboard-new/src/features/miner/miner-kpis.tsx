@@ -1,25 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
 import { Coins, Cpu, Gauge, ThumbsDown, ThumbsUp, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { useMinerHashrateHistory, useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { ExtLink } from "@/components/ext-link";
 import { formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd } from "@/lib/format";
-import { resolveRange } from "@/lib/range";
 
 /** KPI grid for a single miner. */
 export function MinerKpis({ address }: { address: string }) {
   const { data, isLoading } = useMinerProfile(address);
   const network = useNetworkContext();
-  const kasUsd = network.data?.prices.kas_usd ?? null;
+  const kasUsd = network.data?.prices?.kas_usd ?? null;
 
   // Headline hashrate matches the chart below: the latest point of the same
   // 24h bucketed history, not the noisy short-window profile estimate. Falls
   // back to the profile estimate until the history loads.
-  const day = useMemo(() => resolveRange("24h"), []);
-  const history = useMinerHashrateHistory(address, { from: day.from, to: day.to, bucket: day.bucket });
+  const history = useMinerHashrateHistory(address, "24h");
   const latestPoint = history.data?.points?.at(-1);
   const hashrate = latestPoint ? latestPoint.hashrate_hs : (data?.hashrate_hs ?? null);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { AddressDisplay } from "@/components/dashboard/address-display";
 import { LiveBadge } from "@/components/dashboard/live-badge";
 import { useLeaderboard } from "@/lib/api/hooks";
 import { formatHashrate, formatNumber } from "@/lib/format";
-import { resolveRange, type RangeKey } from "@/lib/range";
+import { WINDOW_RANGE_KEYS, resolveRange, type RangeKey } from "@/lib/range";
 import { cn } from "@/lib/utils";
 
 const RANK_ACCENT = ["text-yellow-400", "text-zinc-300", "text-amber-600"];
@@ -19,9 +19,11 @@ const RANK_ACCENT = ["text-yellow-400", "text-zinc-300", "text-amber-600"];
 /** Top miners by windowed hashrate, with a share-of-pool bar. */
 export function LeaderboardTable({ limit = 50, compact = false }: { limit?: number; compact?: boolean }) {
   const [range, setRange] = useState<RangeKey>("24h");
-  const resolved = useMemo(() => resolveRange(range), [range]);
+  // Windowed endpoint — only presets ≤ API MAX_WINDOW (24h). Longer keys
+  // were previously offered but silently capped server-side to 24h.
+  const windowSecs = resolveRange(range).windowSecs;
   const { data, isLoading, isError, refetch, dataUpdatedAt, isFetching } = useLeaderboard(
-    resolved.windowSecs,
+    windowSecs,
     limit,
   );
 
@@ -39,7 +41,7 @@ export function LeaderboardTable({ limit = 50, compact = false }: { limit?: numb
         ) : (
           <div className="flex items-center gap-2">
             <LiveBadge updatedAt={dataUpdatedAt} isFetching={isFetching} className="hidden md:inline-flex" />
-            <RangeToggle value={range} onChange={setRange} options={["1h", "24h", "7d", "30d"]} />
+            <RangeToggle value={range} onChange={setRange} options={WINDOW_RANGE_KEYS} />
           </div>
         )
       }

@@ -7,7 +7,6 @@ import type {
   ActiveSessions,
   BalanceResponse,
   BlocksPage,
-  BucketToken,
   CyclesPage,
   CycleDetailPage,
   FirmwareBreakdown,
@@ -24,21 +23,11 @@ import type {
   WorkersResponse,
 } from "./types";
 import { LIVE_HASHRATE_POLL_MS, LIVE_HASHRATE_WINDOW_SECS } from "../hashrate-live";
+import { MAX_WINDOW_SECS, resolveRange, type RangeKey } from "../range";
 
 /** Default live-refresh cadence for pool-wide widgets (ms). */
 const LIVE_MS = 10_000;
 const NETWORK_MS = 60_000;
-
-interface RangeArgs {
-  from?: string;
-  to?: string;
-  bucket?: BucketToken;
-}
-
-/** Flatten a range into a plain query record for {@link bffUrl}. */
-function rangeQuery(args: RangeArgs): Record<string, string | undefined> {
-  return { from: args.from, to: args.to, bucket: args.bucket };
-}
 
 function useBff<T>(
   key: readonly unknown[],
@@ -49,6 +38,28 @@ function useBff<T>(
   return useQuery<T, Error>({
     queryKey: key,
     queryFn: ({ signal }) => fetchBff<T>(url, signal),
+    refetchInterval,
+    refetchIntervalInBackground: true,
+    refetchOnMount: "always",
+    enabled,
+  });
+}
+
+/**
+ * Time-series history keyed by range preset. `from`/`to` are resolved inside
+ * the queryFn (quantized) so each poll slides the window without thrashing
+ * the React Query cache key on every render.
+ */
+function useHistoryRange<T>(
+  key: readonly unknown[],
+  buildUrl: (range: ReturnType<typeof resolveRange>) => string,
+  range: RangeKey,
+  refetchInterval: number | false = LIVE_MS,
+  enabled = true,
+): UseQueryResult<T, Error> {
+  return useQuery<T, Error>({
+    queryKey: [...key, range],
+    queryFn: ({ signal }) => fetchBff<T>(buildUrl(resolveRange(range)), signal),
     refetchInterval,
     refetchIntervalInBackground: true,
     refetchOnMount: "always",
@@ -71,26 +82,30 @@ export function usePoolLiveStats() {
   return usePoolStats(LIVE_HASHRATE_WINDOW_SECS);
 }
 
-export function usePoolHashrateHistory(args: RangeArgs) {
-  return useBff<HashrateHistory>(
-    ["pool", "hashrate/history", args],
-    bffUrl("/api/v1/pool/hashrate/history", rangeQuery(args)),
-    LIVE_MS,
+export function usePoolHashrateHistory(range: RangeKey) {
+  return useHistoryRange<HashrateHistory>(
+    ["pool", "hashrate/history"],
+    (r) => bffUrl("/api/v1/pool/hashrate/history", { from: r.from, to: r.to, bucket: r.bucket }),
+    range,
   );
 }
 
-export function useActiveMinersHistory(args: RangeArgs) {
-  return useBff<ActiveMinersHistory>(
-    ["pool", "miners/history", args],
-    bffUrl("/api/v1/pool/miners/history", rangeQuery(args)),
-    LIVE_MS,
+export function useActiveMinersHistory(range: RangeKey) {
+  return useHistoryRange<ActiveMinersHistory>(
+    ["pool", "miners/history"],
+    (r) => bffUrl("/api/v1/pool/miners/history", { from: r.from, to: r.to, bucket: r.bucket }),
+    range,
   );
 }
 
 export function useLeaderboard(windowSecs?: number, limit?: number) {
+  // Clamp to the API's MAX_WINDOW so a caller can't request 7d and silently
+  // receive 24h data (the server caps without error).
+  const capped =
+    windowSecs == null ? undefined : Math.min(windowSecs, MAX_WINDOW_SECS);
   return useBff<LeaderboardResponse>(
-    ["pool", "leaderboard", windowSecs ?? null, limit ?? null],
-    bffUrl("/api/v1/pool/leaderboard", { window: windowSecs, limit }),
+    ["pool", "leaderboard", capped ?? null, limit ?? null],
+    bffUrl("/api/v1/pool/leaderboard", { window: capped, limit }),
     LIVE_MS,
   );
 }
@@ -176,10 +191,16 @@ export function useMinerWorkers(address: string, enabled = true) {
   );
 }
 
-export function useMinerHashrateHistory(address: string, args: RangeArgs, enabled = true) {
-  return useBff<HashrateHistory>(
-    ["miner", address, "hashrate/history", args],
-    bffUrl(`/api/v1/miners/${encodeURIComponent(address)}/hashrate/history`, rangeQuery(args)),
+export function useMinerHashrateHistory(address: string, range: RangeKey, enabled = true) {
+  return useHistoryRange<HashrateHistory>(
+    ["miner", address, "hashrate/history"],
+    (r) =>
+      bffUrl(`/api/v1/miners/${encodeURIComponent(address)}/hashrate/history`, {
+        from: r.from,
+        to: r.to,
+        bucket: r.bucket,
+      }),
+    range,
     LIVE_MS,
     enabled,
   );

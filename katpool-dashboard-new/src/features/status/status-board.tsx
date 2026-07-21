@@ -61,11 +61,11 @@ export function StatusBoard() {
   const latest = useBlocks(1);
   const active = useActiveSessions();
 
-  const topBlock = latest.data?.blocks[0];
+  const topBlock = latest.data?.blocks?.[0];
   const lastBlockAge = useLiveRelative(topBlock?.found_at);
   const treasury = stats.data?.treasury ?? null;
   const treasuryAge = useLiveRelative(treasury?.captured_at);
-  const kasUsd = network.data?.prices.kas_usd ?? null;
+  const kasUsd = network.data?.prices?.kas_usd ?? null;
   const treasuryAddress = miningConfig().treasuryAddress;
 
   const poolState: Health = stats.isError ? "down" : stats.isLoading ? "pending" : "ok";

@@ -32,8 +32,8 @@ function PricePill({
 /** Live KAS + NACHO prices with 24h change for the top bar. */
 export function PriceTicker() {
   const { data, isLoading } = useNetworkContext();
-  const kas = data?.prices.kas_usd ?? null;
-  const nacho = data?.prices.nacho_usd ?? null;
+  const kas = data?.prices?.kas_usd ?? null;
+  const nacho = data?.prices?.nacho_usd ?? null;
 
   if (isLoading) {
     return (
@@ -52,7 +52,7 @@ export function PriceTicker() {
           label="KAS"
           href={ECOSYSTEM.kaspa}
           price={kas}
-          change={data?.prices.kas_change_24h}
+          change={data?.prices?.kas_change_24h}
         />
       ) : null}
       {nacho != null ? (
@@ -60,7 +60,7 @@ export function PriceTicker() {
           label="NACHO"
           href={ECOSYSTEM.nacho}
           price={nacho}
-          change={data?.prices.nacho_change_24h}
+          change={data?.prices?.nacho_change_24h}
         />
       ) : null}
     </div>

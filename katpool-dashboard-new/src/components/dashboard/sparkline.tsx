@@ -49,6 +49,6 @@ export function Sparkline({
     };
   }, [data, tokens, colorIndex]);
 
-  if (!data.length) return <div style={{ height }} />;
+  if (!data?.length) return <div style={{ height }} />;
   return <EChart option={option} height={height} notMerge />;
 }
