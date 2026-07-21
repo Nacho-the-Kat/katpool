@@ -40,6 +40,10 @@ export function totalBlocksFound(b: BlockCounts): number {
 
 export interface PayoutTotals {
   kas_confirmed: KasAmount;
+  /**
+   * NACHO tokens actually sent (completed KRC-20 transfers). Same 8-decimal
+   * `KasAmount` shape as KAS; treat `sompi` as NACHO base units for `formatNacho`.
+   */
   nacho_confirmed: KasAmount;
   confirmed_payouts: number;
 }

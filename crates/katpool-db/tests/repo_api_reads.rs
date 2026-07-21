@@ -350,7 +350,7 @@ async fn payout_balances_totals_and_history() {
     // Pool totals: 200 KAS confirmed, 0 NACHO, 1 confirmed payout.
     let totals = payout::pool_payout_totals(&pool).await.expect("totals");
     assert_eq!(totals.kas_confirmed_sompi, 200);
-    assert_eq!(totals.nacho_confirmed_sompi, 0);
+    assert_eq!(totals.nacho_confirmed_base_units, 0);
     assert_eq!(totals.confirmed_payouts, 1);
 
     // Recent cycles.

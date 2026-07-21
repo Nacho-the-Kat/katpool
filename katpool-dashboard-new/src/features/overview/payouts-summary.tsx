@@ -7,7 +7,7 @@ import { ErrorState, LoadingRows } from "@/components/dashboard/states";
 import { usePoolStats, useNetworkContext } from "@/lib/api/hooks";
 import { ECOSYSTEM } from "@/lib/ecosystem";
 import { ExtLink } from "@/components/ext-link";
-import { formatKas, formatUsd, sompiToUsd } from "@/lib/format";
+import { formatKas, formatNacho, formatUsd, sompiToUsd } from "@/lib/format";
 
 function Row({
   icon,
@@ -39,6 +39,7 @@ export function PayoutsSummary() {
   const { data, isLoading, isError, refetch } = usePoolStats();
   const network = useNetworkContext();
   const kasUsd = network.data?.prices?.kas_usd ?? null;
+  const nachoUsd = network.data?.prices?.nacho_usd ?? null;
 
   return (
     <Panel title="Rewards & treasury" description="Confirmed distributions and current balances">
@@ -65,8 +66,12 @@ export function PayoutsSummary() {
                 <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebates (confirmed)
               </>
             }
-            value={formatKas(data.payouts.nacho_confirmed.kas)}
-            sub="KAS value at payout time"
+            value={formatNacho(data.payouts.nacho_confirmed.sompi)}
+            sub={
+              nachoUsd != null
+                ? formatUsd(sompiToUsd(data.payouts.nacho_confirmed.sompi, nachoUsd))
+                : undefined
+            }
           />
           {data.treasury ? (
             <>

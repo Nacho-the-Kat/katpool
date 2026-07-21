@@ -619,9 +619,11 @@ pub async fn kas_payable_for_wallet<'e, E: PgExecutor<'e>>(
 pub struct PoolPayoutTotals {
     /// Sum of confirmed KAS payout amounts (sompi).
     pub kas_confirmed_sompi: i64,
-    /// Sum of confirmed KRC-20/NACHO payout amounts, denominated in the
-    /// KAS-sompi value that was converted (not NACHO base units).
-    pub nacho_confirmed_sompi: i64,
+    /// Sum of NACHO base units actually sent (`krc20_pending_transfer.nacho_amount`
+    /// for completed transfers tied to confirmed payouts). Not the KAS-sompi
+    /// rebate value on `payout.amount_sompi` — that field is conversion input,
+    /// and legacy import rows inflate it without a completed transfer.
+    pub nacho_confirmed_base_units: i64,
     /// Count of confirmed payout rows across both kinds.
     pub confirmed_payouts: i64,
 }
@@ -633,19 +635,23 @@ pub async fn pool_payout_totals<'e, E: PgExecutor<'e>>(
 ) -> Result<PoolPayoutTotals, DbError> {
     let row: (Option<i64>, Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT
-           COALESCE(sum(CASE WHEN pc.kind = 'kas' AND po.status = 'confirmed'
-                             THEN po.amount_sompi ELSE 0 END), 0)::bigint,
-           COALESCE(sum(CASE WHEN pc.kind = 'krc20_nacho' AND po.status = 'confirmed'
-                             THEN po.amount_sompi ELSE 0 END), 0)::bigint,
-           COALESCE(sum(CASE WHEN po.status = 'confirmed' THEN 1 ELSE 0 END), 0)::bigint
-           FROM payout po
-           INNER JOIN payout_cycle pc ON pc.id = po.cycle_id",
+           (SELECT COALESCE(sum(po.amount_sompi), 0)::bigint
+              FROM payout po
+              INNER JOIN payout_cycle pc ON pc.id = po.cycle_id
+             WHERE pc.kind = 'kas' AND po.status = 'confirmed'),
+           (SELECT COALESCE(sum(k.nacho_amount), 0)::bigint
+              FROM krc20_pending_transfer k
+              INNER JOIN payout po ON po.id = k.payout_id
+             WHERE po.status = 'confirmed' AND k.status = 'completed'),
+           (SELECT COALESCE(count(*), 0)::bigint
+              FROM payout po
+             WHERE po.status = 'confirmed')",
     )
     .fetch_one(executor)
     .await?;
     Ok(PoolPayoutTotals {
         kas_confirmed_sompi: row.0.unwrap_or(0),
-        nacho_confirmed_sompi: row.1.unwrap_or(0),
+        nacho_confirmed_base_units: row.1.unwrap_or(0),
         confirmed_payouts: row.2.unwrap_or(0),
     })
 }

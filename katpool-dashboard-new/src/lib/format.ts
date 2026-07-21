@@ -58,14 +58,11 @@ export function formatNacho(baseUnits: string | number, maxDigits = 4): string {
   const whole = raw / 100_000_000n;
   const frac = raw % 100_000_000n;
   const fracStr = frac.toString().padStart(8, "0").replace(/0+$/, "");
+  const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const display =
     fracStr.length > 0
-      ? `${whole.toString()}.${fracStr.slice(0, maxDigits)}`
-      : whole.toString();
-  const n = Number(display);
-  if (Number.isFinite(n) && whole < 1_000_000n) {
-    return `${negative ? "-" : ""}${n.toLocaleString("en-US", { maximumFractionDigits: maxDigits })} NACHO`;
-  }
+      ? `${wholeStr}.${fracStr.slice(0, maxDigits)}`
+      : wholeStr;
   return `${negative ? "-" : ""}${display} NACHO`;
 }
 
