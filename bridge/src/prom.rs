@@ -759,14 +759,9 @@ pub fn record_block_found(worker: &WorkerContext, nonce: u64, bluescore: u64, ha
         return;
     }
 
-    let timestamp_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let timestamp_unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 
-    let mut q = RECENT_MINED_BLOCKS
-        .get_or_init(|| parking_lot::Mutex::new(VecDeque::with_capacity(RECENT_MINED_BLOCKS_LIMIT)))
-        .lock();
+    let mut q = RECENT_MINED_BLOCKS.get_or_init(|| parking_lot::Mutex::new(VecDeque::with_capacity(RECENT_MINED_BLOCKS_LIMIT))).lock();
 
     if q.iter().any(|b| b.hash == hash) {
         return;
@@ -1245,12 +1240,7 @@ async fn get_stats_json_filtered(instance_id: Option<&str>) -> StatsResponse {
 
         if name == "ks_pool_blocks_found_total" {
             for metric in family.get_metric() {
-                let instance = metric
-                    .get_label()
-                    .iter()
-                    .find(|l| l.name() == "instance")
-                    .map(|l| l.value())
-                    .unwrap_or("");
+                let instance = metric.get_label().iter().find(|l| l.name() == "instance").map(|l| l.value()).unwrap_or("");
                 if let Some(id) = instance_id {
                     if instance != id {
                         continue;
@@ -1786,14 +1776,7 @@ min_share_diff: 8192
 
         let state = Arc::new(crate::mining_state::MiningState::new());
         let (tx, _rx) = mpsc::unbounded_channel();
-        let ctx = crate::stratum_context::StratumContext::new(
-            "203.0.113.10".to_string(),
-            54321,
-            25555,
-            stream,
-            state,
-            tx,
-        );
+        let ctx = crate::stratum_context::StratumContext::new("203.0.113.10".to_string(), 54321, 25555, stream, state, tx);
         assert_eq!(prom_peer_ip(&ctx), "203.0.113.10");
     }
 
@@ -1823,11 +1806,7 @@ min_share_diff: 8192
             .and_then(|f| {
                 f.get_metric().iter().find_map(|m| {
                     let instance = m.get_label().iter().find(|l| l.name() == "instance")?.value();
-                    if instance == "prom-test" {
-                        Some(m.get_counter().value())
-                    } else {
-                        None
-                    }
+                    if instance == "prom-test" { Some(m.get_counter().value()) } else { None }
                 })
             })
             .unwrap_or(0.0);
