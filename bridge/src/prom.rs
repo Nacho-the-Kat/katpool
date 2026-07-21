@@ -1040,10 +1040,10 @@ fn append_recent_mined_blocks(stats: &mut StatsResponse, instance_id: Option<&st
     };
     let guard = q.lock();
     for b in guard.iter() {
-        if let Some(id) = instance_id {
-            if b.instance != id {
-                continue;
-            }
+        if let Some(id) = instance_id
+            && b.instance != id
+        {
+            continue;
         }
         if block_set.contains(&b.hash) {
             continue;
@@ -1241,10 +1241,10 @@ async fn get_stats_json_filtered(instance_id: Option<&str>) -> StatsResponse {
         if name == "ks_pool_blocks_found_total" {
             for metric in family.get_metric() {
                 let instance = metric.get_label().iter().find(|l| l.name() == "instance").map(|l| l.value()).unwrap_or("");
-                if let Some(id) = instance_id {
-                    if instance != id {
-                        continue;
-                    }
+                if let Some(id) = instance_id
+                    && instance != id
+                {
+                    continue;
                 }
                 stats.totalBlocks = stats.totalBlocks.saturating_add(metric.get_counter().value().max(0.0) as u64);
             }
