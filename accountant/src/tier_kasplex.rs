@@ -62,7 +62,7 @@ use crate::config::WalletTier;
 use crate::tier::{ClassifierError, TierClassifier};
 
 /// Default KRC-721 indexer base URL (mainnet).
-pub const DEFAULT_NFT_BASE: &str = "https://krc721.kat.foundation";
+pub const DEFAULT_NFT_BASE: &str = "https://krc721-api.kat.foundation";
 
 /// Default KRC-20 indexer base URL (mainnet).
 pub const DEFAULT_KRC20_BASE: &str = "https://api.kasplex.org";
