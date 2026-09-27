@@ -24,7 +24,7 @@ export function WalletSearch({ className }: { className?: string }) {
         // focus lands on the search box the user can actually see.
         if (!el || el.offsetParent === null) return false;
         el.focus();
-        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        el.scrollIntoView({ block: "nearest", behavior: "instant" });
         setPinged(true);
         window.setTimeout(() => setPinged(false), 1200);
         return true;

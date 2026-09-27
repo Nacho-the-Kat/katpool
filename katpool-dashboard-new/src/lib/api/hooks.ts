@@ -28,19 +28,26 @@ import { MAX_WINDOW_SECS, resolveRange, type RangeKey } from "../range";
 /** Default live-refresh cadence for pool-wide widgets (ms). */
 const LIVE_MS = 10_000;
 const NETWORK_MS = 60_000;
+/** Just under the poll so a remount inside the window paints from cache. */
+const LIVE_STALE_MS = 8_000;
+const HEADLINE_STALE_MS = 4_000;
+const NETWORK_STALE_MS = 45_000;
 
 function useBff<T>(
   key: readonly unknown[],
   url: string,
   refetchInterval: number | false = false,
   enabled = true,
+  staleTime = LIVE_STALE_MS,
 ): UseQueryResult<T, Error> {
   return useQuery<T, Error>({
     queryKey: key,
     queryFn: ({ signal }) => fetchBff<T>(url, signal),
     refetchInterval,
-    refetchIntervalInBackground: true,
-    refetchOnMount: "always",
+    // A hidden tab should not keep the API and the main thread busy. Focus
+    // refetch paints the last frame instantly, then replaces it.
+    refetchIntervalInBackground: false,
+    staleTime,
     enabled,
   });
 }
@@ -61,19 +68,20 @@ function useHistoryRange<T>(
     queryKey: [...key, range],
     queryFn: ({ signal }) => fetchBff<T>(buildUrl(resolveRange(range)), signal),
     refetchInterval,
-    refetchIntervalInBackground: true,
-    refetchOnMount: "always",
+    refetchIntervalInBackground: false,
+    staleTime: LIVE_STALE_MS,
     enabled,
   });
 }
 
 export function usePoolStats(windowSecs?: number) {
-  const interval =
-    windowSecs === LIVE_HASHRATE_WINDOW_SECS ? LIVE_HASHRATE_POLL_MS : LIVE_MS;
+  const headline = windowSecs === LIVE_HASHRATE_WINDOW_SECS;
   return useBff<PoolStats>(
     ["pool", "stats", windowSecs ?? null],
     bffUrl("/api/v1/pool/stats", { window: windowSecs }),
-    interval,
+    headline ? LIVE_HASHRATE_POLL_MS : LIVE_MS,
+    true,
+    headline ? HEADLINE_STALE_MS : LIVE_STALE_MS,
   );
 }
 
@@ -168,7 +176,7 @@ export function usePayoutCycle(cycleId: number | null) {
 }
 
 export function useNetworkContext() {
-  return useBff<NetworkContext>(["network"], "/api/network", NETWORK_MS);
+  return useBff<NetworkContext>(["network"], "/api/network", NETWORK_MS, true, NETWORK_STALE_MS);
 }
 
 // ---- per-miner -------------------------------------------------------

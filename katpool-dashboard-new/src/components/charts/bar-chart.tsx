@@ -36,7 +36,8 @@ export function HBarChart({
     const color = tokens.series[colorIndex % tokens.series.length] ?? "#49eacb";
     const sorted = [...(data ?? [])].sort((a, b) => a.value - b.value);
     return {
-      animationDuration: 600,
+      animationDuration: 400,
+      animationDurationUpdate: 0,
       animationEasing: "cubicOut" as const,
       // Reserve room on the right for the unit-bearing value label (e.g.
       // "3 sessions") so it never clips against the card edge.

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Blocks, ExternalLink, Sparkles } from "lucide-react";
 import { Panel } from "@/components/dashboard/panel";
 import { EmptyState, ErrorState, LoadingRows } from "@/components/dashboard/states";
@@ -10,49 +9,59 @@ import { useBlocks } from "@/lib/api/hooks";
 import { LiveRelative } from "@/components/live-relative";
 import { formatDateTime, formatNumber, truncateMiddle } from "@/lib/format";
 import { explorerBlock } from "@/lib/explorer";
+import { cn } from "@/lib/utils";
 
 const FEED_SIZE = 7;
 /** Don't fire the celebratory burst more than once per this window (ms). */
 const CELEBRATION_COOLDOWN = 30_000;
 
-/** A short, tasteful particle burst when the pool solves a block. */
+interface Particle {
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+}
+
+/** A short particle burst when the pool solves a block. CSS owns the motion. */
 function BlockBurst({ trigger }: { trigger: number }) {
-  const reduce = useReducedMotion();
-  const [on, setOn] = useState(false);
+  const [particles, setParticles] = useState<Particle[] | null>(null);
 
   useEffect(() => {
-    if (trigger === 0 || reduce) return;
-    setOn(true);
-    const id = setTimeout(() => setOn(false), 1200);
-    return () => clearTimeout(id);
-  }, [trigger, reduce]);
-
-  const particles = useMemo(() => {
-    void trigger; // re-roll the burst geometry on each new block
+    if (trigger === 0) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const palette = ["var(--primary)", "var(--secondary)", "var(--chart-3)"];
-    return Array.from({ length: 16 }, (_, i) => {
-      const angle = (Math.PI * 2 * i) / 16 + Math.random() * 0.4;
-      const dist = 34 + Math.random() * 46;
-      return {
-        x: Math.cos(angle) * dist,
-        y: Math.sin(angle) * dist,
-        size: 4 + Math.random() * 4,
-        color: palette[i % palette.length],
-      };
-    });
+    setParticles(
+      Array.from({ length: 12 }, (_, i) => {
+        const angle = (Math.PI * 2 * i) / 12 + Math.random() * 0.4;
+        const dist = 34 + Math.random() * 46;
+        return {
+          x: Math.cos(angle) * dist,
+          y: Math.sin(angle) * dist,
+          size: 4 + Math.random() * 4,
+          color: palette[i % palette.length] ?? "var(--primary)",
+        };
+      }),
+    );
+    const id = setTimeout(() => setParticles(null), 1200);
+    return () => clearTimeout(id);
   }, [trigger]);
 
-  if (!on) return null;
+  if (!particles) return null;
   return (
     <div className="pointer-events-none absolute left-1/2 top-9 z-20 -translate-x-1/2">
       {particles.map((p, i) => (
-        <motion.span
+        <span
           key={i}
-          className="absolute block rounded-full"
-          style={{ width: p.size, height: p.size, backgroundColor: p.color }}
-          initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
-          animate={{ x: p.x, y: p.y, opacity: 0, scale: 0.3 }}
-          transition={{ duration: 1.1, ease: "easeOut" }}
+          className="absolute block rounded-full block-burst"
+          style={
+            {
+              width: p.size,
+              height: p.size,
+              backgroundColor: p.color,
+              "--bx": `${p.x}px`,
+              "--by": `${p.y}px`,
+            } as CSSProperties
+          }
         />
       ))}
     </div>
@@ -60,9 +69,8 @@ function BlockBurst({ trigger }: { trigger: number }) {
 }
 
 /**
- * A real-time feed of the latest pool blocks. New blocks slide in with a
- * brief glow; solving a block triggers a tasteful, rate-limited burst — a
- * delight on mainnet, never spam on a fast testnet.
+ * A real-time feed of the latest pool blocks. New blocks flash in; solving a
+ * block triggers a short, rate-limited burst.
  */
 export function LiveBlockFeed() {
   const { data, isLoading, isError, refetch } = useBlocks(FEED_SIZE);
@@ -77,7 +85,7 @@ export function LiveBlockFeed() {
     const top = blocks[0];
     if (!top) return;
     if (lastIdRef.current === null) {
-      lastIdRef.current = top.id; // first load — don't celebrate history
+      lastIdRef.current = top.id;
       return;
     }
     if (top.id !== lastIdRef.current) {
@@ -108,19 +116,12 @@ export function LiveBlockFeed() {
     >
       <BlockBurst trigger={burst} />
 
-      <AnimatePresence>
-        {flash ? (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="absolute right-5 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary shadow-[var(--shadow-glow)]"
-          >
-            <Sparkles className="size-3.5" />
-            Block found
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {flash ? (
+        <div className="absolute right-5 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-2.5 py-1 text-xs font-semibold text-primary shadow-[var(--shadow-glow)] reveal-in">
+          <Sparkles className="size-3.5" />
+          Block found
+        </div>
+      ) : null}
 
       {isError ? (
         <div className="p-5">
@@ -138,46 +139,38 @@ export function LiveBlockFeed() {
         />
       ) : (
         <ul className="divide-y divide-border/50">
-          <AnimatePresence initial={false}>
-            {blocks.map((b, i) => (
-              <motion.li
-                key={b.id}
-                layout
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-                className={
-                  i === 0 && flash
-                    ? "bg-primary/[0.06] transition-colors"
-                    : "transition-colors hover:bg-muted/30"
-                }
-              >
-                <div className="flex items-center gap-3 px-5 py-3">
-                  <BlockStatusBadge status={b.status} />
-                  <a
-                    href={explorerBlock(b.hash)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group inline-flex min-w-0 items-center gap-1.5 font-mono text-xs hover:text-primary"
-                  >
-                    <span className="truncate">{truncateMiddle(b.hash, 10, 8)}</span>
-                    <ExternalLink className="size-3 shrink-0 text-muted-foreground group-hover:text-primary" />
-                  </a>
-                  <div className="ml-auto flex shrink-0 items-center gap-4 text-xs">
-                    <span className="hidden text-muted-foreground tabular-nums sm:inline">
-                      DAA {formatNumber(b.daa_score)}
-                    </span>
-                    <LiveRelative
-                      at={b.found_at}
-                      className="text-muted-foreground"
-                      title={formatDateTime(b.found_at)}
-                    />
-                  </div>
+          {blocks.map((b, i) => (
+            <li
+              key={b.id}
+              className={cn(
+                "transition-colors hover:bg-muted/30",
+                i === 0 && flash && "bg-primary/[0.06] row-flash",
+              )}
+            >
+              <div className="flex items-center gap-3 px-5 py-3">
+                <BlockStatusBadge status={b.status} />
+                <a
+                  href={explorerBlock(b.hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group inline-flex min-w-0 items-center gap-1.5 font-mono text-xs hover:text-primary"
+                >
+                  <span className="truncate">{truncateMiddle(b.hash, 10, 8)}</span>
+                  <ExternalLink className="size-3 shrink-0 text-muted-foreground group-hover:text-primary" />
+                </a>
+                <div className="ml-auto flex shrink-0 items-center gap-4 text-xs">
+                  <span className="hidden text-muted-foreground tabular-nums sm:inline">
+                    DAA {formatNumber(b.daa_score)}
+                  </span>
+                  <LiveRelative
+                    at={b.found_at}
+                    className="text-muted-foreground"
+                    title={formatDateTime(b.found_at)}
+                  />
                 </div>
-              </motion.li>
-            ))}
-          </AnimatePresence>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </Panel>

@@ -42,6 +42,19 @@ const LIVE_HEADERS = {
   "CDN-Cache-Control": "no-store",
 } as const;
 
+/** Share one upstream read when the same URL is already in flight. */
+const inflight = new Map<string, Promise<unknown>>();
+
+function coalesce<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const hit = inflight.get(key);
+  if (hit) return hit as Promise<T>;
+  const pending = run().finally(() => {
+    if (inflight.get(key) === pending) inflight.delete(key);
+  });
+  inflight.set(key, pending);
+  return pending;
+}
+
 export async function GET(
   req: NextRequest,
   ctx: { params: Promise<{ path: string[] }> },
@@ -59,10 +72,12 @@ export async function GET(
   const target = `${serverEnv.katpoolApiBaseUrl()}/${path.map(encodeURIComponent).join("/")}${search}`;
 
   try {
-    const data = await fetchJson<unknown>(target, {
-      revalidate: revalidateFor(first),
-      timeoutMs: timeoutFor(path),
-    });
+    const data = await coalesce(target, () =>
+      fetchJson<unknown>(target, {
+        revalidate: revalidateFor(first),
+        timeoutMs: timeoutFor(path),
+      }),
+    );
     return NextResponse.json(data, { headers: LIVE_HEADERS });
   } catch (err) {
     // Abort ⇒ we gave up waiting; map to 504 so it isn't confused with a dead

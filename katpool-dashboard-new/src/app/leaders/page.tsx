@@ -53,7 +53,6 @@ export default function LeadersPage() {
         </Card>
 
         <Card className="relative flex flex-col justify-between gap-4 overflow-hidden p-5">
-          <div className="pointer-events-none absolute -right-16 -top-16 size-44 rounded-full bg-primary/15 blur-3xl" />
           <div className="relative">
             <h3 className="text-base font-semibold tracking-tight">Climb the leaderboard</h3>
             <p className="mt-1 text-sm text-muted-foreground">

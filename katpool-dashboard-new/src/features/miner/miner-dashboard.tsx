@@ -16,6 +16,7 @@ import { WorkerDistribution } from "./worker-distribution";
 import { MinerEarnings } from "./miner-earnings";
 import { RejectsPanel } from "./rejects-panel";
 import { MinerPayouts } from "./miner-payouts";
+import { Defer } from "@/components/dashboard/defer";
 
 /** Full per-miner dashboard, gated on the profile lookup. */
 export function MinerDashboard({ address }: { address: string }) {
@@ -69,11 +70,15 @@ export function MinerDashboard({ address }: { address: string }) {
         </div>
         <WorkerDistribution address={address} />
       </div>
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-        <MinerEarnings address={address} />
-        <RejectsPanel address={address} />
-      </div>
-      <MinerPayouts address={address} />
+      <Defer minHeight={320}>
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+          <MinerEarnings address={address} />
+          <RejectsPanel address={address} />
+        </div>
+      </Defer>
+      <Defer minHeight={360}>
+        <MinerPayouts address={address} />
+      </Defer>
     </div>
   );
 }

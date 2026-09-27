@@ -1,5 +1,6 @@
 "use client";
 
+import { type ReactNode } from "react";
 import { CheckCircle2, CircleAlert, CircleSlash, Coins, ExternalLink, Landmark, Loader2, Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Panel } from "@/components/dashboard/panel";
@@ -12,7 +13,7 @@ import {
   useActiveSessions,
 } from "@/lib/api/hooks";
 import { totalBlocksFound } from "@/lib/api/types";
-import { useLiveRelative } from "@/hooks/use-live-relative";
+import { LiveRelative } from "@/components/live-relative";
 import { formatCompact, formatHashrate, formatKas, formatNumber, formatUsd, sompiToUsd, truncateMiddle } from "@/lib/format";
 import { streamAddress } from "@/lib/explorer";
 import { ECOSYSTEM } from "@/lib/ecosystem";
@@ -23,7 +24,7 @@ import { PoolRejectsPanel } from "./pool-rejects-panel";
 
 type Health = "ok" | "degraded" | "down" | "pending";
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="bg-card px-4 py-3.5">
       <p className="text-xs text-muted-foreground">{label}</p>
@@ -62,9 +63,7 @@ export function StatusBoard() {
   const active = useActiveSessions();
 
   const topBlock = latest.data?.blocks?.[0];
-  const lastBlockAge = useLiveRelative(topBlock?.found_at);
   const treasury = stats.data?.treasury ?? null;
-  const treasuryAge = useLiveRelative(treasury?.captured_at);
   const kasUsd = network.data?.prices?.kas_usd ?? null;
   const treasuryAddress = miningConfig().treasuryAddress;
 
@@ -137,7 +136,7 @@ export function StatusBoard() {
 
       <Panel title="Operational metrics" description="Live pool health at a glance">
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
-          <Metric label="Last block found" value={lastBlockAge} />
+          <Metric label="Last block found" value={<LiveRelative at={topBlock?.found_at} />} />
           <Metric
             label="Blocks found"
             value={stats.data ? formatCompact(totalBlocksFound(stats.data.blocks)) : "—"}
@@ -215,7 +214,7 @@ export function StatusBoard() {
                 </a>
               </div>
               <p className="text-xs text-muted-foreground tnum">
-                Snapshot {treasuryAge} · DAA {formatCompact(treasury.daa_score)} · blue{" "}
+                Snapshot <LiveRelative at={treasury.captured_at} /> · DAA {formatCompact(treasury.daa_score)} · blue{" "}
                 {formatCompact(treasury.blue_score)}
               </p>
             </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as echarts from "echarts/core";
-import { LineChart, BarChart, PieChart, EffectScatterChart } from "echarts/charts";
+import { LineChart, BarChart, PieChart } from "echarts/charts";
 import {
   GridComponent,
   TooltipComponent,
@@ -20,7 +20,6 @@ echarts.use([
   LineChart,
   BarChart,
   PieChart,
-  EffectScatterChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
@@ -79,9 +78,13 @@ export function EChart({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const chart = echarts.init(el, undefined, { renderer: "canvas" });
+    const chart = echarts.init(el, undefined, { renderer: "canvas", useDirtyRect: true });
     chartRef.current = chart;
-    const ro = new ResizeObserver(() => chart.resize());
+    let resizeRaf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => chart.resize());
+    });
     ro.observe(el);
 
     const onEnter = () => {
@@ -95,6 +98,7 @@ export function EChart({
         chart.setOption(pending.option, {
           notMerge: pending.notMerge,
           replaceMerge: pending.replaceMerge,
+          lazyUpdate: true,
         });
       }
     };
@@ -102,6 +106,7 @@ export function EChart({
     el.addEventListener("mouseleave", onLeave);
 
     return () => {
+      cancelAnimationFrame(resizeRaf);
       ro.disconnect();
       el.removeEventListener("mouseenter", onEnter);
       el.removeEventListener("mouseleave", onLeave);
@@ -119,7 +124,7 @@ export function EChart({
       pendingRef.current = { option, notMerge, replaceMerge };
       return;
     }
-    chart.setOption(option, { notMerge, replaceMerge });
+    chart.setOption(option, { notMerge, replaceMerge, lazyUpdate: true });
   }, [option, notMerge, replaceMerge]);
 
   return <div ref={ref} className={cn("w-full", className)} style={{ height }} />;

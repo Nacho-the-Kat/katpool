@@ -49,7 +49,8 @@ export function DonutChart({
     const ringY = compact ? "44%" : "50%";
 
     return {
-      animationDuration: 700,
+      animationDuration: 400,
+      animationDurationUpdate: 0,
       animationEasing: "cubicOut" as const,
       color: tokens.series,
       tooltip: {

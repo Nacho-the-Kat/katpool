@@ -141,7 +141,6 @@ export function StartGuide() {
       {/* CTA hero */}
       <Card className="relative overflow-hidden">
         <div className="pointer-events-none absolute inset-0 app-aurora opacity-80" />
-        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-primary/15 blur-3xl" />
         <div className="relative flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <Badge variant="success" className="mb-3">

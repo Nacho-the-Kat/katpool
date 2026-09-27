@@ -66,7 +66,7 @@ export function TimeSeriesChart({
         smoothMonotone: "x" as const,
         showSymbol: false,
         sampling: "lttb" as const,
-        lineStyle: { width: 2, color, shadowColor: withAlpha(color, 0.45), shadowBlur: 10 },
+        lineStyle: { width: 2, color },
         itemStyle: { color },
         emphasis: { focus: "series" as const },
         areaStyle: s.area === false ? undefined : { color: areaGradient(color, 0.3) },
@@ -89,25 +89,9 @@ export function TimeSeriesChart({
       };
     });
 
-    const pulse =
-      single && last
-        ? [
-            {
-              type: "effectScatter" as const,
-              coordinateSystem: "cartesian2d" as const,
-              symbolSize: 8,
-              showEffectOn: "render" as const,
-              rippleEffect: { scale: 3, brushType: "stroke" as const },
-              itemStyle: { color: primaryColor, shadowColor: withAlpha(primaryColor, 0.8), shadowBlur: 10 },
-              data: [[last.t, last.v]],
-              z: 5,
-              silent: true,
-            },
-          ]
-        : [];
-
     return {
-      animationDuration: 700,
+      animationDuration: 450,
+      animationDurationUpdate: 0,
       animationEasing: "cubicOut" as const,
       grid: {
         left: 8,
@@ -166,7 +150,7 @@ export function TimeSeriesChart({
             },
           ]
         : undefined,
-      series: [...lineSeries, ...pulse],
+      series: lineSeries,
     };
   }, [series, tokens, showZoom, smooth, isNarrow]);
 

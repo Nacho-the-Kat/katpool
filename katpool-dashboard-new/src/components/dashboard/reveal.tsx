@@ -1,7 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { type ReactNode, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
 interface RevealProps {
@@ -9,36 +8,24 @@ interface RevealProps {
   className?: string;
   /** Stagger position; adds a small per-item delay. */
   index?: number;
-  /** Initial vertical offset in px. */
+  /** Unused. Kept so existing call sites stay source-compatible. */
   y?: number;
-  /** Explicit delay (overrides index-based delay when set). */
+  /** Explicit delay in seconds (overrides index-based delay when set). */
   delay?: number;
 }
 
 /**
- * Reveals content as it scrolls into view — once, choreographed, and
- * fully disabled under `prefers-reduced-motion`. The signature easing is a
- * gentle "out-expo"-style curve for an engineered, Apple-like settle.
+ * One compositor-only entrance. Reduced motion is handled in CSS so the
+ * first paint does not wait on a motion runtime.
  */
-export function Reveal({ children, className, index = 0, y = 14, delay }: RevealProps) {
-  const reduce = useReducedMotion();
-  if (reduce) return <div className={className}>{children}</div>;
+export function Reveal({ children, className, index = 0, delay }: RevealProps) {
+  const seconds = delay ?? Math.min(index * 0.05, 0.2);
+  const style: CSSProperties | undefined =
+    seconds > 0 ? { animationDelay: `${seconds}s` } : undefined;
 
-  // Mount-based (not scroll-gated): content is always rendered visible — a
-  // dashboard must never withhold data behind an IntersectionObserver — while
-  // still settling in with a choreographed, staggered entrance.
   return (
-    <motion.div
-      className={cn(className)}
-      initial={{ opacity: 0, y }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{
-        duration: 0.55,
-        ease: [0.22, 1, 0.36, 1],
-        delay: delay ?? Math.min(index * 0.06, 0.36),
-      }}
-    >
+    <div className={cn("reveal-in", className)} style={style}>
       {children}
-    </motion.div>
+    </div>
   );
 }

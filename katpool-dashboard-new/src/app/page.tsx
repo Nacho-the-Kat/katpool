@@ -11,6 +11,7 @@ import { PayoutsSummary } from "@/features/overview/payouts-summary";
 import { LeaderboardTable } from "@/features/leaders/leaderboard-table";
 import { LiveBlockFeed } from "@/features/blocks/live-block-feed";
 import { HalvingModule } from "@/features/network/halving-module";
+import { Defer } from "@/components/dashboard/defer";
 
 export const metadata: Metadata = {
   description:
@@ -42,19 +43,27 @@ export default function OverviewPage() {
         <HalvingModule />
       </div>
 
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-        <MinersPanel />
-        <BlocksSummary />
-      </div>
+      <Defer minHeight={360}>
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+          <MinersPanel />
+          <BlocksSummary />
+        </div>
+      </Defer>
 
-      <LeaderboardTable limit={8} compact />
+      <Defer minHeight={420}>
+        <LeaderboardTable limit={8} compact />
+      </Defer>
 
-      <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
-        <GeoPanel />
-        <FirmwarePanel />
-      </div>
+      <Defer minHeight={360}>
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
+          <GeoPanel />
+          <FirmwarePanel />
+        </div>
+      </Defer>
 
-      <PayoutsSummary />
+      <Defer minHeight={280}>
+        <PayoutsSummary />
+      </Defer>
     </div>
   );
 }
