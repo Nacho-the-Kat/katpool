@@ -15,6 +15,7 @@ import { formatCompact, formatHashrate, formatNumber, formatUsd } from "@/lib/fo
 import {
   hashrateDeltaPercent,
   LIVE_HASHRATE_WINDOW_SECS,
+  liveHashrateWindowLabel,
   referenceBucketIndex,
   sparklineWithLive,
 } from "@/lib/hashrate-live";
@@ -117,10 +118,10 @@ export function OverviewHero() {
                 <>
                   <span className="font-semibold text-foreground">{shareLabel}</span> of the total{" "}
                   <ExtLink href={ECOSYSTEM.kaspa}>Kaspa</ExtLink> network hashrate ·{" "}
-                  {LIVE_HASHRATE_WINDOW_SECS / 60}m window
+                  {liveHashrateWindowLabel(LIVE_HASHRATE_WINDOW_SECS)} window
                 </>
               ) : (
-                `Estimated from accepted share difficulty over the last ${LIVE_HASHRATE_WINDOW_SECS / 60} minutes`
+                `Estimated from accepted share difficulty over the last ${liveHashrateWindowLabel(LIVE_HASHRATE_WINDOW_SECS)}`
               )}
             </p>
 

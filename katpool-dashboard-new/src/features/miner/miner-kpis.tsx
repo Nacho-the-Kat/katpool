@@ -1,6 +1,6 @@
 "use client";
 
-import { Coins, Cpu, Gauge, ThumbsDown, ThumbsUp, Wallet } from "lucide-react";
+import { Cpu, Gauge, ThumbsDown, ThumbsUp, Wallet } from "lucide-react";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { useMinerHashrateHistory, useMinerProfile, useNetworkContext } from "@/lib/api/hooks";
 import { ECOSYSTEM } from "@/lib/ecosystem";
@@ -71,19 +71,6 @@ export function MinerKpis({ address }: { address: string }) {
         loading={isLoading}
         invertDelta
         hint="Share of submitted shares that were rejected in the window."
-      />
-      <StatCard
-        label={
-          <>
-            <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> pending
-          </>
-        }
-        icon={<Coins className="size-4" />}
-        value={data ? Number(data.nacho_rebate.pending.kas) : null}
-        format={(v) => formatKas(String(v))}
-        loading={isLoading}
-        colorIndex={2}
-        hint="Accrued NACHO rebate not yet paid, shown in its KAS value."
       />
     </div>
   );

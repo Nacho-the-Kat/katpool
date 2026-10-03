@@ -1,10 +1,16 @@
 import type { HashratePointView } from "./api/types";
 
-/** Sliding window for the live headline hashrate (`pool/stats?window=`). */
-export const LIVE_HASHRATE_WINDOW_SECS = 300;
+/** Sliding window for the headline hashrate (`pool/stats?window=`). 24h, so a short vardiff burst cannot swing the number. */
+export const LIVE_HASHRATE_WINDOW_SECS = 86_400;
 
-/** Poll cadence for the live headline (ms). */
-export const LIVE_HASHRATE_POLL_MS = 5_000;
+/** Poll cadence for the headline (ms). A 24h window does not need a 5s refresh. */
+export const LIVE_HASHRATE_POLL_MS = 60_000;
+
+/** Human label for the headline window, e.g. `24h` or `5m`. */
+export function liveHashrateWindowLabel(secs: number): string {
+  if (secs % 3_600 === 0) return `${secs / 3_600}h`;
+  return `${Math.round(secs / 60)}m`;
+}
 
 /** Compare live rate to a reference bucket from the history series. */
 export function hashrateDeltaPercent(

@@ -85,7 +85,7 @@ export function usePoolStats(windowSecs?: number) {
   );
 }
 
-/** Live headline hashrate: 5-minute sliding window, 5-second poll. */
+/** Headline hashrate: 24-hour window, polled once a minute. */
 export function usePoolLiveStats() {
   return usePoolStats(LIVE_HASHRATE_WINDOW_SECS);
 }
