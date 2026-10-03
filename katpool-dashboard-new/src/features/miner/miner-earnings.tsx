@@ -33,7 +33,7 @@ function Line({
   );
 }
 
-/** Full KAS + NACHO-rebate earnings breakdown for a miner. */
+/** KAS balance, plus the closed NACHO rebate ledger. Unpaid rebate is paid as KAS. */
 export function MinerEarnings({ address }: { address: string }) {
   const { data, isLoading, isError, refetch } = useMinerProfile(address);
   const network = useNetworkContext();
@@ -59,13 +59,12 @@ export function MinerEarnings({ address }: { address: string }) {
           </div>
           <div>
             <p className="mb-1 text-[0.6875rem] font-medium uppercase tracking-[0.1em] text-muted-foreground">
-              <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate (
-              <ExtLink href={ECOSYSTEM.kaspa}>KAS</ExtLink> value)
+              <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate closed
             </p>
             <div className="divide-y divide-border/50">
               <Line label="Accrued" amount={data.nacho_rebate.accrued} kasUsd={kasUsd} />
-              <Line label="Paid" amount={data.nacho_rebate.paid} kasUsd={kasUsd} />
-              <Line label="Pending" amount={data.nacho_rebate.pending} kasUsd={kasUsd} emphasize />
+              <Line label="Settled" amount={data.nacho_rebate.paid} kasUsd={kasUsd} />
+              <Line label="Left to move into KAS" amount={data.nacho_rebate.pending} kasUsd={kasUsd} emphasize />
             </div>
           </div>
         </div>

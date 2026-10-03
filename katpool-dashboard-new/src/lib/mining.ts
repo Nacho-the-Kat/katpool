@@ -143,7 +143,7 @@ export function miningConfig(): MiningConfig {
     ports,
     recommended,
     addressPrefix: network === "testnet-10" ? "kaspatest" : "kaspa",
-    feePercent: 0.75,
+    feePercent: 0.25,
     minPayoutKas: 10,
     treasuryAddress: clean(process.env.NEXT_PUBLIC_TREASURY_ADDRESS),
   };

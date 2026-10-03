@@ -93,9 +93,9 @@ implementations:
   configured tier; for tests and as a safe fallback.
 - `KasplexTierClassifier` (Phase 3 M3) — HTTP client backed by three
   endpoints (any one true ⇒ Elite):
-    1. `GET https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/NACHO`
+    1. `GET https://krc721-api.kat.foundation/api/v1/krc721/mainnet/address/{addr}/NACHO`
        — wallet has ≥ 1 NACHO KRC-721 token iff `result.is_empty() == false`.
-    2. `GET https://krc721.kat.foundation/api/v1/krc721/mainnet/address/{addr}/KATCLAIM`
+    2. `GET https://krc721-api.kat.foundation/api/v1/krc721/mainnet/address/{addr}/KATCLAIM`
        — wallet has ≥ 1 KATCLAIM KRC-721 token iff `result.is_empty() == false`.
     3. `GET https://api.kasplex.org/v1/krc20/address/{addr}/token/NACHO`
        — wallet has ≥ 100M NACHO iff `balance + locked >= 10^16`

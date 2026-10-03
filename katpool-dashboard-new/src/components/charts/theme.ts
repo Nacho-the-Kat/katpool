@@ -13,14 +13,13 @@ export function chartTooltip(tokens: ChartTokens) {
     // Keep the tooltip inside the canvas so the host card's `overflow-hidden`
     // never clips it, and let it glide rather than snap between points.
     confine: true,
-    transitionDuration: 0.2,
+    transitionDuration: 0,
     backgroundColor: withAlpha(tokens.tooltipBg, 0.9),
     borderColor: tokens.border,
     borderWidth: 1,
     padding: [8, 12] as [number, number],
     textStyle: { color: tokens.text, fontSize: 12, fontWeight: 500 as const },
-    extraCssText:
-      "border-radius:12px;backdrop-filter:blur(10px) saturate(150%);box-shadow:0 12px 36px rgba(0,0,0,0.28);",
+    extraCssText: "border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,0.28);",
   };
 }
 
@@ -28,6 +27,7 @@ export function chartTooltip(tokens: ChartTokens) {
 export function crosshair(tokens: ChartTokens) {
   const accent = tokens.series[0] ?? "#49eacb";
   return {
+    animation: false,
     type: "line" as const,
     lineStyle: { color: withAlpha(accent, 0.45), width: 1, type: "dashed" as const },
     label: {

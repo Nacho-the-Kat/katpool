@@ -12,7 +12,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 const DESCRIPTION =
-  "Live Kaspa (KAS) mining pool analytics for katpool: real-time pool and network hashrate, blocks found, payout cycles, miner leaderboard and per-wallet worker stats. Open source, NACHO rebates, lowest effective fees.";
+  "Live Kaspa (KAS) mining pool analytics for katpool: pool and network hashrate, blocks found, payout cycles, miner leaderboard and per-wallet worker stats. Open source, 0.25% fee.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_ORIGIN),

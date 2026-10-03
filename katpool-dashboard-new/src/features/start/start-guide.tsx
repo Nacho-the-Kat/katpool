@@ -7,7 +7,6 @@ import {
   KeyRound,
   LineChart,
   Plug,
-  ShieldCheck,
   Wallet,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -141,7 +140,6 @@ export function StartGuide() {
       {/* CTA hero */}
       <Card className="relative overflow-hidden">
         <div className="pointer-events-none absolute inset-0 app-aurora opacity-80" />
-        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-primary/15 blur-3xl" />
         <div className="relative flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <Badge variant="success" className="mb-3">
@@ -151,14 +149,12 @@ export function StartGuide() {
               Point your rig at <span className="text-grad">katpool</span> in under two minutes
             </h2>
             <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-              Low {cfg.feePercent}% fee with a <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate,
-              variable difficulty on every port, and a global anycast edge that routes you to the
-              nearest server automatically.
+              Flat {cfg.feePercent}% fee, variable difficulty on every port, and a global anycast
+              edge that routes you to the nearest server automatically.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Badge variant="outline">
-                <Gauge className="size-3.5" /> {cfg.feePercent}% fee +{" "}
-                <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate
+                <Gauge className="size-3.5" /> {cfg.feePercent}% fee
               </Badge>
               <Badge variant="outline">
                 <Cpu className="size-3.5" /> Variable difficulty
@@ -382,16 +378,6 @@ export function StartGuide() {
               <span>
                 <span className="font-medium text-foreground">{cfg.feePercent}% topline fee</span> — among
                 the lowest anywhere, taken only off block rewards you help find (PROP).
-              </span>
-            </li>
-            <li className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-              <span>
-                <span className="font-medium text-foreground">
-                  <ExtLink href={ECOSYSTEM.nacho}>NACHO</ExtLink> rebate
-                </span>{" "}
-                — Standard miners get 33% of the fee back as NACHO; Elite miners get 100%, paid
-                automatically.
               </span>
             </li>
             <li className="flex items-start gap-3">

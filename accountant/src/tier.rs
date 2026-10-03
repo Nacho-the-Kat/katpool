@@ -11,7 +11,7 @@
 //!
 //! ## Why this is a trait
 //!
-//! The real implementation talks to `krc721.kat.foundation` (Phase
+//! The real implementation talks to `krc721-api.kat.foundation` (Phase
 //! 3 M3 lands the HTTP-based `KasplexTierClassifier`). Tests and
 //! per-transform unit work want a deterministic stub. M1 ships
 //! the trait + the two synchronous stubs only; M3 wires the

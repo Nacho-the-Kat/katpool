@@ -1194,7 +1194,7 @@ backward-incompatible ways at every minor bump.
       them.
     - `accountant::KasplexTierClassifier` (~340 LOC):
       `reqwest`-backed HTTP client against
-      `krc721.kat.foundation` (NFT ownership) and
+      `krc721-api.kat.foundation` (NFT ownership) and
       `api.kasplex.org` (KRC-20 NACHO balance). OR semantics —
       either dimension qualifies the wallet as `Elite`.
       `locked` counts toward the threshold (documented in
